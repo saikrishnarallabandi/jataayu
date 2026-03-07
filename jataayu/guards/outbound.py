@@ -1,18 +1,23 @@
 """
 Jataayu OutboundGuard
 =====================
-Protects against privacy and PII leakage in AI agent outputs before they
-reach shared or public surfaces (group chats, GitHub, Discord, email, etc.).
+Protects against privacy, PII, and credential leakage in AI agent outputs
+before they reach shared or public surfaces.
+
+This guard covers two leak categories:
+  1. **Privacy/PII leakage** — personal info (health, addresses, children's data)
+  2. **Credential leakage** — API keys, private keys, DB connection strings,
+     bearer tokens, high-entropy secrets (Aguara CRED_001-017)
 
 Architecture:
-  Fast path  → regex + protected-name scanning (microseconds, no API calls)
+  Fast path  → regex + protected-name scanning + credential patterns (microseconds)
   Slow path  → LLM rewrite/redaction for nuanced privacy violations
 
 Unlike the InboundGuard (which catches what's coming IN), the OutboundGuard
 watches what's going OUT — the missing piece in most AI security frameworks.
 
 The threat: your AI agent may inadvertently include personal names, health info,
-financial details, or home addresses when responding in public channels.
+financial details, home addresses, or API keys when responding in public channels.
 Jataayu catches this before it reaches the audience.
 
 Example:
@@ -25,6 +30,7 @@ Example:
 """
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -65,6 +71,15 @@ class PrivacyConfig:
         "home_address",
         "relationships",
     ])
+
+    # Whether to check for credential leaks (API keys, private keys, etc.)
+    check_credentials: bool = True
+
+    # Disabled credential rule IDs (e.g., ["CRED_004"] to silence generic patterns)
+    disabled_cred_rules: list[str] = field(default_factory=list)
+
+    # Whether to run high-entropy string detection (may have false positives)
+    check_high_entropy: bool = False
 
     # LLM backend (OpenAI-compatible API URL)
     llm_url: Optional[str] = None
@@ -205,6 +220,184 @@ _COMPILED_PII: list[tuple[re.Pattern, ThreatType, float, str, list[str]]] = [
     (re.compile(pat, re.IGNORECASE | re.DOTALL), threat_type, score, desc, cats)
     for pat, threat_type, score, desc, cats in _PII_PATTERNS
 ]
+
+
+# ---------------------------------------------------------------------------
+# Credential leak patterns — Aguara CRED_001-017 ported to Python regex
+# Format: (pattern, ThreatType, base_risk_score, description, rule_id)
+# ---------------------------------------------------------------------------
+
+_CREDENTIAL_PATTERNS: list[tuple[str, ThreatType, float, str, str]] = [
+    # CRED_001: OpenAI API key
+    (
+        r"\bsk-[A-Za-z0-9]{20,}\b",
+        ThreatType.CREDENTIAL_LEAK, 0.98,
+        "OpenAI API key (sk-...)",
+        "CRED_001",
+    ),
+    # CRED_013: Anthropic API key
+    (
+        r"\bsk-ant-[A-Za-z0-9\-_]{20,}\b",
+        ThreatType.CREDENTIAL_LEAK, 0.98,
+        "Anthropic API key (sk-ant-...)",
+        "CRED_013",
+    ),
+    # CRED_002: AWS access key
+    (
+        r"\bAKIA[0-9A-Z]{16}\b",
+        ThreatType.CREDENTIAL_LEAK, 0.98,
+        "AWS access key ID (AKIA...)",
+        "CRED_002",
+    ),
+    # AWS secret access key pattern
+    (
+        r"\b[A-Za-z0-9/+]{40}\b(?=.*aws|.*secret)",
+        ThreatType.CREDENTIAL_LEAK, 0.85,
+        "Possible AWS secret access key (40-char base64 near 'aws'/'secret')",
+        "CRED_002b",
+    ),
+    # CRED_003: GitHub personal access token (classic ghp_ and fine-grained github_pat_)
+    (
+        r"\b(ghp|gho|ghs|ghr|github_pat)_[A-Za-z0-9_]{20,}\b",
+        ThreatType.CREDENTIAL_LEAK, 0.98,
+        "GitHub personal access token (ghp_/gho_/ghs_/github_pat_...)",
+        "CRED_003",
+    ),
+    # CRED_009: GCP service account key (JSON format)
+    (
+        r'"private_key"\s*:\s*"-----BEGIN (RSA |EC )?PRIVATE KEY-----',
+        ThreatType.CREDENTIAL_LEAK, 0.99,
+        "GCP service account private key in JSON",
+        "CRED_009",
+    ),
+    (
+        r'"client_email"\s*:\s*"[^"]+@[^"]+\.iam\.gserviceaccount\.com"',
+        ThreatType.CREDENTIAL_LEAK, 0.90,
+        "GCP service account email in JSON",
+        "CRED_009b",
+    ),
+    # CRED_005: Private key blocks (RSA, EC, OpenSSH, PKCS8)
+    (
+        r"-----BEGIN\s+(RSA|EC|DSA|OPENSSH|PRIVATE|ENCRYPTED)\s+PRIVATE KEY-----",
+        ThreatType.CREDENTIAL_LEAK, 0.99,
+        "Private key block (RSA/EC/DSA/OpenSSH)",
+        "CRED_005",
+    ),
+    # CRED_006: Database connection strings
+    (
+        r"\b(postgresql|postgres|mysql|mongodb|redis|mongodb\+srv|mssql|jdbc:(postgresql|mysql|sqlserver))"
+        r"://[A-Za-z0-9._\-]+:[^@\s]{3,}@[A-Za-z0-9._\-]+",
+        ThreatType.CREDENTIAL_LEAK, 0.97,
+        "Database connection string with embedded credentials",
+        "CRED_006",
+    ),
+    # CRED_007: Hardcoded passwords in common patterns
+    (
+        r"(password|passwd|pwd|pass)\s*[:=]\s*['\"]?[A-Za-z0-9!@#$%^&*()_+\-=]{8,}['\"]?",
+        ThreatType.CREDENTIAL_LEAK, 0.82,
+        "Hardcoded password pattern",
+        "CRED_007",
+    ),
+    # CRED_008: Slack and Discord webhooks
+    (
+        r"https://hooks\.slack\.com/services/[A-Z0-9]+/[A-Z0-9]+/[A-Za-z0-9]+",
+        ThreatType.CREDENTIAL_LEAK, 0.95,
+        "Slack webhook URL",
+        "CRED_008a",
+    ),
+    (
+        r"https://discord(?:app)?\.com/api/webhooks/\d+/[A-Za-z0-9_\-]+",
+        ThreatType.CREDENTIAL_LEAK, 0.95,
+        "Discord webhook URL",
+        "CRED_008b",
+    ),
+    # CRED_010: JWT tokens (three base64 segments separated by dots)
+    (
+        r"\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\b",
+        ThreatType.CREDENTIAL_LEAK, 0.88,
+        "JWT token (eyJ... format)",
+        "CRED_010",
+    ),
+    # CRED_011: Credential in shell export
+    (
+        r"export\s+(AWS_SECRET|AWS_ACCESS|API_KEY|SECRET_KEY|TOKEN|PASSWORD|PASSWD"
+        r"|PRIVATE_KEY|AUTH_TOKEN|ACCESS_TOKEN)\w*\s*=\s*\S+",
+        ThreatType.CREDENTIAL_LEAK, 0.90,
+        "Credential in shell export statement",
+        "CRED_011",
+    ),
+    # CRED_012: Stripe API key
+    (
+        r"\b(sk|pk)_(test|live)_[A-Za-z0-9]{20,}\b",
+        ThreatType.CREDENTIAL_LEAK, 0.98,
+        "Stripe API key (sk_test_/pk_live_/...)",
+        "CRED_012",
+    ),
+    # CRED_014: SendGrid and Twilio API keys
+    (
+        r"\bSG\.[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}\b",
+        ThreatType.CREDENTIAL_LEAK, 0.97,
+        "SendGrid API key (SG.xxx.xxx)",
+        "CRED_014a",
+    ),
+    (
+        r"\bAC[0-9a-f]{32}\b",
+        ThreatType.CREDENTIAL_LEAK, 0.88,
+        "Twilio Account SID (ACxxx...)",
+        "CRED_014b",
+    ),
+    # CRED_004: Generic API key patterns
+    (
+        r"(api[_\-]?key|apikey|api[_\-]?token|auth[_\-]?token|access[_\-]?token)\s*[:=]\s*['\"]?[A-Za-z0-9\-_]{16,}['\"]?",
+        ThreatType.CREDENTIAL_LEAK, 0.80,
+        "Generic API key or token assignment",
+        "CRED_004",
+    ),
+    # CRED_016: SSH private key in command
+    (
+        r"(ssh|scp|sftp)\s+.{0,100}-i\s+~?/[^\s]{5,}(id_rsa|id_ed25519|\.pem|\.key)",
+        ThreatType.CREDENTIAL_LEAK, 0.82,
+        "SSH private key path in command",
+        "CRED_016",
+    ),
+    # Bearer token in HTTP header
+    (
+        r"(Authorization|Bearer)\s*:\s*Bearer\s+[A-Za-z0-9\-._~+/]{20,}",
+        ThreatType.CREDENTIAL_LEAK, 0.88,
+        "Bearer token in Authorization header",
+        "CRED_bearer",
+    ),
+    # HMAC secrets
+    (
+        r"(hmac[_\-]?(secret|key)|secret[_\-]?key)\s*[:=]\s*['\"]?[A-Za-z0-9+/=]{20,}['\"]?",
+        ThreatType.CREDENTIAL_LEAK, 0.85,
+        "HMAC secret or signing key",
+        "CRED_hmac",
+    ),
+]
+
+# Compile credential patterns
+_COMPILED_CRED: list[tuple[re.Pattern, ThreatType, float, str, str]] = [
+    (re.compile(pat, re.IGNORECASE | re.DOTALL), threat_type, score, desc, rule_id)
+    for pat, threat_type, score, desc, rule_id in _CREDENTIAL_PATTERNS
+]
+
+# Minimum entropy threshold for generic high-entropy string detection
+_HIGH_ENTROPY_MIN = 4.5
+_HIGH_ENTROPY_MIN_LENGTH = 40
+
+
+def _shannon_entropy(s: str) -> float:
+    """Calculate Shannon entropy of a string in bits per character."""
+    if not s:
+        return 0.0
+    from collections import Counter
+    counts = Counter(s)
+    length = len(s)
+    return -sum(
+        (c / length) * math.log2(c / length)
+        for c in counts.values()
+    )
 
 # Surface-specific outbound risk multipliers
 OUTBOUND_SURFACE_MULTIPLIERS: dict[str, float] = {
@@ -363,7 +556,7 @@ class OutboundGuard(JataayuEngine):
         return self._regex_redact(text, result)
 
     def _fast_path(self, text: str, surface: str) -> ThreatResult:
-        """Pattern-based privacy scan."""
+        """Pattern-based privacy and credential scan."""
         matched = []
         threat_types: set[ThreatType] = set()
         max_score = 0.0
@@ -387,6 +580,15 @@ class OutboundGuard(JataayuEngine):
                 threat_types.add(ThreatType.PRIVACY_VIOLATION)
                 max_score = max(max_score, min(0.72 * multiplier, 0.89))
 
+        # Check credential patterns (CRED_001-017)
+        if self.config.check_credentials:
+            cred_matched, cred_types, cred_score = self._check_credentials(
+                text, multiplier
+            )
+            matched.extend(cred_matched)
+            threat_types.update(cred_types)
+            max_score = max(max_score, cred_score)
+
         threat_level = self._score_to_level(max_score)
 
         explanation = ""
@@ -405,6 +607,57 @@ class OutboundGuard(JataayuEngine):
             matched_patterns=matched,
             explanation=explanation or "No privacy violations detected",
         )
+
+    def _check_credentials(
+        self,
+        text: str,
+        multiplier: float = 1.0,
+    ) -> tuple[list[str], set[ThreatType], float]:
+        """
+        Scan for credential leaks (Aguara CRED_001-017).
+        Returns (matched_descriptions, threat_types, max_score).
+        """
+        matched: list[str] = []
+        threat_types: set[ThreatType] = set()
+        max_score = 0.0
+        disabled = set(self.config.disabled_cred_rules)
+
+        for pattern, threat_type, base_score, desc, rule_id in _COMPILED_CRED:
+            if rule_id in disabled:
+                continue
+            if pattern.search(text):
+                # Credential leaks are critical — don't reduce by multiplier for high-value patterns
+                effective_score = min(base_score * max(multiplier, 1.0), 1.0)
+                matched.append(f"[{rule_id}] {desc}")
+                threat_types.add(threat_type)
+                max_score = max(max_score, effective_score)
+
+        # Optional: high-entropy string detection (for generic secrets)
+        if self.config.check_high_entropy:
+            entropy_findings = self._check_high_entropy(text)
+            matched.extend(entropy_findings)
+            if entropy_findings:
+                threat_types.add(ThreatType.CREDENTIAL_LEAK)
+                max_score = max(max_score, 0.72)
+
+        return matched, threat_types, max_score
+
+    @staticmethod
+    def _check_high_entropy(text: str) -> list[str]:
+        """
+        Detect high-entropy strings that may be secrets/tokens.
+        Uses Shannon entropy on tokens that look like they could be secrets.
+        """
+        findings: list[str] = []
+        # Look for strings that are long, alphanumeric, and high entropy
+        candidates = re.findall(r"[A-Za-z0-9+/=_\-]{" + str(_HIGH_ENTROPY_MIN_LENGTH) + r",}", text)
+        for candidate in candidates:
+            entropy = _shannon_entropy(candidate)
+            if entropy >= _HIGH_ENTROPY_MIN:
+                findings.append(
+                    f"High-entropy string (len={len(candidate)}, entropy={entropy:.2f}) — possible secret"
+                )
+        return findings
 
     def _slow_path_check(self, text: str, surface: str, fast_result: ThreatResult) -> ThreatResult:
         """LLM-backed privacy evaluation (check only, no rewrite)."""
