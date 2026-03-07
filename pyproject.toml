@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "jataayu"
+version = "0.1.0"
+description = "LLM-backed AI agent security — inbound injection detection + outbound privacy protection"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+keywords = ["ai-security", "prompt-injection", "privacy", "llm", "agents"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+]
+dependencies = [
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+llm = [
+    "anthropic>=0.25",
+    "openai>=1.0",
+]
+ollama = [
+    "ollama>=0.1",
+]
+dev = [
+    "pytest>=7",
+    "ruff",
+    "black",
+]
+
+[project.scripts]
+jataayu = "jataayu.integrations.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/saikrishnarallabandi/jataayu"
+Repository = "https://github.com/saikrishnarallabandi/jataayu"
+Issues = "https://github.com/saikrishnarallabandi/jataayu/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["jataayu*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
