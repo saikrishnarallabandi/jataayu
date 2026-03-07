@@ -138,6 +138,20 @@ agents:
         assert "agent-a" in policy.agents
         assert "agent-b" in policy.agents
 
+    def test_simple_yaml_parser_handles_inline_lists_and_scalars(self):
+        raw = PolicyLoader._parse_simple_yaml(
+            """
+version: 1
+agents:
+  bot:
+    allowed_surfaces: [internal, github-issue]
+    check_credentials: false
+"""
+        )
+        assert raw["version"] == 1
+        assert raw["agents"]["bot"]["allowed_surfaces"] == ["internal", "github-issue"]
+        assert raw["agents"]["bot"]["check_credentials"] is False
+
 
 class TestAgentPolicy:
     def test_coding_agent_allowed_surfaces(self, policy):

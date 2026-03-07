@@ -81,6 +81,7 @@ Usage:
 """
 from __future__ import annotations
 
+import ast
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -404,24 +405,136 @@ class PolicyLoader:
 
     @staticmethod
     def _load_yaml(path: str) -> dict:
-        """Load a YAML file, falling back to JSON if PyYAML is not available."""
+        """Load a YAML file, with a minimal built-in parser fallback."""
         try:
             import yaml  # type: ignore[import]
             with open(path, "r") as f:
                 return yaml.safe_load(f) or {}
         except ImportError:
-            # Graceful degradation — try JSON
-            import json
-            try:
-                with open(path, "r") as f:
-                    return json.load(f)
-            except Exception:
-                raise ImportError(
-                    "PyYAML is required to load .yml policy files. "
-                    "Install with: pip install pyyaml"
-                )
+            with open(path, "r", encoding="utf-8") as f:
+                return PolicyLoader._parse_simple_yaml(f.read())
         except Exception as e:
             raise ValueError(f"Failed to parse policy file {path!r}: {e}") from e
+
+    @staticmethod
+    def _parse_yaml_scalar(value: str) -> Any:
+        """Parse a YAML scalar for the policy format subset used by Jataayu."""
+        scalar = value.strip()
+        if scalar == "":
+            return ""
+
+        lowered = scalar.lower()
+        if lowered == "true":
+            return True
+        if lowered == "false":
+            return False
+        if lowered in {"null", "none", "~"}:
+            return None
+
+        if scalar.startswith("[") and scalar.endswith("]"):
+            try:
+                return ast.literal_eval(scalar)
+            except Exception:
+                inner = scalar[1:-1].strip()
+                if not inner:
+                    return []
+                return [item.strip().strip("\"'") for item in inner.split(",")]
+
+        if (scalar.startswith('"') and scalar.endswith('"')) or (
+            scalar.startswith("'") and scalar.endswith("'")
+        ):
+            return scalar[1:-1]
+
+        try:
+            if any(ch in scalar for ch in (".", "e", "E")):
+                return float(scalar)
+            return int(scalar)
+        except ValueError:
+            return scalar
+
+    @staticmethod
+    def _parse_simple_yaml(content: str) -> dict:
+        """
+        Parse a minimal YAML subset (mappings, lists, scalars, inline lists).
+
+        This fallback is intentionally small but sufficient for policy files used
+        by tests and typical Jataayu policy configuration.
+        """
+        root: dict[str, Any] = {}
+        stack: list[tuple[int, Any]] = [(-1, root)]
+        lines = content.splitlines()
+
+        def _next_meaningful_line(start: int) -> tuple[int, str] | None:
+            for idx in range(start, len(lines)):
+                candidate = lines[idx].strip()
+                if candidate and not candidate.startswith("#"):
+                    return idx, candidate
+            return None
+
+        for i, raw_line in enumerate(lines):
+            if not raw_line.strip() or raw_line.strip().startswith("#"):
+                continue
+
+            indent = len(raw_line) - len(raw_line.lstrip(" "))
+            line = raw_line.strip()
+
+            while len(stack) > 1 and indent <= stack[-1][0]:
+                stack.pop()
+
+            parent = stack[-1][1]
+
+            if line.startswith("- "):
+                if not isinstance(parent, list):
+                    raise ValueError(f"Invalid YAML structure near line {i + 1}: {line!r}")
+                item_text = line[2:].strip()
+                if not item_text:
+                    child: dict[str, Any] = {}
+                    parent.append(child)
+                    stack.append((indent, child))
+                    continue
+
+                if ":" in item_text and not item_text.startswith(("\"", "'")):
+                    key, value = item_text.split(":", 1)
+                    parent.append({key.strip(): PolicyLoader._parse_yaml_scalar(value.strip())})
+                else:
+                    parent.append(PolicyLoader._parse_yaml_scalar(item_text))
+                continue
+
+            if ":" not in line:
+                raise ValueError(f"Invalid YAML line {i + 1}: {line!r}")
+
+            if not isinstance(parent, dict):
+                raise ValueError(f"Invalid mapping context near line {i + 1}: {line!r}")
+
+            key, value = line.split(":", 1)
+            key = key.strip()
+            value = value.strip()
+
+            if value:
+                parent[key] = PolicyLoader._parse_yaml_scalar(value)
+                continue
+
+            next_line = _next_meaningful_line(i + 1)
+            if next_line is None:
+                parent[key] = {}
+                continue
+
+            next_idx, next_text = next_line
+            next_raw = lines[next_idx]
+            next_indent = len(next_raw) - len(next_raw.lstrip(" "))
+            if next_indent <= indent:
+                parent[key] = {}
+                continue
+
+            child: list[Any] | dict[str, Any]
+            if next_text.startswith("- "):
+                child = []
+            else:
+                child = {}
+            parent[key] = child
+            stack.append((indent, child))
+
+        return root
 
 
 def load_policy(path: Optional[str | Path] = None) -> Policy:
