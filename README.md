@@ -40,7 +40,40 @@ pip install "jataayu[ollama]"
 
 ## Quick Start
 
-### Python API
+### Simple API (recommended)
+
+```python
+from jataayu import jataayu_check_inbound, jataayu_check_outbound
+
+# --- Inbound: detect injection attacks in external content ---
+result = jataayu_check_inbound(github_issue_body, surface="github-issue")
+if result["status"] == "HIGH":
+    raise SecurityError(f"Blocked: {result['findings']}")
+elif result["status"] == "MEDIUM":
+    log.warning(f"Suspicious: {result['findings']}")
+# Returns: {status: 'SAFE'|'LOW'|'MEDIUM'|'HIGH', findings: str, risk_score: float, ...}
+
+# --- Outbound: strip PII/secrets before sending to shared surfaces ---
+result = jataayu_check_outbound(
+    draft_reply,
+    surface="discord-channel",
+    protected_names=["Alice", "Bob"],  # names that must never leak
+)
+if result["status"] == "BLOCK":
+    safe_text = result["redacted"]  # auto-sanitized version
+elif result["status"] == "WARN":
+    safe_text = result["redacted"]  # review before sending
+else:
+    safe_text = draft_reply          # SAFE — send as-is
+# Returns: {status: 'SAFE'|'WARN'|'BLOCK', findings: str, redacted: str|None, ...}
+```
+
+**Supported surfaces:** `github-issue`, `github-pr`, `github-comment`, `web-page`,
+`web-content`, `email`, `whatsapp`, `discord-channel`, `discord-group`,
+`telegram-group`, `group-chat`, `direct-message`, `coding-task`, `internal`,
+`public`, `unknown`
+
+### Advanced API
 
 ```python
 from jataayu import InboundGuard, OutboundGuard, PrivacyConfig
@@ -124,10 +157,14 @@ Jataayu understands that context matters. A shell command in a GitHub issue is s
 |---|---|---|---|---|
 | `github-issue` | 🔴 low | ✅ yes | ❌ no | Clinejection attack surface |
 | `github-pr` | 🔴 low | ✅ yes | ❌ no | Code & description attacks |
-| `web-content` | 🔴 low | ✅ yes | ❌ no | Invisible prompt injections |
+| `web-content` / `web-page` | 🔴 low | ✅ yes | ❌ no | Invisible prompt injections |
 | `email` | 🟡 medium | ✅ yes | ✅ yes | Phishing + data exfil |
-| `group-chat` | 🟡 medium | ❌ no | ✅ yes | Privacy leakage risk |
+| `whatsapp` | 🟡 medium | ❌ no | ✅ yes | Group privacy critical |
+| `telegram-group` | 🟡 medium | ❌ no | ✅ yes | Group privacy critical |
 | `discord-channel` | 🟡 medium | ❌ no | ✅ yes | Public community |
+| `discord-group` | 🟡 medium | ❌ no | ✅ yes | Semi-public group DM |
+| `group-chat` | 🟡 medium | ❌ no | ✅ yes | Generic group surface |
+| `unknown` | 🟡 medium | ✅ yes | ✅ yes | Default — check everything |
 | `direct-message` | 🟢 high | ❌ no | ❌ no | Private, trusted |
 | `coding-task` | 🟡 medium | ❌ no | ❌ no | Shell commands expected |
 | `internal` | 🟢 high | ❌ no | ❌ no | Agent-to-agent trusted |
