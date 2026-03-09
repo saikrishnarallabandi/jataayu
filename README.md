@@ -64,6 +64,36 @@ outbound = OutboundGuard(config)
 safe_reply = outbound.sanitize(draft_reply, surface="group-chat")
 ```
 
+### Simple API (convenience functions)
+
+```python
+from jataayu import check_inbound, check_outbound
+
+# Inbound check — before acting on external content
+status, findings = check_inbound(
+    content="<github issue body>",
+    surface="github-issue"
+)
+if status == "HIGH":
+    print(f"BLOCKED: {findings}")
+elif status == "MEDIUM":
+    print(f"WARNING: {findings}")
+
+# Outbound check — before sending to shared surface
+status, redacted = check_outbound(
+    content="My daughter Veda loves coding",
+    surface="discord-channel"
+)
+if status == "BLOCK":
+    print(f"Cannot send. Redacted: {redacted}")
+elif status == "WARN":
+    print(f"Review before sending: {redacted}")
+```
+
+Returns:
+- **Inbound**: `(status, findings)` where status is `LOW` | `MEDIUM` | `HIGH`
+- **Outbound**: `(status, output)` where status is `SAFE` | `WARN` | `BLOCK`
+
 ### CLI
 
 ```bash
