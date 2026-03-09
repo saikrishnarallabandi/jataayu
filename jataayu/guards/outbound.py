@@ -405,10 +405,15 @@ OUTBOUND_SURFACE_MULTIPLIERS: dict[str, float] = {
     "github-issue": 1.2,
     "github-comment": 1.2,
     "discord-channel": 1.2,
+    "discord-group": 1.2,
+    "telegram-group": 1.2,
+    "whatsapp": 1.2,
     "group-chat": 1.2,
     "email": 1.1,
+    "web-page": 1.0,
     "direct-message": 0.6,
     "internal": 0.3,
+    "unknown": 1.0,
 }
 
 # Outbound LLM system prompt

@@ -472,13 +472,18 @@ SURFACE_MULTIPLIERS: dict[str, float] = {
     "github-pr": 1.2,
     "github-comment": 1.15,
     "web-content": 1.1,
+    "web-page": 1.1,
     "email": 1.15,
+    "whatsapp": 1.0,
     "discord-channel": 1.0,
+    "discord-group": 1.0,
+    "telegram-group": 1.0,
     "group-chat": 1.0,
     "coding-task": 0.7,   # more permissive — shell commands are expected
     "internal": 0.5,
     "direct-message": 0.8,
     "public": 1.1,
+    "unknown": 1.0,
 }
 
 # NLP keyword classifier for markdown sections — Aguara NLP layer analog
