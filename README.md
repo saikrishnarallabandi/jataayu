@@ -235,43 +235,6 @@ guard = InboundGuard(use_llm=False)
 
 ---
 
-## gateway Integration
-
-If you use [gateway](https://github.com/gateway/gateway), install the Jataayu skill:
-
-```bash
-git clone https://github.com/saikrishnarallabandi/jataayu /tmp/jataayu
-ln -s /tmp/jataayu/skills/gateway ~/.gateway/skills/jataayu
-```
-
-Then in your gateway agent:
-```
-/jataayu check <text> --surface github-issue
-/jataayu sanitize <text> --surface group-chat
-```
-
----
-
-## MCP Integration
-
-Jataayu exposes an MCP-compatible interface for use with any MCP-capable agent framework:
-
-```json
-{
-  "mcpServers": {
-    "jataayu": {
-      "command": "python",
-      "args": ["-m", "jataayu.integrations.mcp_server"],
-      "env": {
-        "JATAAYU_LLM_BACKEND": "ollama"
-      }
-    }
-  }
-}
-```
-
-*MCP server in active development — see `mcp/` directory.*
-
 ---
 
 ## For AI Agents
