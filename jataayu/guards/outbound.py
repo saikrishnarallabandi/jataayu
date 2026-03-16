@@ -684,7 +684,7 @@ class OutboundGuard(JataayuEngine):
             return fast_result
 
         try:
-            raw_clean = raw.strip().strip("```json").strip("```").strip()
+            raw_clean = self._extract_json_payload(raw)
             data = _json.loads(raw_clean)
         except Exception:
             return fast_result
