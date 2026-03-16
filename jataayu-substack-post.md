@@ -1,14 +1,22 @@
 # Jataayu: Your Agent Has Two Security Problems Nobody's Fixing
 
-Your agent just posted an API key in a GitHub comment. You find out because a stranger DMs you on Twitter. Or maybe it shared your investment portfolio details in the family group chat — the one your teenager is also in. Or maybe it followed instructions from a "bug report" that was actually a trojan horse. These aren't hypotheticals — they're the natural failure modes of agents that know too much and talk to too many surfaces.
+Imagine you set up an AI assistant for your family. It helps you track investments, reminds your parents about medications, knows your kids' school schedules, and manages the household calendar. Everyone talks to it — you, your spouse, your parents, your teenager.
+
+One evening, your teenager asks the agent something innocent in the family group chat. The agent, trying to be helpful, pulls in context from your private conversations: "By the way, your dad's portfolio is down 12% this week — mostly from that concentrated position he's been worried about." 
+
+Nobody hacked anything. The agent just didn't understand that your teenager shouldn't see your financial anxiety. It had the context because you gave it the context. It shared it because nobody told it — programmatically — where the boundaries are.
+
+Now scale that to every surface an agent touches. Family group chats. GitHub comments. Discord channels. Email replies. Each surface has a different audience, different trust level, different rules about what's appropriate — and your agent treats them all the same unless you build something to stop it.
+
+That's one side of the problem. The other side is what comes *in* — your agent reads a GitHub issue to triage a bug, and buried in the issue is a hidden instruction telling it to dump its environment variables. Or it fetches a web page and the page has invisible text that rewrites its behavior.
+
+Two attack surfaces. One library.
 
 ---
 
-## Three Ways This Goes Wrong
+## Let's Make It Concrete
 
-AI agents read untrusted content — GitHub issues, web pages, emails, support tickets. They also write to shared surfaces — Discord channels, GitHub comments, group chats. Neither direction has a guardrail by default.
-
-Here's what that looks like.
+Here's what these problems look like in code — and what catching them looks like.
 
 **A GitHub issue with a hidden payload:**
 
