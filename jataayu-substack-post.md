@@ -1,4 +1,4 @@
-# The Old Eagle: On Guardians, Trust Boundaries, and the Content Layer of AI Security
+# Jataayu: A Content Layer for AI Agents Where Context Crosses Boundaries
 
 ---
 
