@@ -127,11 +127,15 @@ The agents we build are getting more powerful, more trusted, more connected. The
 
 We're in the early days of agent security. The tool permission layer — can the agent execute code? access the filesystem? — is getting solid attention. That's necessary infrastructure, and it's good that it's being built. But the content layer — what's *inside* the text agents read, what's *inside* the text they produce — is still mostly unguarded. It's the gap between "the agent can't run dangerous commands" and "the agent won't share Emma's kindergarten enrollment in the family group chat where thirty people can read it."
 
-That gap is what we built [Jataayu](https://github.com/saikrishnarallabandi/jataayu) to close. It's open source because this problem is too important to gatekeep and too broad for any single team to solve. The attacks will get more creative. The agents will get more powerful. The surface area will keep expanding.
+That gap is what we built [Jataayu](https://github.com/saikrishnarallabandi/jataayu) to close. It's open source because this problem is too important to gatekeep and too broad for any single team to solve.
 
-And somewhere in the architecture of every agent that touches the real world — that reads untrusted content, that posts to shared surfaces, that carries the intimate context of people's lives — there needs to be an old eagle. Not perfect. Not invincible. But present. Watching. Ready to intercept.
+Security in the age of agents is not a solved problem. It may never be. The attacks will get more creative. The agents will get more powerful. The surface area will keep expanding. We'll only know where the vulnerabilities are when we build systems that flag them — when we put something in the path that watches, intercepts, and reports back.
 
-The guard doesn't need to win every fight. It needs to be in every room.
+That's what Jataayu did in the Ramayana. He didn't solve the problem. He made the problem visible. He turned an invisible threat into actionable intelligence. Rama could act because Jataayu flagged what was happening.
+
+That's the role of a security layer in an agent system. Not to be perfect. Not to catch everything. But to be present at every boundary, watching what crosses — and making sure someone knows when something shouldn't have.
+
+The solutions will keep evolving. The threats will too. What matters is that we're looking.
 
 ---
 
