@@ -1,6 +1,6 @@
 # Jataayu: Your Agent Has Two Security Problems Nobody's Fixing
 
-Your agent just posted an API key in a GitHub comment. You find out because a stranger DMs you on Twitter. Or maybe it quoted your daughter's school name in a Discord channel with 400 people. Or maybe it followed instructions from a "bug report" that was actually a trojan horse. These aren't hypotheticals — they're the natural failure modes of agents that know too much and talk to too many surfaces.
+Your agent just posted an API key in a GitHub comment. You find out because a stranger DMs you on Twitter. Or maybe it shared your investment portfolio details in the family group chat — the one your teenager is also in. Or maybe it followed instructions from a "bug report" that was actually a trojan horse. These aren't hypotheticals — they're the natural failure modes of agents that know too much and talk to too many surfaces.
 
 ---
 
@@ -39,19 +39,19 @@ result = guard.check(draft, surface="github-comment")
 
 The agent is genuinely trying to help — it pulled the key from context to make its instructions concrete. Helpful and catastrophic at the same time. Jataayu catches the key pattern, blocks the message, and offers a redacted version with `<REDACTED>` in place of the secret.
 
-**An agent disclosing private info in a Discord channel:**
+**An agent leaking family details in the shared group chat:**
 
 ```python
 from jataayu.guards.outbound import PrivacyConfig
-config = PrivacyConfig(protected_names=["Emma", "Liam"])
+config = PrivacyConfig(protected_names=["Veda", "Tarak"])
 guard = OutboundGuard(config=config)
 
-draft = "Emma just started kindergarten at Lincoln Elementary!"
-result = guard.check(draft, surface="discord-channel")
-# verdict: BLOCK — protected name in public surface
+draft = "Veda just started kindergarten at Lincoln Elementary!"
+result = guard.check(draft, surface="whatsapp-group")
+# verdict: BLOCK — protected name in shared surface
 ```
 
-The agent knows about your family because you *gave* it family context — so it could be useful in private conversations. But that context shouldn't follow it into a server with hundreds of strangers. Jataayu enforces the boundary your system prompt hopes the LLM will remember.
+The agent knows about your kids because you *gave* it that context — so it could help with school schedules, health appointments, and family logistics in private. But a family group chat includes grandparents, cousins, and extended family. That context shouldn't bleed out of your private conversation. Jataayu enforces the boundary your system prompt hopes the LLM will remember.
 
 None of these require a sophisticated attacker. They're what happens when agents have rich context and operate across surfaces with different trust levels. Which is to say: they're what happens with every useful agent.
 
@@ -98,6 +98,8 @@ The fix most people reach for is hardcoded rules in the system prompt. "Never me
 Here's the observation that led to Jataayu: agents now have context about people's *lives*. Their messages, files, calendars, finances, family details. That's what makes them useful — an agent that knows nothing about you is just a search engine with extra steps.
 
 But these agents also operate across trust boundaries constantly. Private DM → group chat. Internal document → GitHub comment. Personal calendar → shared workspace. Every one of those transitions is a potential leak, and no framework was systematically checking what crosses those boundaries.
+
+The family context makes this visceral. A family AI assistant knows about finances, health, school, and relationships — because that's what makes it useful to parents. But the same agent might chat with your teenager, your parents, or your extended family. Everyone shares the agent but not everyone should see everything. It's the most natural multi-user, multi-trust-level environment that exists — and it has no guardrails by default.
 
 Sandboxing and tool permissions handle one layer. Prompt engineering handles another. But the content layer — what's *in* the text the agent reads, what's *in* the text it writes — was essentially unguarded. That gap is what Jataayu fills.
 
@@ -168,16 +170,16 @@ from jataayu import OutboundGuard
 from jataayu.guards.outbound import PrivacyConfig
 
 config = PrivacyConfig(
-    protected_names=["Alice", "Bob", "Veda"],
+    protected_names=["Veda", "Tarak"],
     use_llm=False  # pattern-only for speed
 )
 guard = OutboundGuard(config=config)
 
-draft = "Alice's daughter Veda just started at Lincoln Elementary. She's 3 years old."
-result = guard.check(draft, surface="discord-channel")
+draft = "Veda just started at Lincoln Elementary. She's 3 years old."
+result = guard.check(draft, surface="whatsapp-group")
 
 print(result.blocked)      # True
-print(result.explanation)  # "Contains protected names: Alice, Veda"
+print(result.explanation)  # "Contains protected names: Veda"
 ```
 
 You define a list of names — family members, minors, protected individuals — and the guard blocks any message to a shared surface that contains them. Not a suggestion to an LLM. A programmatic check that fires every time, regardless of how creative the agent is feeling.
@@ -256,7 +258,7 @@ No API key required. No external calls. Just the pattern library. Fast, determin
 
 Not all content is equally suspicious. Not all outputs are equally sensitive.
 
-A shell command in a GitHub issue is alarming. The same command in a `coding-task` context is expected — that's the whole point. A person's name in a private DM is fine. The same name in a Discord channel with thousands of members is a privacy violation.
+A shell command in a GitHub issue is alarming. The same command in a `coding-task` context is expected — that's the whole point. A person's name in a private DM is fine. The same name in a family group chat where the kids — and their extended family — can read it may not be.
 
 Jataayu uses per-surface trust profiles that adjust both sensitivity thresholds and risk multipliers:
 
@@ -266,8 +268,8 @@ Jataayu uses per-surface trust profiles that adjust both sensitivity thresholds 
 | `web-content` | 🔴 low | ✅ yes | ❌ n/a |
 | `email` | 🟡 medium | ✅ yes | ✅ yes |
 | `discord-channel` | 🟡 medium | — | ✅ yes |
-| `whatsapp` (group) | 🟡 medium | — | ✅ yes |
-| `direct-message` | 🟢 high | ❌ no | ❌ no |
+| `whatsapp-group` (family chat) | 🟡 medium | — | ✅ yes |
+| `direct-message` (parent's private DM) | 🟢 high | ❌ no | ❌ no |
 | `coding-task` | 🟡 medium | ❌ no | ❌ no |
 
 When you pass `surface="github-issue"`, the guard applies a 1.2× risk multiplier and enables injection-specific rules. When you pass `surface="direct-message"`, the guard relaxes — it's a trusted, private context.
@@ -344,7 +346,7 @@ Repo: **[github.com/saikrishnarallabandi/jataayu](https://github.com/saikrishnar
 
 Agents are getting more capable, more connected, more trusted. They're getting access to email inboxes, calendars, financial accounts, communication channels. The amount of private context they carry is growing. The number of external surfaces they interact with is growing. The blast radius of a mistake — or an exploit — is growing with both.
 
-We're in the early innings of agent security. The tool permission layer is getting solid attention from frameworks like LangChain, CrewAI, and others. That's great — it's necessary infrastructure. But the content layer — what's *inside* the text agents read, what's *inside* the text they produce — is still mostly unguarded. It's the gap between "the agent can't run dangerous commands" and "the agent won't leak your daughter's school name in a public channel."
+We're in the early innings of agent security. The tool permission layer is getting solid attention from frameworks like LangChain, CrewAI, and others. That's great — it's necessary infrastructure. But the content layer — what's *inside* the text agents read, what's *inside* the text they produce — is still mostly unguarded. It's the gap between "the agent can't run dangerous commands" and "the agent won't share your investment portfolio in the family group chat where your teenager can see it."
 
 Jataayu is one piece of closing that gap. It's open source because this problem is too important to gatekeep, and too broad for any single team to solve alone. The attacks will get more creative. The agents will get more powerful. The guard needs to keep up.
 
