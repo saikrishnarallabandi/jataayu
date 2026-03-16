@@ -1,4 +1,4 @@
-# Jataayu: A Content Layer for AI Agents and the Privacy They Don't Understand
+# Jataayu: Content Layer for AI Agents and Privacy They Don't Understand
 
 ---
 
