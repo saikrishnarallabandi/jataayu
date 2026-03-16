@@ -1,4 +1,4 @@
-# Jataayu: A Content Layer for AI Agents Where Context Crosses Boundaries
+# Jataayu: A Content Layer for AI Agents and the Privacy They Don't Understand
 
 ---
 
