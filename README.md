@@ -205,18 +205,6 @@ Inbound text
 
 ---
 
-## How It Differs from AgentGuard
-
-| Feature | Jataayu | AgentGuard |
-|---|---|---|
-| Inbound injection detection | ✅ | ✅ |
-| **Outbound privacy protection** | **✅** | ❌ |
-| LLM-backed judgment | ✅ | ❌ |
-| Surface-aware profiles | ✅ | ❌ |
-| Configurable backends | Ollama, OpenAI, Anthropic, gateway | — |
-| Protected names config | ✅ | ❌ |
-| LLM-free fast path | ✅ | ✅ |
-
 ---
 
 ## LLM Configuration
