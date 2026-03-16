@@ -206,7 +206,7 @@ Jataayu exposes an MCP-compatible interface for use with any MCP-capable agent f
   "mcpServers": {
     "jataayu": {
       "command": "python",
-      "args": ["-m", "jataayu.integrations.mcp_server"],
+      "args": ["-m", "jataayu.integrations.mcp_gateway", "--upstream", "http://localhost:8000", "--port", "8001"],
       "env": {
         "JATAAYU_LLM_BACKEND": "ollama"
       }
@@ -215,7 +215,7 @@ Jataayu exposes an MCP-compatible interface for use with any MCP-capable agent f
 }
 ```
 
-*MCP server in active development — see `mcp/` directory.*
+*MCP gateway available via `jataayu.integrations.mcp_gateway`.*
 
 ---
 

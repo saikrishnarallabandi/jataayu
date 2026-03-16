@@ -3,7 +3,7 @@ Tests for Issue #4 — MCP Gateway before_tool_call hook.
 """
 import json
 import pytest
-from jataayu.integrations.mcp_gateway import JataayuMCPGateway, _jsonrpc_error, _jsonrpc_ok
+from jataayu.integrations.mcp_gateway import JataayuMCPGateway
 
 
 @pytest.fixture

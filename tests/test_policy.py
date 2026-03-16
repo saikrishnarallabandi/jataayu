@@ -1,10 +1,8 @@
 """
 Tests for Issue #6 — YAML policy configuration.
 """
-import os
-import tempfile
 import pytest
-from jataayu.config.policy import Policy, PolicyLoader, load_policy, AgentPolicy, SurfacePolicy
+from jataayu.config.policy import Policy, PolicyLoader, load_policy, SurfacePolicy
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +135,20 @@ agents:
         policy = PolicyLoader.from_dir(tmp_path)
         assert "agent-a" in policy.agents
         assert "agent-b" in policy.agents
+
+    def test_simple_yaml_parser_handles_inline_lists_and_scalars(self):
+        raw = PolicyLoader._parse_simple_yaml(
+            """
+version: 1
+agents:
+  bot:
+    allowed_surfaces: [internal, github-issue]
+    check_credentials: false
+"""
+        )
+        assert raw["version"] == 1
+        assert raw["agents"]["bot"]["allowed_surfaces"] == ["internal", "github-issue"]
+        assert raw["agents"]["bot"]["check_credentials"] is False
 
 
 class TestAgentPolicy:
