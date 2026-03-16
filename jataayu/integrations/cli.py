@@ -26,12 +26,28 @@ def _color(code: str, text: str) -> str:
     return text
 
 
-RED = lambda t: _color("31;1", t)
-YELLOW = lambda t: _color("33;1", t)
-GREEN = lambda t: _color("32;1", t)
-CYAN = lambda t: _color("36;1", t)
-BOLD = lambda t: _color("1", t)
-DIM = lambda t: _color("2", t)
+def RED(t: str) -> str:
+    return _color("31;1", t)
+
+
+def YELLOW(t: str) -> str:
+    return _color("33;1", t)
+
+
+def GREEN(t: str) -> str:
+    return _color("32;1", t)
+
+
+def CYAN(t: str) -> str:
+    return _color("36;1", t)
+
+
+def BOLD(t: str) -> str:
+    return _color("1", t)
+
+
+def DIM(t: str) -> str:
+    return _color("2", t)
 
 
 LEVEL_COLORS = {

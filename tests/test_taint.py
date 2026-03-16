@@ -3,7 +3,7 @@ Tests for Issue #3 — Taint tracking for Clinejection flow.
 """
 import pytest
 from jataayu.core.taint import TaintTracker
-from jataayu.core.threat import ThreatLevel, ThreatType, TaintSource, TaintSink, TaintState
+from jataayu.core.threat import ThreatType, TaintSource, TaintSink, TaintState
 
 
 @pytest.fixture

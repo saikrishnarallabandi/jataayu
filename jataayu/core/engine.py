@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional
 
-from jataayu.core.threat import ThreatResult, ThreatLevel
+from jataayu.core.threat import ThreatResult
 from jataayu.surfaces.profiles import SURFACE_PROFILES
 
 
@@ -123,8 +123,14 @@ class LLMBackend:
         elif self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
+        base_url = self.base_url.rstrip("/")
+        if base_url.endswith("/v1"):
+            endpoint = f"{base_url}/chat/completions"
+        else:
+            endpoint = f"{base_url}/v1/chat/completions"
+
         resp = requests.post(
-            f"{self.base_url}/v1/chat/completions",
+            endpoint,
             headers=headers,
             json={
                 "model": self.model,
@@ -219,3 +225,26 @@ class JataayuEngine(ABC):
             return self.llm.call(system_prompt, user_message)
         except Exception as e:
             return f"[LLM unavailable: {e}]"
+
+    @staticmethod
+    def _extract_json_payload(raw: str) -> str:
+        """
+        Extract JSON text from plain or fenced LLM responses.
+
+        Supports:
+        - Plain JSON: { ... }
+        - Fenced JSON: ```json ... ``` or ``` ... ```
+        """
+        text = raw.strip()
+        if not text.startswith("```"):
+            return text
+
+        lines = text.splitlines()
+        if len(lines) < 3 or not lines[0].startswith("```"):
+            return text
+
+        for idx in range(len(lines) - 1, 0, -1):
+            if lines[idx].strip().startswith("```"):
+                return "\n".join(lines[1:idx]).strip()
+
+        return text

@@ -40,8 +40,7 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-from typing import Any, AsyncIterator, Optional
+from typing import Any, Optional
 from urllib.parse import urljoin
 
 logger = logging.getLogger("jataayu.mcp_gateway")
@@ -422,7 +421,7 @@ def main() -> None:
         enable_taint=args.enable_taint,
     )
 
-    print(f"🛡️  Jataayu MCP Gateway")
+    print("🛡️  Jataayu MCP Gateway")
     print(f"   Listening:  http://{args.host}:{args.port}")
     print(f"   Upstream:   {args.upstream}")
     print(f"   Threshold:  {args.block_threshold}")
