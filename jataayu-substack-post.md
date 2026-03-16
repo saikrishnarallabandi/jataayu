@@ -1,4 +1,4 @@
-# Two Security Problems Nobody's Fixing in AI Agents
+# Jataayu: A Bidirectional Security Layer for AI Agents
 
 We run an AI assistant that our family shares. It tracks investments, reminds parents about medications, knows the kids' school schedules, manages the household calendar. Everyone talks to it — across WhatsApp, Discord, private DMs.
 
@@ -63,7 +63,7 @@ None of these require a sophisticated attacker. They're what happens when agents
 
 ---
 
-## The Hard Problem Nobody's Solving
+## The Content Layer
 
 Most frameworks treat agent security as "don't let the agent run `rm -rf`." That's necessary. But it's solving the *easy* problem.
 
@@ -71,7 +71,7 @@ The hard problem is what the agent *reads* and what it *says*.
 
 When people talk about agent security, the conversation usually goes to tool permissions (can it execute code? access the filesystem?) or jailbreaks (can someone trick it past its system prompt?). Both real, both important, both getting attention.
 
-But there are two surfaces that almost nobody is systematically guarding:
+But there are two surfaces that don't get the same attention:
 
 ### What comes *in*
 
