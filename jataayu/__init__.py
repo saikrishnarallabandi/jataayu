@@ -29,8 +29,10 @@ from jataayu.api import (
     jataayu_check_memory_write,
     jataayu_check_memory_read,
     jataayu_vet_skill,
+    jataayu_check_skillset,
 )
 from jataayu.guards.skill_vet import SkillVetGuard, SkillVetResult
+from jataayu.guards.composition import check_skillset, CompositionRisk
 from jataayu.convenience import check_inbound, check_outbound
 
 __all__ = [
@@ -45,6 +47,10 @@ __all__ = [
     "jataayu_vet_skill",
     "SkillVetGuard",
     "SkillVetResult",
+    # Compositional skillset analysis
+    "jataayu_check_skillset",
+    "check_skillset",
+    "CompositionRisk",
     # Short aliases (tuple return format)
     "check_inbound",
     "check_outbound",

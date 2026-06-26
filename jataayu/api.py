@@ -180,6 +180,44 @@ def jataayu_vet_skill(
     return result.to_dict()
 
 
+def jataayu_check_skillset(
+    skills: list,
+    *,
+    policy_file: Optional[str] = None,
+    agent: Optional[str] = None,
+    use_llm: bool = False,
+) -> dict:
+    """
+    Check a SET of skills for compositional risk ("When Safe Skills Collide").
+
+    Individually-safe skills can compose into unsafe capability sets (e.g. one
+    reads secrets, another writes to the network = exfiltration). This flags
+    dangerous cross-skill capability combinations and enforces per-agent
+    capability allowlists at install time.
+
+    Args:
+        skills: List of skills — paths to skill dirs/files, dicts with
+            'capabilities', or SkillVetResult objects.
+        policy_file: Optional path to a Jataayu policy YAML for capability isolation.
+        agent: Agent name to resolve in the policy.
+        use_llm: Run the LLM judge when vetting paths. Default False.
+
+    Returns:
+        dict with keys: verdict ('SAFE'|'REVIEW'|'MALICIOUS'), skills,
+        per_skill_capabilities, aggregate_capabilities, risky_combinations,
+        policy_violations, individually_flagged, explanation.
+    """
+    from jataayu.guards.composition import check_skillset
+
+    policy = None
+    if policy_file:
+        from jataayu.config.policy import load_policy
+        policy = load_policy(policy_file)
+
+    risk = check_skillset(skills, policy=policy, agent=agent, use_llm=use_llm)
+    return risk.to_dict()
+
+
 def _check_inbound_surface(content: str, surface: str, *, use_llm: bool) -> dict:
     """Shared helper: run the inbound guard on an execution-context surface."""
     guard = _get_inbound_guard(use_llm=use_llm)
