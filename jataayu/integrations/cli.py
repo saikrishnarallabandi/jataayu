@@ -219,6 +219,46 @@ def cmd_vet_skill(args) -> int:
     return 0 if result.verdict == "SAFE" else 2
 
 
+def cmd_vet_skillset(args) -> int:
+    """Vet a SET of skills for compositional / cross-skill risk."""
+    from jataayu.guards.composition import check_skillset
+
+    policy = None
+    if args.policy:
+        from jataayu.config.policy import load_policy
+        policy = load_policy(args.policy)
+
+    risk = check_skillset(
+        args.paths, policy=policy, agent=args.agent, use_llm=not args.no_llm
+    )
+
+    if args.json:
+        print(json.dumps(risk.to_dict(), indent=2))
+        return 0 if risk.verdict == "SAFE" else 2
+
+    color_fn = VERDICT_COLORS.get(risk.verdict, CYAN)
+    print(f"\n{BOLD(risk.verdict)}  {color_fn(f'[{risk.verdict}]')}  "
+          f"skills={len(risk.skills)}")
+    print(f"  {DIM(risk.explanation)}")
+    print(f"  Aggregate capabilities: {DIM(', '.join(risk.aggregate_capabilities) or 'none')}")
+
+    if risk.policy_violations:
+        print(f"  {RED('Policy violations:')}")
+        for v in risk.policy_violations:
+            print(f"    {RED(v['capability'])} ← {', '.join(v['contributors'])}")
+    if risk.risky_combinations:
+        print(f"  {YELLOW('Dangerous cross-skill combinations:')}")
+        for c in risk.risky_combinations:
+            contrib = "; ".join(f"{cap}: {', '.join(sk)}" for cap, sk in c["contributors"].items())
+            print(f"    {YELLOW(c['description'])}")
+            print(f"      {DIM(contrib)}")
+    if risk.individually_flagged:
+        flagged = ", ".join(f["skill"] + "=" + f["verdict"] for f in risk.individually_flagged)
+        print(f"  Individually flagged: {DIM(flagged)}")
+
+    return 0 if risk.verdict == "SAFE" else 2
+
+
 def _get_text(args) -> Optional[str]:
     """Get text from args.text or stdin."""
     if hasattr(args, 'text') and args.text:
@@ -259,6 +299,15 @@ def main() -> None:
     vet_p.add_argument("--no-llm", action="store_true", help="Disable LLM judge (pattern pre-filter only)")
     vet_p.add_argument("--json", action="store_true", help="Output as JSON")
     vet_p.set_defaults(func=cmd_vet_skill)
+
+    # --- vet-skillset ---
+    vss_p = subparsers.add_parser("vet-skillset", help="Vet a SET of skills for compositional risk")
+    vss_p.add_argument("paths", nargs="+", help="Paths to skill directories/files to analyse together")
+    vss_p.add_argument("--policy", help="Path to a Jataayu policy YAML for capability isolation")
+    vss_p.add_argument("--agent", help="Agent name to resolve in the policy")
+    vss_p.add_argument("--no-llm", action="store_true", help="Disable LLM judge when vetting (pattern-only)")
+    vss_p.add_argument("--json", action="store_true", help="Output as JSON")
+    vss_p.set_defaults(func=cmd_vet_skillset)
 
     # --- demo ---
     demo_p = subparsers.add_parser("demo", help="Run built-in demo test cases")

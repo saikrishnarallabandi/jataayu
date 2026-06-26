@@ -162,8 +162,15 @@ Then evaluate trajectory-level, not just final reply.
   treated as soft (could be documentation) vs. code/manifests where they hard-block. 14 tests.
 
 **P1 — composition & policy**
-- [ ] `jataayu_check_skillset()` capability tags + dangerous-pair/chain detection (SkillReact)
-- [ ] capability allowlists in `config/policy.py` (capability isolation)
+- [x] `jataayu_check_skillset()` capability tags + dangerous-pair/chain detection (SkillReact)
+  — shipped `guards/composition.py`: `check_skillset()` / `jataayu_check_skillset()` /
+  `jataayu vet-skillset` CLI. Flags dangerous capability combos realized **across** skills
+  (exfil, dropper, download-run, memory-poison vector) and names which skill contributes each
+  capability; skips intra-skill combos (P0's job). Accepts paths, dicts, or `SkillVetResult`s.
+- [x] capability allowlists in `config/policy.py` (capability isolation) — `AgentPolicy`
+  gained `allowed_capabilities` / `forbidden_capabilities` + `is_capability_allowed()` /
+  `capability_violations()`. A composition that unlocks a forbidden capability is blocked at
+  **install** (verdict MALICIOUS), not discovered at runtime. 18 tests.
 
 **P2 — execution-centric core (bigger lifts)**
 - [ ] `core/audit.py` `SessionTrace` + `jataayu audit` runtime behavioral auditing (RSA)
