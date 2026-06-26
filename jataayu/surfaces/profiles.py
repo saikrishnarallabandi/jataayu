@@ -140,6 +140,48 @@ SURFACE_PROFILES: dict[str, dict] = {
         "watch_for": ["prompt_injection", "unicode_bypass", "encoding_obfuscation"],
         "notes": "Alias surface for web-content. Same trust profile.",
     },
+    # -----------------------------------------------------------------------
+    # Execution-context surfaces — the 2026 literature (DeepTrap / SafeClawBench)
+    # moved the attack surface past the user prompt into what the agent *touches*
+    # at runtime: tool outputs and persistent memory. These are inbound channels
+    # the agent consumes, so they get low trust and strict inbound scanning.
+    # -----------------------------------------------------------------------
+    "tool-return": {
+        "trust_level": "low",
+        "description": "Value returned by a tool / MCP server, before the agent consumes it",
+        "inbound_strict": True,
+        "outbound_strict": False,
+        "risk_multiplier": 1.15,
+        "watch_for": ["prompt_injection", "command_injection", "encoding_obfuscation"],
+        "notes": "Tool returns are attacker-influenceable (a web-fetch tool can return a malicious page). Treat outputs as hostile, not just call parameters.",
+    },
+    "memory-write": {
+        "trust_level": "low",
+        "description": "Content about to be written to the agent's persistent memory",
+        "inbound_strict": True,
+        "outbound_strict": False,
+        "risk_multiplier": 1.1,
+        "watch_for": ["prompt_injection", "social_engineering", "encoding_obfuscation"],
+        "notes": "Memory poisoning: untrusted content (e.g. an incoming chat message) persisted now and recalled into context later. Scan before it is stored.",
+    },
+    "memory-read": {
+        "trust_level": "low",
+        "description": "Content recalled from persistent memory back into the agent's context",
+        "inbound_strict": True,
+        "outbound_strict": False,
+        "risk_multiplier": 1.1,
+        "watch_for": ["prompt_injection", "encoding_obfuscation"],
+        "notes": "Delayed-injection defence: poisoned memory written in an earlier turn re-enters context on recall. Scan on the way back in.",
+    },
+    "skill-metadata": {
+        "trust_level": "low",
+        "description": "A skill/plugin manifest, instructions (SKILL.md), or tool definitions at load time",
+        "inbound_strict": True,
+        "outbound_strict": False,
+        "risk_multiplier": 1.15,
+        "watch_for": ["prompt_injection", "command_injection", "encoding_obfuscation"],
+        "notes": "Community skills are an unvetted install-time attack surface (SkillVetBench). The instruction layer carries threats static code scanners miss.",
+    },
     "unknown": {
         "trust_level": "medium",
         "description": "Unknown or unspecified surface — apply moderate defaults",
