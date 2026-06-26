@@ -483,6 +483,11 @@ SURFACE_MULTIPLIERS: dict[str, float] = {
     "internal": 0.5,
     "direct-message": 0.8,
     "public": 1.1,
+    # Execution-context surfaces (tool outputs + persistent memory)
+    "tool-return": 1.15,
+    "memory-write": 1.1,
+    "memory-read": 1.1,
+    "skill-metadata": 1.15,
     "unknown": 1.0,
 }
 
