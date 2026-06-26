@@ -169,6 +169,11 @@ class ThreatResult:
         return self.threat_level in (ThreatLevel.CLEAN, ThreatLevel.LOW)
 
     @property
+    def redacted(self) -> Optional[str]:
+        """Alias for sanitized_text — the cleaned/redacted version of the content."""
+        return self.sanitized_text
+
+    @property
     def output_text(self) -> Optional[str]:
         """Returns sanitized_text if available, otherwise original_text (when safe)."""
         if self.blocked:
