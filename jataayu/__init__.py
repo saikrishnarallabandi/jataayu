@@ -22,13 +22,29 @@ __version__ = "0.2.0"
 from jataayu.core.threat import ThreatResult, ThreatLevel, ThreatType
 from jataayu.guards.inbound import InboundGuard
 from jataayu.guards.outbound import OutboundGuard, PrivacyConfig
-from jataayu.api import jataayu_check_inbound, jataayu_check_outbound
+from jataayu.api import (
+    jataayu_check_inbound,
+    jataayu_check_outbound,
+    jataayu_check_tool_return,
+    jataayu_check_memory_write,
+    jataayu_check_memory_read,
+    jataayu_vet_skill,
+)
+from jataayu.guards.skill_vet import SkillVetGuard, SkillVetResult
 from jataayu.convenience import check_inbound, check_outbound
 
 __all__ = [
     # Public convenience API (dict return format)
     "jataayu_check_inbound",
     "jataayu_check_outbound",
+    # Execution-context surfaces (tool returns + persistent memory)
+    "jataayu_check_tool_return",
+    "jataayu_check_memory_write",
+    "jataayu_check_memory_read",
+    # Skill vetting (install-time, LLM-judge)
+    "jataayu_vet_skill",
+    "SkillVetGuard",
+    "SkillVetResult",
     # Short aliases (tuple return format)
     "check_inbound",
     "check_outbound",

@@ -107,6 +107,8 @@ class JataayuMCPGateway:
         surface: str = "mcp-tool-call",
         enable_taint: bool = False,
         forward_headers: Optional[list[str]] = None,
+        inspect_returns: bool = True,
+        return_surface: str = "tool-return",
     ):
         self.upstream_url = upstream_url.rstrip("/")
         self.bind_host = bind_host
@@ -115,6 +117,12 @@ class JataayuMCPGateway:
         self.surface = surface
         self.enable_taint = enable_taint
         self.forward_headers = forward_headers or ["Authorization", "X-API-Key"]
+        # after_tool_call: scan tool RETURN values before the agent consumes them.
+        # The 2026 literature (DeepTrap) shows the execution context — not just the
+        # prompt and call params — is the attack surface: a tool can return a
+        # malicious page / injected instructions that the agent then acts on.
+        self.inspect_returns = inspect_returns
+        self.return_surface = return_surface
 
         # Lazy imports — don't require aiohttp/fastapi unless gateway is used
         from jataayu.guards.inbound import InboundGuard
@@ -200,6 +208,111 @@ class JataayuMCPGateway:
             )
 
         return not blocked, context
+
+    def after_tool_call(
+        self,
+        tool_name: str,
+        result: Any,
+        taint_ids: Optional[list[str]] = None,
+    ) -> tuple[bool, dict]:
+        """
+        Run InboundGuard on a tool's RETURN value before the agent consumes it.
+
+        This is the dual of before_tool_call: rather than scanning the parameters
+        going *into* a tool, it scans what comes *out*. Tool returns are
+        attacker-influenceable (a web-fetch tool can return a page containing
+        "ignore previous instructions"), so they are treated as untrusted inbound
+        content on the `tool-return` surface.
+
+        Args:
+            tool_name: The MCP tool that produced this result.
+            result: The tool result — raw MCP result dict, list, or text.
+            taint_ids: Optional taint IDs (the return is itself a new taint source).
+
+        Returns:
+            (safe, context) — if safe=False, the return should be withheld from
+            the agent (it carries an injection payload).
+        """
+        result_text = self._extract_result_text(result)
+
+        if not result_text.strip():
+            return True, {"tool_name": tool_name, "risk_score": 0.0, "blocked": False}
+
+        guard_result = self.guard.check(result_text, surface=self.return_surface)
+        blocked = guard_result.risk_score >= self.block_threshold
+
+        context = {
+            "tool_name": tool_name,
+            "risk_score": guard_result.risk_score,
+            "blocked": blocked,
+            "direction": "return",
+            "guard_result": guard_result.to_dict(),
+        }
+
+        if blocked:
+            logger.warning(
+                "MCP tool RETURN BLOCKED: tool=%s risk=%.2f surface=%s patterns=%s",
+                tool_name, guard_result.risk_score, self.return_surface,
+                guard_result.matched_patterns[:3],
+            )
+        elif not guard_result.is_safe:
+            logger.warning(
+                "MCP tool RETURN WARNING: tool=%s risk=%.2f explanation=%s",
+                tool_name, guard_result.risk_score, guard_result.explanation,
+            )
+
+        return not blocked, context
+
+    def inspect_tool_response(
+        self,
+        tool_name: str,
+        response_body: bytes,
+    ) -> tuple[bytes, dict]:
+        """
+        Inspect a JSON-RPC tool-call response body and, if the tool return carries
+        an injection payload, replace it with a safety notice so the agent never
+        consumes the payload.
+
+        Args:
+            tool_name: The tool that produced the response.
+            response_body: Raw JSON-RPC response bytes from the upstream server.
+
+        Returns:
+            (possibly_modified_body, context) — body is unchanged when the return
+            is safe; replaced with a JSON-RPC result carrying a block notice when not.
+        """
+        try:
+            resp = json.loads(response_body.decode("utf-8", errors="replace"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            # Not JSON we can inspect (e.g. SSE chunk) — pass through untouched.
+            return response_body, {"tool_name": tool_name, "inspected": False}
+
+        result = resp.get("result")
+        if result is None:
+            return response_body, {"tool_name": tool_name, "inspected": False}
+
+        safe, ctx = self.after_tool_call(tool_name, result)
+        ctx["inspected"] = True
+
+        if safe:
+            return response_body, ctx
+
+        # Withhold the malicious payload: replace the result content with a notice.
+        risk = ctx.get("risk_score", 0.0)
+        notice = {
+            "content": [{
+                "type": "text",
+                "text": (
+                    f"[Jataayu blocked this tool return: it carried a suspected "
+                    f"injection payload (risk={risk:.2f}). The original content was "
+                    f"withheld from the agent.]"
+                ),
+            }],
+            "isError": True,
+            "_jataayu_blocked": True,
+        }
+        resp["result"] = notice
+        return json.dumps(resp).encode(), ctx
 
     def handle_jsonrpc(self, request_body: str) -> tuple[str, bool, dict]:
         """
@@ -315,6 +428,26 @@ class JataayuMCPGateway:
                         f"risk={ctx['risk_score']:.2f}"
                     )
 
+                # after_tool_call: scan the tool RETURN before it reaches the agent.
+                # Only for tool-call responses (ctx carries tool_name) and when the
+                # upstream returned an inspectable JSON body (not an SSE stream).
+                tool_name = ctx.get("tool_name")
+                content_type = resp_headers.get("Content-Type", "")
+                if (
+                    self.inspect_returns
+                    and tool_name
+                    and "text/event-stream" not in content_type
+                ):
+                    resp_body, ret_ctx = self.inspect_tool_response(tool_name, resp_body)
+                    if ret_ctx.get("blocked"):
+                        resp_headers["X-Jataayu-Return-Blocked"] = "true"
+                        # Body changed length — let the client/aiohttp recompute.
+                        resp_headers.pop("Content-Length", None)
+                    elif ret_ctx.get("risk_score", 0) > 0.3:
+                        resp_headers["X-Jataayu-Return-Warning"] = (
+                            f"risk={ret_ctx['risk_score']:.2f}"
+                        )
+
                 return resp.status, resp_headers, resp_body
 
     async def start_async_server(self) -> None:
@@ -384,6 +517,24 @@ class JataayuMCPGateway:
                 for v in params.values()
             )
         return str(params)
+
+    @staticmethod
+    def _extract_result_text(result: Any) -> str:
+        """
+        Flatten an MCP tool result to text for return-value scanning.
+
+        MCP tool results are typically {"content": [{"type": "text", "text": ...}]}.
+        Falls back to recursively flattening any dict/list/scalar.
+        """
+        if isinstance(result, dict) and isinstance(result.get("content"), list):
+            parts = []
+            for item in result["content"]:
+                if isinstance(item, dict) and "text" in item:
+                    parts.append(str(item["text"]))
+                else:
+                    parts.append(JataayuMCPGateway._params_to_text(item))
+            return " ".join(parts)
+        return JataayuMCPGateway._params_to_text(result)
 
 
 # ---------------------------------------------------------------------------
