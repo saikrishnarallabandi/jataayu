@@ -116,6 +116,42 @@ class TaintEntry:
     propagation_path: list[str] = field(default_factory=list)
     original_surface: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    # The tainted content itself (capped), kept so we can check whether a later tool parameter
+    # actually *derives* from this source — real value-level information flow, not just a
+    # session-presence flag. Capped to bound memory.
+    content: str = ""
+
+
+_MAX_TRACKED_CONTENT = 8000
+
+
+def _norm(s: str) -> str:
+    """Lowercase + collapse whitespace for robust substring/token matching."""
+    return re.sub(r"\s+", " ", s.lower()).strip()
+
+
+def derives_from(tainted_content: str, param_text: str) -> bool:
+    """
+    True if `param_text` plausibly contains data that flowed from `tainted_content`.
+
+    Three signals (any one suffices), ordered cheap-first:
+      1. The whole (normalized) tainted content appears verbatim in the params.
+      2. A sliding 16-char window of the tainted content appears in the params (handles the agent
+         extracting a fragment — e.g. just the `curl … | bash` line out of a longer issue body).
+      3. >=3 distinct content words (len>=4) co-occur in the params (paraphrase/reordering).
+    """
+    a, b = _norm(tainted_content), _norm(param_text)
+    if not a or not b:
+        return False
+    if len(a) >= 12 and a in b:
+        return True
+    if len(a) >= 16:
+        for i in range(0, len(a) - 16 + 1, 4):
+            if a[i:i + 16] in b:
+                return True
+    ta = set(re.findall(r"\w{4,}", a))
+    tb = set(re.findall(r"\w{4,}", b))
+    return len(ta & tb) >= 3
 
 
 class TaintTracker:
@@ -181,6 +217,7 @@ class TaintTracker:
             original_surface=surface,
             propagation_path=[surface or source.value],
             metadata=metadata or {},
+            content=content[:_MAX_TRACKED_CONTENT],
         )
         self._taint_registry[taint_id] = entry
 
@@ -260,22 +297,41 @@ class TaintTracker:
             sink=final_sink,
         )
 
-        # Check registered taint IDs
-        active_taints: list[TaintEntry] = []
+        # Resolve which taints are in scope. Explicitly-passed taint_ids are the session-level
+        # set (legacy behavior). We ALSO scan every registered taint for a *value match* against
+        # the params — this is the real information-flow check and removes the gap where a caller
+        # forgets to thread taint_ids through (the most common integration mistake).
+        explicit_taints: list[TaintEntry] = []
         if taint_ids:
             for tid in taint_ids:
                 if tid in self._taint_registry:
-                    active_taints.append(self._taint_registry[tid])
+                    explicit_taints.append(self._taint_registry[tid])
 
-        if active_taints:
-            # Use most recent / highest-risk taint
-            primary = active_taints[0]
+        # Value-level: any registered taint whose content actually appears in the params.
+        value_taints = [
+            e for e in self._taint_registry.values()
+            if e.content and derives_from(e.content, all_param_text)
+        ]
+
+        primary = None
+        match_kind = "none"
+        if value_taints:
+            # Highest-confidence: confirmed data flow from an untrusted source into this call.
+            primary = value_taints[0]
+            match_kind = "value"
+        elif explicit_taints:
+            # Session-present but value not matched — coarse, legacy presence-based flag.
+            primary = explicit_taints[0]
+            match_kind = "session"
+
+        if primary is not None:
             taint_state = TaintState(
                 is_tainted=True,
                 source=primary.source,
                 sink=final_sink,
                 propagation_path=primary.propagation_path + [f"tool:{tool_name}"],
                 taint_id=primary.taint_id,
+                match=match_kind,
             )
 
         # Compute risk score

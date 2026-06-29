@@ -28,3 +28,11 @@ ENV/
 .ruff_cache/
 *.pyc
 .DS_Store
+
+# Layer 2 training artifacts (generated)
+training/secalign/data/
+training/**/exp/
+exp/
+
+# session working notes
+tasks/

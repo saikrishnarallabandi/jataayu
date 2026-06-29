@@ -218,6 +218,48 @@ def jataayu_check_skillset(
     return risk.to_dict()
 
 
+def jataayu_authorize_action(
+    tool_name: str,
+    params: dict,
+    *,
+    untrusted: bool = True,
+    policy_file: Optional[str] = None,
+    agent: Optional[str] = None,
+) -> dict:
+    """
+    Authorize a tool call at the EFFECT BOUNDARY — by the harm of the action, not the text.
+
+    This is the architectural defense (arXiv:2606.09549 / CaMeL): an attacker who controls the content
+    still cannot get an unauthorized high-effect action committed. Untrusted-derived input into a
+    shell/code/secret effect is DENIED; into a network/file/memory-write effect it NEEDS_APPROVAL;
+    trusted input (and reads) are ALLOWED — subject to the agent's capability policy.
+
+    Args:
+        tool_name: The tool about to be called (e.g. "bash", "write_file", "fetch").
+        params: The tool call parameters.
+        untrusted: Whether the values driving this call derive from untrusted content
+                   (tool returns, web pages, issues, memory). Default True (assume untrusted).
+        policy_file: Optional path to a Jataayu policy YAML for capability isolation.
+        agent: Agent name to resolve in the policy.
+
+    Returns:
+        dict: tool_name, effect_class, provenance, decision ('allow'|'deny'|'needs_approval'),
+              reason, violations, commit_token.
+    """
+    from jataayu.guards.effect_boundary import EffectBoundary, Value, Provenance
+
+    policy = None
+    if policy_file:
+        from jataayu.config.policy import load_policy
+        loaded = load_policy(policy_file)
+        policy = loaded.get_agent_policy(agent) if agent else None
+
+    boundary = EffectBoundary(policy=policy)
+    prov = Provenance.UNTRUSTED if untrusted else Provenance.TRUSTED
+    values = [Value(str(params), prov)]
+    return boundary.preview(tool_name, params, values).to_dict()
+
+
 def _check_inbound_surface(content: str, surface: str, *, use_llm: bool) -> dict:
     """Shared helper: run the inbound guard on an execution-context surface."""
     guard = _get_inbound_guard(use_llm=use_llm)
