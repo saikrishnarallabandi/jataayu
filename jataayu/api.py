@@ -142,6 +142,156 @@ def jataayu_check_inbound(
     }
 
 
+def jataayu_vet_skill(
+    skill_path: Optional[str] = None,
+    *,
+    content: Optional[str] = None,
+    code: Optional[str] = None,
+    tool_defs: Optional[str] = None,
+    name: Optional[str] = None,
+    use_llm: bool = True,
+) -> dict:
+    """
+    Vet a skill for install-time risk (SkillVetBench).
+
+    Reads the skill's instructions, code, and tool definitions; runs a pattern
+    pre-filter then an LLM-as-Judge that scores a Skill-Risk vector and a verdict.
+    Catches the instruction-layer threats that static code scanners miss.
+
+    Args:
+        skill_path: Path to a skill directory or SKILL.md / code file.
+        content: Skill instructions (used if no path given).
+        code: Skill code (used if no path given).
+        tool_defs: Tool/MCP definitions (used if no path given).
+        name: Optional skill name override.
+        use_llm: Run the LLM judge for non-obvious cases. Default True.
+
+    Returns:
+        dict with keys: verdict ('SAFE'|'REVIEW'|'MALICIOUS'), overall_score,
+        risk_vector, capabilities, dangerous_combos, explanation, matched_patterns.
+    """
+    from jataayu.guards.skill_vet import SkillVetGuard
+
+    guard = SkillVetGuard(use_llm=use_llm)
+    result = guard.vet(
+        skill_path=skill_path, content=content, code=code,
+        tool_defs=tool_defs, name=name,
+    )
+    return result.to_dict()
+
+
+def jataayu_check_skillset(
+    skills: list,
+    *,
+    policy_file: Optional[str] = None,
+    agent: Optional[str] = None,
+    use_llm: bool = False,
+) -> dict:
+    """
+    Check a SET of skills for compositional risk ("When Safe Skills Collide").
+
+    Individually-safe skills can compose into unsafe capability sets (e.g. one
+    reads secrets, another writes to the network = exfiltration). This flags
+    dangerous cross-skill capability combinations and enforces per-agent
+    capability allowlists at install time.
+
+    Args:
+        skills: List of skills — paths to skill dirs/files, dicts with
+            'capabilities', or SkillVetResult objects.
+        policy_file: Optional path to a Jataayu policy YAML for capability isolation.
+        agent: Agent name to resolve in the policy.
+        use_llm: Run the LLM judge when vetting paths. Default False.
+
+    Returns:
+        dict with keys: verdict ('SAFE'|'REVIEW'|'MALICIOUS'), skills,
+        per_skill_capabilities, aggregate_capabilities, risky_combinations,
+        policy_violations, individually_flagged, explanation.
+    """
+    from jataayu.guards.composition import check_skillset
+
+    policy = None
+    if policy_file:
+        from jataayu.config.policy import load_policy
+        policy = load_policy(policy_file)
+
+    risk = check_skillset(skills, policy=policy, agent=agent, use_llm=use_llm)
+    return risk.to_dict()
+
+
+def _check_inbound_surface(content: str, surface: str, *, use_llm: bool) -> dict:
+    """Shared helper: run the inbound guard on an execution-context surface."""
+    guard = _get_inbound_guard(use_llm=use_llm)
+    result = guard.check(content, surface=surface)
+    return {
+        "status": _INBOUND_STATUS_MAP.get(result.threat_level, "MEDIUM"),
+        "findings": result.explanation,
+        "risk_score": result.risk_score,
+        "threat_types": [t.value for t in result.threat_types],
+        "blocked": result.blocked,
+    }
+
+
+def jataayu_check_tool_return(
+    content: str,
+    *,
+    tool_name: Optional[str] = None,
+    use_llm: bool = False,
+) -> dict:
+    """
+    Check a tool's RETURN value for injection before the agent consumes it.
+
+    Tool returns are attacker-influenceable — a web-fetch tool can return a page
+    that says "ignore previous instructions". This is the execution-context dual
+    of inbound prompt checking: scan what tools emit, not just what users send.
+
+    Args:
+        content: The tool's output text.
+        tool_name: Optional name of the tool (for logging/correlation only).
+        use_llm: Enable LLM slow-path. Default False (fast regex-only).
+
+    Returns:
+        dict with keys: status, findings, risk_score, threat_types, blocked.
+    """
+    result = _check_inbound_surface(content, "tool-return", use_llm=use_llm)
+    if tool_name:
+        result["tool_name"] = tool_name
+    return result
+
+
+def jataayu_check_memory_write(content: str, *, use_llm: bool = False) -> dict:
+    """
+    Check content before it is written to persistent agent memory.
+
+    Defends against memory poisoning: untrusted content (e.g. an incoming chat
+    message) persisted now and silently recalled into context on a later turn.
+
+    Args:
+        content: The text about to be stored in memory.
+        use_llm: Enable LLM slow-path. Default False.
+
+    Returns:
+        dict with keys: status, findings, risk_score, threat_types, blocked.
+    """
+    return _check_inbound_surface(content, "memory-write", use_llm=use_llm)
+
+
+def jataayu_check_memory_read(content: str, *, use_llm: bool = False) -> dict:
+    """
+    Check content recalled from persistent memory before it re-enters context.
+
+    Defends against delayed injection: a payload poisoned into memory in an
+    earlier turn re-entering the agent's context on recall.
+
+    Args:
+        content: The text recalled from memory.
+        use_llm: Enable LLM slow-path. Default False.
+
+    Returns:
+        dict with keys: status, findings, risk_score, threat_types, blocked.
+    """
+    return _check_inbound_surface(content, "memory-read", use_llm=use_llm)
+
+
 def jataayu_check_outbound(
     content: str,
     surface: str = "unknown",
