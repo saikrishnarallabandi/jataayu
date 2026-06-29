@@ -31,6 +31,13 @@ agents:
     # Credential checking
     check_credentials: true
     disabled_cred_rules: []
+    # Capability isolation — what this agent's installed skills may collectively do.
+    # allowed_capabilities (allowlist; empty = all allowed) and forbidden_capabilities
+    # are enforced by jataayu_check_skillset() at install time. Capability tags:
+    # exec, fs_read, fs_write, network_read, network_write, reads_secrets,
+    # memory_read, memory_write.
+    allowed_capabilities: [fs_read, network_read]
+    forbidden_capabilities: [exec]
 
   github-bot:
     allowed_surfaces: [github-issue, github-pr, github-comment, internal]
@@ -145,6 +152,8 @@ class AgentPolicy:
     use_llm: bool = False
     llm_threshold: float = 0.35
     block_threshold: float = 0.9
+    allowed_capabilities: list[str] = field(default_factory=list)
+    forbidden_capabilities: list[str] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
 
     def is_surface_allowed(self, surface: str) -> bool:
@@ -152,6 +161,23 @@ class AgentPolicy:
         if not self.allowed_surfaces:
             return True  # Empty = all allowed
         return surface in self.allowed_surfaces
+
+    def is_capability_allowed(self, capability: str) -> bool:
+        """
+        Check if a capability is permitted for this agent (capability isolation).
+
+        A capability is forbidden if it appears in `forbidden_capabilities`, or if
+        `allowed_capabilities` is non-empty and does not contain it (allowlist mode).
+        """
+        if capability in self.forbidden_capabilities:
+            return False
+        if self.allowed_capabilities:
+            return capability in self.allowed_capabilities
+        return True
+
+    def capability_violations(self, capabilities) -> list[str]:
+        """Return the subset of `capabilities` this agent's policy forbids."""
+        return sorted(c for c in set(capabilities) if not self.is_capability_allowed(c))
 
     def get_surface_policy(self, surface: str) -> SurfacePolicy:
         """Get the effective SurfacePolicy for a surface (with agent defaults)."""
@@ -198,6 +224,8 @@ class AgentPolicy:
             "use_llm": self.use_llm,
             "llm_threshold": self.llm_threshold,
             "block_threshold": self.block_threshold,
+            "allowed_capabilities": self.allowed_capabilities,
+            "forbidden_capabilities": self.forbidden_capabilities,
         }
 
 
@@ -396,10 +424,13 @@ class PolicyLoader:
             use_llm=cfg.get("use_llm", defaults.get("use_llm", False)),
             llm_threshold=cfg.get("llm_threshold", defaults.get("llm_threshold", 0.35)),
             block_threshold=cfg.get("block_threshold", defaults.get("block_threshold", 0.9)),
+            allowed_capabilities=cfg.get("allowed_capabilities", defaults.get("allowed_capabilities", [])),
+            forbidden_capabilities=cfg.get("forbidden_capabilities", defaults.get("forbidden_capabilities", [])),
             extra={k: v for k, v in cfg.items()
                    if k not in ("allowed_surfaces", "surface_overrides", "protected_names",
                                 "check_credentials", "disabled_cred_rules", "check_high_entropy",
-                                "use_llm", "llm_threshold", "block_threshold")},
+                                "use_llm", "llm_threshold", "block_threshold",
+                                "allowed_capabilities", "forbidden_capabilities")},
         )
 
     @staticmethod
