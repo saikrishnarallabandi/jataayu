@@ -106,6 +106,13 @@ class TaintState:
     sink: TaintSink = TaintSink.NONE
     propagation_path: list[str] = field(default_factory=list)
     taint_id: Optional[str] = None
+    # How the taint→sink flow was established:
+    #   "value"   — the tainted *content* was found inside the tool parameters (true information
+    #               flow; high confidence, robust to over/under-blocking).
+    #   "session" — a taint is active in the session and the sink is dangerous, but the specific
+    #               value was not matched (coarse, presence-based — legacy behavior).
+    #   "none"    — no taint.
+    match: str = "none"
 
     @property
     def is_dangerous_flow(self) -> bool:
@@ -123,6 +130,7 @@ class TaintState:
             "sink": self.sink.value,
             "propagation_path": self.propagation_path,
             "taint_id": self.taint_id,
+            "match": self.match,
             "is_dangerous_flow": self.is_dangerous_flow,
         }
 

@@ -17,7 +17,7 @@ Quick start::
     status, findings = check_inbound(content, surface="github-issue")
     status, redacted = check_outbound(draft, surface="discord-channel")
 """
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from jataayu.core.threat import ThreatResult, ThreatLevel, ThreatType
 from jataayu.guards.inbound import InboundGuard
@@ -33,6 +33,10 @@ from jataayu.api import (
 )
 from jataayu.guards.skill_vet import SkillVetGuard, SkillVetResult
 from jataayu.guards.composition import check_skillset, CompositionRisk
+from jataayu.guards.effect_boundary import (
+    EffectBoundary, Value, Provenance, EffectClass, Decision, CommitRejected,
+)
+from jataayu.api import jataayu_authorize_action
 from jataayu.convenience import check_inbound, check_outbound
 
 __all__ = [
@@ -51,6 +55,14 @@ __all__ = [
     "jataayu_check_skillset",
     "check_skillset",
     "CompositionRisk",
+    # Effect boundary — action-level authorization (PREVIEW -> COMMIT)
+    "jataayu_authorize_action",
+    "EffectBoundary",
+    "Value",
+    "Provenance",
+    "EffectClass",
+    "Decision",
+    "CommitRejected",
     # Short aliases (tuple return format)
     "check_inbound",
     "check_outbound",
