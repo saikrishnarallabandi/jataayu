@@ -23,8 +23,18 @@ def load_config(path: str) -> dict:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="config.yaml")
+    ap.add_argument("--base", default=None, help="override base_model (e.g. a merged SFT model)")
+    ap.add_argument("--data", default=None, help="override data_file")
+    ap.add_argument("--out", default=None, help="override output_dir")
+    ap.add_argument("--epochs", type=float, default=None)
+    ap.add_argument("--lr", type=float, default=None)
     args = ap.parse_args()
     cfg = load_config(args.config)
+    if args.base:   cfg["base_model"] = args.base
+    if args.data:   cfg["data_file"] = args.data
+    if args.out:    cfg["output_dir"] = args.out
+    if args.epochs is not None: cfg["num_train_epochs"] = args.epochs
+    if args.lr is not None:     cfg["learning_rate"] = args.lr
 
     import torch
     from datasets import load_dataset
