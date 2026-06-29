@@ -37,19 +37,20 @@ def main():
         raise SystemExit(f"missing {data_file} — run prep_data.py first")
     ds = load_dataset("json", data_files=str(data_file), split="train")
 
-    quant = BitsAndBytesConfig(
-        load_in_4bit=cfg.get("load_in_4bit", True),
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.float16,  # fp16 — house rule for DPO stability
-        bnb_4bit_use_double_quant=True,
-    )
+    # QLoRA (bitsandbytes) is optional. On a big-unified-memory box (e.g. GB10 / DGX Spark, 121GB)
+    # full fp16 LoRA fits an 8B easily and avoids bitsandbytes — the brittle dep on aarch64/Blackwell.
+    model_kwargs = dict(torch_dtype=torch.float16, device_map="auto", trust_remote_code=True)
+    if cfg.get("load_in_4bit", False):
+        model_kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.float16,  # fp16 — house rule for DPO stability
+            bnb_4bit_use_double_quant=True,
+        )
     tok = AutoTokenizer.from_pretrained(cfg["base_model"], trust_remote_code=True)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
-    model = AutoModelForCausalLM.from_pretrained(
-        cfg["base_model"], quantization_config=quant, torch_dtype=torch.float16,
-        device_map="auto", trust_remote_code=True,
-    )
+    model = AutoModelForCausalLM.from_pretrained(cfg["base_model"], **model_kwargs)
 
     peft_cfg = LoraConfig(
         r=cfg["lora_r"], lora_alpha=cfg["lora_alpha"], lora_dropout=cfg["lora_dropout"],
@@ -64,14 +65,14 @@ def main():
         per_device_train_batch_size=cfg["per_device_train_batch_size"],
         gradient_accumulation_steps=cfg["gradient_accumulation_steps"],
         max_length=cfg["max_length"],
-        max_prompt_length=cfg["max_prompt_length"],
         fp16=cfg.get("fp16", True),
         bf16=cfg.get("bf16", False),
         logging_steps=cfg["logging_steps"],
         save_steps=cfg["save_steps"],
         seed=cfg["seed"],
-        report_to=["wandb"],
-        run_name="secalign-dpo",
+        max_steps=cfg.get("max_steps", -1),  # -1 = full epochs; set small for a smoke test
+        report_to=cfg.get("report_to", ["wandb"]),
+        run_name=cfg.get("run_name", "secalign-dpo"),
     )
 
     trainer = DPOTrainer(
