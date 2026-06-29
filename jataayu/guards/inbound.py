@@ -26,6 +26,7 @@ import unicodedata
 from typing import Optional
 
 from jataayu.core.engine import JataayuEngine, LLMBackend
+from jataayu.core.normalize import normalized_views
 from jataayu.core.threat import ThreatLevel, ThreatResult, ThreatType
 
 
@@ -549,10 +550,15 @@ class InboundGuard(JataayuEngine):
         llm_threshold: float = 0.35,
         homoglyph_check: bool = True,
         markdown_nlp: bool = True,
+        normalize: bool = True,
     ):
         super().__init__(llm_backend=llm_backend, use_llm=use_llm, llm_threshold=llm_threshold)
         self.homoglyph_check = homoglyph_check
         self.markdown_nlp = markdown_nlp
+        # When True, the fast path scans the regex catalog over normalized views of the input
+        # (confusable-folded, deshattered, de-leet) plus decoded payloads, defeating the trivial
+        # spacing/homoglyph/encoding evasions that collapse pattern guards. See core/normalize.py.
+        self.normalize = normalize
 
     def check(self, text: str, surface: str = "unknown") -> ThreatResult:
         """
@@ -593,12 +599,22 @@ class InboundGuard(JataayuEngine):
         max_score = 0.0
         multiplier = SURFACE_MULTIPLIERS.get(surface, 1.0)
 
+        # Scan the regex catalog over normalized views of the input (original + confusable-folded
+        # + deshattered + de-leet + decoded payloads). Taking the max across views means an
+        # attacker must evade the patterns in EVERY view at once — spacing/homoglyph/encoding
+        # tricks that defeat single-view pattern guards (~97% per our own benchmark) re-expose the
+        # trigger tokens in at least one view. Falls back to single-view when normalize=False.
+        views = normalized_views(text) if self.normalize else [text]
+
         for pattern, threat_type, base_score, desc in _COMPILED_PATTERNS:
-            if pattern.search(text):
-                effective_score = min(base_score * multiplier, 1.0)
-                matched.append(desc)
-                threat_types.add(threat_type)
-                max_score = max(max_score, effective_score)
+            for vi, view in enumerate(views):
+                if pattern.search(view):
+                    effective_score = min(base_score * multiplier, 1.0)
+                    tag = desc if vi == 0 else f"{desc} [normalized view]"
+                    matched.append(tag)
+                    threat_types.add(threat_type)
+                    max_score = max(max_score, effective_score)
+                    break  # one hit per pattern is enough; don't double-count across views
 
         # Homoglyph detection (normalize and compare)
         if self.homoglyph_check:
@@ -608,14 +624,21 @@ class InboundGuard(JataayuEngine):
                 max_score = max(max_score, homoglyph_score * multiplier)
                 matched.append(f"Homoglyph substitution detected (score={homoglyph_score:.2f})")
 
-        # Markdown-aware NLP injection detection (Aguara NLP layer analog)
+        # Markdown-aware NLP injection detection (Aguara NLP layer analog).
+        # Run it over the normalized views too: many natural-language injections ("forget all
+        # previous tasks", "act as ...") are caught only by this keyword layer, so without this a
+        # space-out attack would still evade even though the deshattered view reconstructs the text.
         if self.markdown_nlp:
-            nlp_score, nlp_findings = self._markdown_nlp_check(text)
-            if nlp_score > 0:
-                effective = min(nlp_score * multiplier, 1.0)
-                threat_types.add(ThreatType.PROMPT_INJECTION)
-                max_score = max(max_score, effective)
-                matched.extend(nlp_findings)
+            for view in views:
+                nlp_score, nlp_findings = self._markdown_nlp_check(view)
+                if nlp_score > 0:
+                    effective = min(nlp_score * multiplier, 1.0)
+                    threat_types.add(ThreatType.PROMPT_INJECTION)
+                    max_score = max(max_score, effective)
+                    if view is text:
+                        matched.extend(nlp_findings)
+                    elif effective >= max_score:
+                        matched.extend(f"{f} [normalized view]" for f in nlp_findings)
 
         threat_level = self._score_to_level(max_score)
 
