@@ -1,0 +1,66 @@
+{
+  "mode": "fast+llm slow-path (llm_threshold=0.0)",
+  "dataset": "deepset/prompt-injections",
+  "surface": "unknown",
+  "model": "qwen3.6:35b-a3b",
+  "host": "http://<ollama-host>:11434",
+  "workers": 8,
+  "n_total": 662,
+  "n_injection": 263,
+  "n_benign": 399,
+  "wall_seconds": 1421.1,
+  "llm_used_frac": 0.994,
+  "latency_ms": {
+    "mean": 17086.8,
+    "p50": 13791.9,
+    "p99": 47081.1
+  },
+  "roc_auc": 0.8149,
+  "pr_auc": 0.7749,
+  "operating_points": {
+    "BLOCKED>=0.90": {
+      "threshold": 0.9,
+      "tp": 54,
+      "fp": 0,
+      "tn": 399,
+      "fn": 209,
+      "precision": 1.0,
+      "recall": 0.2053,
+      "fpr": 0.0,
+      "f1": 0.3407
+    },
+    "HIGH>=0.70": {
+      "threshold": 0.7,
+      "tp": 96,
+      "fp": 2,
+      "tn": 397,
+      "fn": 167,
+      "precision": 0.9796,
+      "recall": 0.365,
+      "fpr": 0.005,
+      "f1": 0.5319
+    },
+    "MEDIUM>=0.45": {
+      "threshold": 0.45,
+      "tp": 131,
+      "fp": 2,
+      "tn": 397,
+      "fn": 132,
+      "precision": 0.985,
+      "recall": 0.4981,
+      "fpr": 0.005,
+      "f1": 0.6616
+    },
+    "LOW>=0.20": {
+      "threshold": 0.2,
+      "tp": 153,
+      "fp": 2,
+      "tn": 397,
+      "fn": 110,
+      "precision": 0.9871,
+      "recall": 0.5817,
+      "fpr": 0.005,
+      "f1": 0.7321
+    }
+  }
+}
