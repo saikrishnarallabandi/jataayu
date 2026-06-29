@@ -5,9 +5,9 @@
   "n_injection": 263,
   "n_benign": 399,
   "latency_ms": {
-    "mean": 0.3191,
-    "p50": 0.1787,
-    "p99": 1.9203
+    "mean": 0.4706,
+    "p50": 0.2408,
+    "p99": 3.3699
   },
   "roc_auc": 0.6319,
   "pr_auc": 0.5481,
@@ -61,16 +61,16 @@
     "baseline_caught_at_MEDIUM": 71,
     "baseline_pos": 263,
     "space_out": {
-      "still_caught": 2,
-      "evasion_rate": 0.9718
+      "still_caught": 71,
+      "evasion_rate": 0.0
     },
     "zero_width": {
       "still_caught": 71,
       "evasion_rate": 0.0
     },
     "leetspeak": {
-      "still_caught": 6,
-      "evasion_rate": 0.9155
+      "still_caught": 71,
+      "evasion_rate": 0.0
     }
   }
 }
