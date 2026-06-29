@@ -513,10 +513,20 @@ class OutboundGuard(JataayuEngine):
         fast_result = self._fast_path(text, surface)
 
         if fast_result.risk_score >= 0.9:
+            # Auto-populate sanitized_text / redacted for convenience
+            if fast_result.sanitized_text is None:
+                fast_result.sanitized_text = self._regex_redact(text, fast_result)
             return fast_result
 
         if self.use_llm and fast_result.risk_score >= self.llm_threshold:
-            return self._slow_path_check(text, surface, fast_result)
+            result = self._slow_path_check(text, surface, fast_result)
+            if result.sanitized_text is None and not result.is_safe:
+                result.sanitized_text = self._regex_redact(text, result)
+            return result
+
+        # Auto-populate sanitized_text for non-safe results
+        if fast_result.sanitized_text is None and not fast_result.is_safe:
+            fast_result.sanitized_text = self._regex_redact(text, fast_result)
 
         return fast_result
 
@@ -734,6 +744,13 @@ class OutboundGuard(JataayuEngine):
         for pattern, _, score, desc, cats in _COMPILED_PII:
             if score >= 0.75 and set(cats).intersection(self.config.check_categories):
                 redacted = pattern.sub("[REDACTED]", redacted)
+
+        # Redact credential patterns (always, when credentials are enabled)
+        if self.config.check_credentials:
+            disabled = set(self.config.disabled_cred_rules)
+            for pattern, _, score, desc, rule_id in _COMPILED_CRED:
+                if rule_id not in disabled:
+                    redacted = pattern.sub("<REDACTED>", redacted)
 
         return redacted
 
