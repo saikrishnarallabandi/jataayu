@@ -1,5 +1,32 @@
 # jataayu Layer 2 — SecAlign-style preference tuning (ready-to-launch)
 
+> ## Adversarial-robustness study (2026-06-29/30, dgx-pavan / GB10) — headline
+>
+> "Can we improve beyond published fine-tuning defenses?" Measured answer: **yes, substantially —
+> but not a solve.** All numbers are GCG attack-success-rate (lower = better), Qwen2.5-3B.
+>
+> | attack | base | our SFT+DPO | + adversarial training |
+> |---|---|---|---|
+> | static (9 held-out families) | 53–56% | **0%** | **0%** |
+> | GCG, same family (completion) | 100% | **~100% (breaks)** | **0%** (0/10) |
+> | GCG re-adapted (naive, *untrained* escape) | 100% | 100% | **16.7%** (1/6) |
+> | GCG bare (pure suffix, no injection text) | — | — | **0%** (0/4) |
+>
+> - Published fine-tuning defenses (StruQ/SecAlign/Meta-SecAlign) collapse to **72–100%** under
+>   adaptive GCG. Our **adversarially-hardened** model holds at **0–17%** — a real improvement.
+> - **Honest limit:** a re-adapting attacker using a *different injection seed* than the model was
+>   hardened on still breaks ~1-in-6. This is the "Attacker Moves Second" (arXiv 2510.09023) result:
+>   adversarial training raises the bar ~6×, it does **not** make a learned defense unbreakable.
+> - **Conclusion:** the learned layer is strong **defense-in-depth**, never the boundary. The
+>   deterministic **Layer 1 effect-boundary** remains the security floor — it doesn't depend on
+>   winning the text/optimization battle at all.
+>
+> Reproduce: `prep_secalign.py`/`prep_adversarial.py` (data) → `train_sft.py`+`train_dpo.py`
+> (clean + adversarial) → `eval_asr.py` (static, `prep_crosseval.py`/`prep_completion.py` sets) →
+> `gcg_attack.py` (adaptive; `--seed_style completion|naive|bare`). Raw results in `results_*.txt`.
+
+
+
 Layers 0 (input normalization + decode + value-taint) and Layer 1 (effect-boundary authorization)
 are deployed in the library. Layer 2 is the **learned** tier: a model fine-tuned to ignore
 injected instructions in the *data* channel. Per the SOTA survey it is the only prompting/training
