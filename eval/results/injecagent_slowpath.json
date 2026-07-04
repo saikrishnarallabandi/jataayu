@@ -1,0 +1,168 @@
+{
+  "benchmark": "InjecAgent (arXiv:2403.02691) \u2014 indirect prompt injection via tool returns",
+  "path": "slowpath",
+  "api": "jataayu_check_tool_return (surface=tool-return)",
+  "n_injected": 2108,
+  "n_clean": 2108,
+  "latency_ms": {
+    "mean": 20931.8464,
+    "p50": 25006.6827,
+    "p99": 59714.4682
+  },
+  "operating_points": {
+    "BLOCKED>=0.90": {
+      "threshold": 0.9,
+      "tp": 1165,
+      "fp": 0,
+      "tn": 2108,
+      "fn": 943,
+      "precision": 1.0,
+      "recall": 0.5527,
+      "fpr": 0.0,
+      "f1": 0.7119
+    },
+    "HIGH>=0.70": {
+      "threshold": 0.7,
+      "tp": 1221,
+      "fp": 0,
+      "tn": 2108,
+      "fn": 887,
+      "precision": 1.0,
+      "recall": 0.5792,
+      "fpr": 0.0,
+      "f1": 0.7336
+    },
+    "MEDIUM>=0.45": {
+      "threshold": 0.45,
+      "tp": 1401,
+      "fp": 0,
+      "tn": 2108,
+      "fn": 707,
+      "precision": 1.0,
+      "recall": 0.6646,
+      "fpr": 0.0,
+      "f1": 0.7985
+    },
+    "LOW>=0.20": {
+      "threshold": 0.2,
+      "tp": 1498,
+      "fp": 0,
+      "tn": 2108,
+      "fn": 610,
+      "precision": 1.0,
+      "recall": 0.7106,
+      "fpr": 0.0,
+      "f1": 0.8308
+    }
+  },
+  "detection_by_split": {
+    "BLOCKED>=0.90": {
+      "overall": {
+        "n": 2108,
+        "caught": 1165,
+        "detection_rate": 0.5527
+      },
+      "direct_harm": {
+        "n": 1020,
+        "caught": 544,
+        "detection_rate": 0.5333
+      },
+      "data_stealing": {
+        "n": 1088,
+        "caught": 621,
+        "detection_rate": 0.5708
+      },
+      "base": {
+        "n": 1054,
+        "caught": 111,
+        "detection_rate": 0.1053
+      },
+      "enhanced": {
+        "n": 1054,
+        "caught": 1054,
+        "detection_rate": 1.0
+      }
+    },
+    "HIGH>=0.70": {
+      "overall": {
+        "n": 2108,
+        "caught": 1221,
+        "detection_rate": 0.5792
+      },
+      "direct_harm": {
+        "n": 1020,
+        "caught": 555,
+        "detection_rate": 0.5441
+      },
+      "data_stealing": {
+        "n": 1088,
+        "caught": 666,
+        "detection_rate": 0.6121
+      },
+      "base": {
+        "n": 1054,
+        "caught": 167,
+        "detection_rate": 0.1584
+      },
+      "enhanced": {
+        "n": 1054,
+        "caught": 1054,
+        "detection_rate": 1.0
+      }
+    },
+    "MEDIUM>=0.45": {
+      "overall": {
+        "n": 2108,
+        "caught": 1401,
+        "detection_rate": 0.6646
+      },
+      "direct_harm": {
+        "n": 1020,
+        "caught": 629,
+        "detection_rate": 0.6167
+      },
+      "data_stealing": {
+        "n": 1088,
+        "caught": 772,
+        "detection_rate": 0.7096
+      },
+      "base": {
+        "n": 1054,
+        "caught": 347,
+        "detection_rate": 0.3292
+      },
+      "enhanced": {
+        "n": 1054,
+        "caught": 1054,
+        "detection_rate": 1.0
+      }
+    },
+    "LOW>=0.20": {
+      "overall": {
+        "n": 2108,
+        "caught": 1498,
+        "detection_rate": 0.7106
+      },
+      "direct_harm": {
+        "n": 1020,
+        "caught": 681,
+        "detection_rate": 0.6676
+      },
+      "data_stealing": {
+        "n": 1088,
+        "caught": 817,
+        "detection_rate": 0.7509
+      },
+      "base": {
+        "n": 1054,
+        "caught": 444,
+        "detection_rate": 0.4213
+      },
+      "enhanced": {
+        "n": 1054,
+        "caught": 1054,
+        "detection_rate": 1.0
+      }
+    }
+  }
+}
