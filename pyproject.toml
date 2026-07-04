@@ -42,7 +42,7 @@ dev = [
 jataayu = "jataayu.integrations.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/saikrishnarallabandi/jataayu"
+Homepage = "https://saikrishnarallabandi.github.io/jataayu/"
 Repository = "https://github.com/saikrishnarallabandi/jataayu"
 Issues = "https://github.com/saikrishnarallabandi/jataayu/issues"
 
