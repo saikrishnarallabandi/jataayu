@@ -204,10 +204,12 @@ def check_skillset(
             })
 
     # --- annotate combos: fragmentation + endorsed contributors ---
-    # Intent fragmentation (SCR-Bench "semantic intent fragmentation"): a dangerous
-    # chain whose capabilities are spread across 3+ distinct skills is the hardest case
-    # for pairwise / per-skill review to catch. Trust transfer: an endorsed skill that
-    # contributes a dangerous capability — endorsement must not launder it.
+    # Intent fragmentation (SCR-Bench / arXiv:2606.00448 — individually-safe skills
+    # compose into unsafe sets): a dangerous chain whose capabilities are spread across
+    # 3+ distinct skills is the hardest case for pairwise / per-skill review to catch.
+    # Trust transfer is jataayu's own stance: an endorsed skill that contributes a
+    # dangerous capability must not have endorsement launder it (endorsement is not a
+    # security property; no cited benchmark number).
     trust_transfer: list[dict] = []
     _seen_transfer: set[tuple[str, tuple[str, ...]]] = set()
     for combo in risky_combinations:
@@ -274,8 +276,9 @@ def _resolve_agent_policy(policy: Any, agent: Optional[str]):
 
 
 def _rollup(individually_flagged, risky_combinations, policy_violations, trust_transfer) -> str:
-    # Endorsement laundering a dangerous capability is install-blockable (SCR-Bench: an
-    # endorsed skill drives risky-approval rates from ~1% to ~84%).
+    # Endorsement laundering a dangerous capability is install-blockable. This is
+    # jataayu's own defensive stance (endorsement is not a security property), not a
+    # sourced benchmark number — see CHANGELOG for the SCR-Bench citation correction.
     if (policy_violations or trust_transfer
             or any(f["verdict"] == "MALICIOUS" for f in individually_flagged)):
         return "MALICIOUS"
