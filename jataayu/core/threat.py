@@ -40,6 +40,7 @@ class ThreatType(Enum):
     PRIVACY_VIOLATION = "privacy_violation"
     CREDENTIAL_LEAK = "credential_leak"
     TAINT_FLOW = "taint_flow"
+    EXFIL_CHANNEL = "exfil_channel"
 
 
 # ---------------------------------------------------------------------------
