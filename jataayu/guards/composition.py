@@ -47,9 +47,13 @@ class CompositionRisk:
         per_skill_capabilities: skill name -> sorted capability tags.
         aggregate_capabilities: Union of all capabilities across the set.
         risky_combinations: Cross-skill dangerous capability combos, each:
-            {"capabilities": [...], "description": str, "contributors": {cap: [skills]}}.
+            {"capabilities": [...], "description": str, "contributors": {cap: [skills]},
+             "fragmented": bool, "endorsed_contributors": [skills]}.
         policy_violations: Capabilities the agent policy forbids, each:
             {"capability": str, "contributors": [skills], "reason": str}.
+        trust_transfer: Endorsed skills that contribute a dangerous capability to a
+            realized combo — endorsement laundering capability risk (SCR-Bench). Each:
+            {"skill": str, "capabilities": [...], "reason": str}.
         individually_flagged: Skills that vet as REVIEW/MALICIOUS on their own.
         explanation: Human-readable summary.
     """
@@ -59,6 +63,7 @@ class CompositionRisk:
     aggregate_capabilities: list[str] = field(default_factory=list)
     risky_combinations: list[dict] = field(default_factory=list)
     policy_violations: list[dict] = field(default_factory=list)
+    trust_transfer: list[dict] = field(default_factory=list)
     individually_flagged: list[dict] = field(default_factory=list)
     explanation: str = ""
 
@@ -74,6 +79,7 @@ class CompositionRisk:
             "aggregate_capabilities": self.aggregate_capabilities,
             "risky_combinations": self.risky_combinations,
             "policy_violations": self.policy_violations,
+            "trust_transfer": self.trust_transfer,
             "individually_flagged": self.individually_flagged,
             "explanation": self.explanation,
         }
@@ -82,33 +88,39 @@ class CompositionRisk:
         return (
             f"CompositionRisk(verdict={self.verdict}, skills={len(self.skills)}, "
             f"risky_combos={len(self.risky_combinations)}, "
-            f"policy_violations={len(self.policy_violations)})"
+            f"policy_violations={len(self.policy_violations)}, "
+            f"trust_transfer={len(self.trust_transfer)})"
         )
 
 
 def _normalize_skill(
     item: Any, guard: Optional[SkillVetGuard], use_llm: bool
-) -> tuple[str, set[str], Optional[str]]:
+) -> tuple[str, set[str], Optional[str], bool]:
     """
-    Normalize one skillset input to (name, capabilities, individual_verdict).
+    Normalize one skillset input to (name, capabilities, individual_verdict, endorsed).
 
-    Accepts a SkillVetResult, a dict with 'capabilities' (+ optional 'name'/'verdict'),
-    or a path/str (which is vetted via SkillVetGuard).
+    Accepts a SkillVetResult, a dict with 'capabilities' (+ optional 'name'/'verdict'/
+    'endorsed'), or a path/str (which is vetted via SkillVetGuard). `endorsed` marks a
+    skill the host/registry treats as trusted (verified publisher, featured, etc.) —
+    endorsement must not be allowed to launder a dangerous capability (SCR-Bench).
     """
     if isinstance(item, SkillVetResult):
-        return item.skill_name or "unnamed", set(item.capabilities), item.verdict
+        return (item.skill_name or "unnamed", set(item.capabilities), item.verdict,
+                bool(getattr(item, "endorsed", False)))
 
     if isinstance(item, dict) and "capabilities" in item:
         return (
             item.get("name") or "unnamed",
             set(item["capabilities"]),
             item.get("verdict"),
+            bool(item.get("endorsed", False)),
         )
 
     if isinstance(item, (str, Path)):
         g = guard or SkillVetGuard(use_llm=use_llm)
         result = g.vet(skill_path=item)
-        return result.skill_name or str(item), set(result.capabilities), result.verdict
+        return (result.skill_name or str(item), set(result.capabilities), result.verdict,
+                bool(getattr(result, "endorsed", False)))
 
     raise TypeError(
         f"Cannot interpret skillset item of type {type(item).__name__}: "
@@ -141,9 +153,10 @@ def check_skillset(
     ) else None
 
     per_skill: dict[str, set[str]] = {}
+    endorsed_skills: set[str] = set()
     individually_flagged: list[dict] = []
     for item in skills:
-        name, caps, verdict = _normalize_skill(item, guard, use_llm)
+        name, caps, verdict, endorsed = _normalize_skill(item, guard, use_llm)
         # Disambiguate duplicate names so contributor maps stay correct.
         if name in per_skill:
             suffix = 2
@@ -151,6 +164,8 @@ def check_skillset(
                 suffix += 1
             name = f"{name}#{suffix}"
         per_skill[name] = caps
+        if endorsed:
+            endorsed_skills.add(name)
         if verdict in ("REVIEW", "MALICIOUS"):
             individually_flagged.append({"skill": name, "verdict": verdict})
 
@@ -188,6 +203,34 @@ def check_skillset(
                 "contributors": {_MEMORY_POISON_CAP: writers},
             })
 
+    # --- annotate combos: fragmentation + endorsed contributors ---
+    # Intent fragmentation (SCR-Bench "semantic intent fragmentation"): a dangerous
+    # chain whose capabilities are spread across 3+ distinct skills is the hardest case
+    # for pairwise / per-skill review to catch. Trust transfer: an endorsed skill that
+    # contributes a dangerous capability — endorsement must not launder it.
+    trust_transfer: list[dict] = []
+    _seen_transfer: set[tuple[str, tuple[str, ...]]] = set()
+    for combo in risky_combinations:
+        contributing = sorted({
+            s for skills_for_cap in combo["contributors"].values() for s in skills_for_cap
+        })
+        combo["fragmented"] = len(contributing) >= 3
+        endorsed_here = [s for s in contributing if s in endorsed_skills]
+        combo["endorsed_contributors"] = endorsed_here
+        for s in endorsed_here:
+            key = (s, tuple(combo["capabilities"]))
+            if key in _seen_transfer:
+                continue
+            _seen_transfer.add(key)
+            trust_transfer.append({
+                "skill": s,
+                "capabilities": combo["capabilities"],
+                "reason": (
+                    "endorsed/trusted skill contributes a dangerous capability to a realized "
+                    "cross-skill combo — endorsement must not launder capability risk"
+                ),
+            })
+
     # --- per-agent capability isolation (blocked at install) ---
     policy_violations: list[dict] = []
     agent_policy = _resolve_agent_policy(policy, agent)
@@ -199,8 +242,10 @@ def check_skillset(
                 "reason": "capability not permitted by agent policy",
             })
 
-    verdict = _rollup(individually_flagged, risky_combinations, policy_violations)
-    explanation = _explain(verdict, risky_combinations, policy_violations, individually_flagged)
+    verdict = _rollup(individually_flagged, risky_combinations, policy_violations, trust_transfer)
+    explanation = _explain(
+        verdict, risky_combinations, policy_violations, individually_flagged, trust_transfer
+    )
 
     return CompositionRisk(
         verdict=verdict,
@@ -209,6 +254,7 @@ def check_skillset(
         aggregate_capabilities=sorted(aggregate),
         risky_combinations=risky_combinations,
         policy_violations=policy_violations,
+        trust_transfer=trust_transfer,
         individually_flagged=individually_flagged,
         explanation=explanation,
     )
@@ -227,24 +273,35 @@ def _resolve_agent_policy(policy: Any, agent: Optional[str]):
     return None
 
 
-def _rollup(individually_flagged, risky_combinations, policy_violations) -> str:
-    if policy_violations or any(f["verdict"] == "MALICIOUS" for f in individually_flagged):
+def _rollup(individually_flagged, risky_combinations, policy_violations, trust_transfer) -> str:
+    # Endorsement laundering a dangerous capability is install-blockable (SCR-Bench: an
+    # endorsed skill drives risky-approval rates from ~1% to ~84%).
+    if (policy_violations or trust_transfer
+            or any(f["verdict"] == "MALICIOUS" for f in individually_flagged)):
         return "MALICIOUS"
     if risky_combinations or individually_flagged:
         return "REVIEW"
     return "SAFE"
 
 
-def _explain(verdict, risky_combinations, policy_violations, individually_flagged) -> str:
+def _explain(verdict, risky_combinations, policy_violations, individually_flagged,
+             trust_transfer=()) -> str:
     if verdict == "SAFE":
         return "No compositional risk: capability set is benign and policy-compliant."
     parts = []
     if policy_violations:
         caps = ", ".join(v["capability"] for v in policy_violations)
         parts.append(f"policy forbids capabilities unlocked by this set: {caps}")
-    if risky_combinations:
+    if trust_transfer:
+        skills_tt = ", ".join(sorted({t["skill"] for t in trust_transfer}))
         parts.append(
-            f"{len(risky_combinations)} dangerous cross-skill combination(s): "
+            f"trust-transfer risk — endorsed skill(s) contribute a dangerous capability: {skills_tt}"
+        )
+    if risky_combinations:
+        frag = sum(1 for c in risky_combinations if c.get("fragmented"))
+        frag_note = f" ({frag} fragmented across 3+ skills)" if frag else ""
+        parts.append(
+            f"{len(risky_combinations)} dangerous cross-skill combination(s){frag_note}: "
             + "; ".join(c["description"] for c in risky_combinations[:3])
         )
     mal = [f["skill"] for f in individually_flagged if f["verdict"] == "MALICIOUS"]
