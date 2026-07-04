@@ -20,9 +20,11 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   cross-skill capability-combo detection:
   - **trust_transfer** — a skill marked `endorsed` (verified publisher / featured / trusted by the
     host) that contributes a dangerous capability to a *realized* cross-skill combo is now blocked
-    at install (verdict **MALICIOUS**). SCR-Bench found endorsement drives risky-approval rates from
-    ~1% to ~84%; endorsement must not launder a dangerous capability. Unendorsed sets keep their
-    prior REVIEW verdict — fully backward-compatible (endorsement defaults off).
+    at install (verdict **MALICIOUS**) — jataayu's stance that endorsement (verified publisher /
+    featured) is not a security property and must not launder a dangerous capability. (Design
+    rationale, not a benchmark result: an earlier draft mis-cited a "~1%→~84%" endorsement figure to
+    SCR-Bench; that number is not in SCR-Bench / arXiv:2606.00448 and has been removed.) Unendorsed
+    sets keep their prior REVIEW verdict — fully backward-compatible (endorsement defaults off).
   - **fragmented** — each risky combination is now annotated with whether its capabilities are
     spread across **3+ distinct skills** (semantic intent fragmentation), the case hardest for
     pairwise / per-skill review to catch. Surfaced in the explanation and `to_dict()`.

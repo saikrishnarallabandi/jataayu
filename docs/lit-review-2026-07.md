@@ -206,11 +206,17 @@ This is where the frontier is richest and most validating.
 - **[DIRECTIONAL]** Registry-scale: 42K–98K skills scanned; ~26% carry ≥1 vulnerability; real
   campaigns (marketplace poisoning) and a claimed first agentic-system CVE. Code-layer scanners miss
   **89–100%** of *instruction-layer* (prompt-injection / memory-poisoning) skills.
-- **[DIRECTIONAL]** **Compositional risk quantified** ("Benign in Isolation, Harmful in
-  Composition" / SCR-Bench): **composed-path ASR 33.6% avg (up to 90%+) vs ~0% isolated**;
-  **Trust-Transfer** ASR 1.1% → **83.9%** when a skill is "endorsed"; authorization-blur risky
-  approvals 15.7% → 34.0%. Plus **Semantic Intent Fragmentation** (a benign request decomposed into
-  individually-benign subtasks that jointly violate policy).
+- **[DIRECTIONAL]** **Compositional risk quantified** (SCR-Bench / "SkillReact",
+  arXiv:2606.00448): individually-safe skills compose into unsafe sets. On 1,520 skill-registry skills,
+  651 pass individual inspection and form 211,575 pairs; **22.25%** flag as structural candidates,
+  of which a two-rater human-adjudicated audit validates **18.2%** as real compositional risk (the
+  paper's headline) — ≈14K genuine risk memberships that per-skill scanning misses by construction.
+  Realization is **host-model-gated**: on an anchor-conditioned dropper subset Haiku-4-5 issued the
+  dropper-stage tool call in 39/39 trials, Opus-4-7 stopped at download, Sonnet-4-6 refused — "a
+  composition fixes which capabilities are reachable; the host model decides whether to use them."
+  (CORRECTION 2026-07-04: an earlier draft of this note cited "composed-path ASR 33.6%",
+  "Trust-Transfer 1.1%→83.9%", and "auth-blur 15.7%→34.0%" to SCR-Bench — none of those figures
+  appear in arXiv:2606.00448; they were confabulated and have been removed.)
 - **[DIRECTIONAL]** **Static collapses under self-evolving attacks:** AgentTrap's best static
   scanner catches only ~55% (50/91); pushes toward **runtime/request-conditioned auditing** (STARS,
   Runtime Skill Audit) where invocation safety depends on retrieved content + prior outputs +
@@ -222,8 +228,10 @@ This is where the frontier is richest and most validating.
   the same primitives (SkillVetBench, SCR-Bench). The "code scanners miss 89–100% of instruction-
   layer threats" finding is exactly our positioning (reason about the markdown prose, not just code).
 - **New dimensions to model that we don't yet:** **trust-transfer/endorsement** (an endorsed skill
-  gets over-trusted → +82pt ASR) and **semantic intent fragmentation** (harm split across benign
-  subtasks). Candidate new capability tags / composition rules (§8, item 4).
+  should not have endorsement launder a dangerous capability — *jataayu's own defensive stance;
+  SCR-Bench reports no endorsement-effect number*) and **intent fragmentation** (harm split across
+  individually-benign skills, the case pairwise review misses). Candidate new capability tags /
+  composition rules (§8, item 4).
 - **Static-collapse → runtime auditing** is the same conclusion as §2.2 (sleeper memory) and §6:
   everything points at the deferred **P2 `SessionTrace`**.
 
@@ -302,8 +310,10 @@ Ordered by (external credibility × leverage) ÷ lift. Items 1–2 are new; 3–
    `Provenance`. 14 tests. Motivated by the three convergent 2026 lines: sleeper memory poisoning
    (§2.2), static-scanner collapse (§5), and the semantic-vs-effect gap needing trajectory
    grading (§6) — none visible to single-shot inbound checks.
-4. **Extend the composition model** with **trust-transfer/endorsement** and **semantic intent
-   fragmentation** dimensions (SCR-Bench: endorsement pushed ASR 1.1%→83.9%).
+4. **Extend the composition model** with **trust-transfer/endorsement** (jataayu's stance:
+   endorsement is not a security property) and **intent fragmentation** dimensions (motivated by
+   SCR-Bench's finding that individually-safe skills compose into unsafe sets — 22.25% flagged,
+   18.2% validated; *no endorsement-effect stat is claimed by that paper*).
    [SHIPPED 2026-07-04] `guards/composition.py`: an `endorsed` skill contributing a dangerous
    capability to a realized combo is now blocked at install (MALICIOUS via `trust_transfer`);
    combos are annotated `fragmented` when spread across 3+ skills. Backward-compatible. 6 tests.
