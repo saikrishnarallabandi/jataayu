@@ -22,8 +22,8 @@ Evidence:
 
 | Check | Finding |
 |---|---|
-| Plugin registered/enabled | `gateway.json → plugins.entries.jataayu = {"enabled": true}`; load path `/home/user/.gateway/plugins/jataayu`. |
-| Integration shape | `plugins/jataayu/index.js` calls `api.registerTool()` **twice** — `jataayu_check_inbound`, `jataayu_check_outbound` — each `execFile`-ing the `orchestrator_env` Python into `/home/user/projects/jataayu` and running `InboundGuard.check` / `OutboundGuard.check`. |
+| Plugin registered/enabled | `gateway.json → plugins.entries.jataayu = {"enabled": true}`; load path `~/.gateway/plugins/jataayu`. |
+| Integration shape | `plugins/jataayu/index.js` calls `api.registerTool()` **twice** — `jataayu_check_inbound`, `jataayu_check_outbound` — each `execFile`-ing the project's Python venv into the local jataayu repo and running `InboundGuard.check` / `OutboundGuard.check`. |
 | Is there an auto-hook? | **No.** The only `api.*` calls in the plugin are `api.pluginConfig` and two `registerTool`. No `onMessage` / `beforeSend` / `onInbound` / interceptor. Guards run only if the **model chooses** to call the tool (tool descriptions say "Always call this before acting…" — i.e. prompt compliance, not enforcement). |
 | Actual runtime invocations | **0 of 20,528 `tool.call` events** name a Jataayu tool. (225 lines match `jataayu_check`, but all are `bash` commands from dev work — `data.name == "bash"`, the string is in `arguments`.) |
 | Enforcement, even if called | `blockOnInboundHigh` defaults `false` **and is never read** in `index.js`. Outbound tool runs `use_llm=False` with a hardcoded protected list (family names + portfolio tickers). Result is advisory text returned to the model — nothing is blocked. |
@@ -233,7 +233,7 @@ Paper-driven upgrades (from `docs/upgrades-from-arxiv-2026-06.md`, unchanged pri
       `mcp_gateway` + opaque-handle read-boundary vault (arXiv:2606.09549).
 
 Replication harness (this study, when greenlit): build experiments #1–#5 above as a read-only
-analysis over `/home/user/.gateway/agents/**/sessions/*.trajectory.jsonl`, reconstructing
+analysis over `~/.gateway/agents/**/sessions/*.trajectory.jsonl`, reconstructing
 turns via `threadId/turnId/toolCallId`; report FPR on benign inbound + tool-returns, the
 semantic-vs-effect gap, and offline SessionTrace risky-session recall.
 
