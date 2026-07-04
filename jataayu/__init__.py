@@ -30,12 +30,15 @@ from jataayu.api import (
     jataayu_check_memory_read,
     jataayu_vet_skill,
     jataayu_check_skillset,
+    jataayu_check_egress,
 )
+from jataayu.guards.egress import EgressChannelGuard, EgressConfig
 from jataayu.guards.skill_vet import SkillVetGuard, SkillVetResult
 from jataayu.guards.composition import check_skillset, CompositionRisk
 from jataayu.guards.effect_boundary import (
     EffectBoundary, Value, Provenance, EffectClass, Decision, CommitRejected,
 )
+from jataayu.core.audit import SessionTrace, AuditResult, AuditFinding, AuditRisk, TraceEvent
 from jataayu.api import jataayu_authorize_action
 from jataayu.convenience import check_inbound, check_outbound
 
@@ -47,6 +50,10 @@ __all__ = [
     "jataayu_check_tool_return",
     "jataayu_check_memory_write",
     "jataayu_check_memory_read",
+    # Outbound egress / exfiltration-channel guard (EchoLeak / AgentFlayer class)
+    "jataayu_check_egress",
+    "EgressChannelGuard",
+    "EgressConfig",
     # Skill vetting (install-time, LLM-judge)
     "jataayu_vet_skill",
     "SkillVetGuard",
@@ -63,6 +70,12 @@ __all__ = [
     "EffectClass",
     "Decision",
     "CommitRejected",
+    # Runtime behavioral auditing — cross-turn trajectory analysis
+    "SessionTrace",
+    "AuditResult",
+    "AuditFinding",
+    "AuditRisk",
+    "TraceEvent",
     # Short aliases (tuple return format)
     "check_inbound",
     "check_outbound",

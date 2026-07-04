@@ -78,6 +78,14 @@ class PrivacyConfig:
     # Disabled credential rule IDs (e.g., ["CRED_004"] to silence generic patterns)
     disabled_cred_rules: list[str] = field(default_factory=list)
 
+    # Whether to check for data-exfiltration channels (auto-fetched markdown
+    # images / links / URLs that smuggle data out — the EchoLeak / AgentFlayer
+    # class). The channel is caught even when the payload evades the PII scanner.
+    check_egress: bool = True
+
+    # Hosts the agent may freely image/link to without being flagged as egress.
+    egress_allowed_domains: list[str] = field(default_factory=list)
+
     # Whether to run high-entropy string detection (may have false positives)
     check_high_entropy: bool = False
 
@@ -482,6 +490,12 @@ class OutboundGuard(JataayuEngine):
         )
         self.config = cfg
         self._compiled_names = self._compile_protected_names(cfg.protected_names)
+        self._egress_guard = None
+        if cfg.check_egress:
+            from jataayu.guards.egress import EgressChannelGuard, EgressConfig
+            self._egress_guard = EgressChannelGuard(
+                EgressConfig(allowed_domains=list(cfg.egress_allowed_domains))
+            )
 
     def _compile_protected_names(self, names: list[str]) -> list[re.Pattern]:
         """Compile protected names into word-boundary patterns."""
@@ -603,6 +617,16 @@ class OutboundGuard(JataayuEngine):
             matched.extend(cred_matched)
             threat_types.update(cred_types)
             max_score = max(max_score, cred_score)
+
+        # Check egress channels (auto-fetched images / data-carrying URLs).
+        # Surface-independent by design: the channel is the threat wherever it
+        # renders, so the outbound multiplier is not applied to it.
+        if self._egress_guard is not None:
+            egress_result = self._egress_guard.check(text, surface)
+            if egress_result.threat_types:
+                matched.extend(egress_result.matched_patterns)
+                threat_types.update(egress_result.threat_types)
+                max_score = max(max_score, egress_result.risk_score)
 
         threat_level = self._score_to_level(max_score)
 
@@ -751,6 +775,10 @@ class OutboundGuard(JataayuEngine):
             for pattern, _, score, desc, rule_id in _COMPILED_CRED:
                 if rule_id not in disabled:
                     redacted = pattern.sub("<REDACTED>", redacted)
+
+        # Neutralize exfiltration-channel URLs (keep text, drop the channel)
+        if self._egress_guard is not None:
+            redacted = self._egress_guard.sanitize(redacted)
 
         return redacted
 
