@@ -97,6 +97,35 @@ INJECTION_PATTERNS: list[tuple[str, ThreatType, float, str]] = [
     ),
 
     # ===========================================================================
+    # PROMPT INJECTION — Task-interposition / persona-addressing (PI-018)
+    # Social-engineered injections embedded in tool output / retrieved data that
+    # address the agent as "you" with a from→to framing and interpose a task
+    # before the user's real one. This is AgentDojo's `important_instructions`
+    # attack family (and the broader "message to you, the AI/model" pattern),
+    # which deliberately avoids blunt override phrasing ("ignore previous...") and
+    # so slips past PI-001. The from/to persona framing and the "before you can
+    # solve the task ... do the following first / then you can solve the task I
+    # gave you" interposition are the invariant signatures. Note the attack uses
+    # the target's *model name* ("to you, Local model"), not the literal "AI", so
+    # we key on the framing, not the word "AI".
+    # ===========================================================================
+    (
+        r"(important\s+)?(message|note|instruction|information)\s+from\s+me,?\s+.{0,60}?,?\s*to\s+you,?\b",
+        ThreatType.PROMPT_INJECTION, 0.85,
+        "PI-018: Persona-addressed injection ('message from me, X, to you, ...')",
+    ),
+    (
+        r"before\s+you\s+can\s+\w+\s+the\s+task\b.{0,120}?(do|complete|perform|follow|the\s+following)",
+        ThreatType.PROMPT_INJECTION, 0.82,
+        "PI-018b: Task interposition ('before you can solve the task ... do the following first')",
+    ),
+    (
+        r"(then\s+)?you\s+can\s+\w+\s+the\s+task\s+(that\s+)?i\s+gave\s+you",
+        ThreatType.PROMPT_INJECTION, 0.78,
+        "PI-018c: Task-deferral closer ('then you can solve the task I gave you')",
+    ),
+
+    # ===========================================================================
     # PROMPT INJECTION — Fake system tokens (PROMPT_INJECTION_010)
     # ===========================================================================
     (
@@ -195,7 +224,12 @@ INJECTION_PATTERNS: list[tuple[str, ThreatType, float, str]] = [
     # PROMPT INJECTION — Credential injection
     # ===========================================================================
     (
-        r"(token|secret|password|api.?key|credentials?)\s*(is|are)?\s*[:=]\s*\S{8,}",
+        # Planted credential *value* — e.g. "api_key = sk-abc123", "the token is: <secret>".
+        # Excludes (a) URL query-param context via lookbehind ("...?token=", "&token=", "/token=")
+        # and (b) URL values via lookahead ("password: https://.../reset-password"), which are
+        # benign reset links, not injected secrets. This was the dominant AgentDojo utility drain:
+        # the guard scrubbed legitimate password-reset / verification emails.
+        r"(?<![?&/])(token|secret|password|passwd|api.?key|credentials?)\s*(is|are)?\s*[:=]\s*(?!https?://|www\.)\S{8,}",
         ThreatType.PROMPT_INJECTION, 0.75,
         "PI-cred: Credential/secret injection attempt",
     ),
@@ -354,7 +388,11 @@ INJECTION_PATTERNS: list[tuple[str, ThreatType, float, str]] = [
     # SOCIAL ENGINEERING
     # ===========================================================================
     (
-        r"(urgent|critical|emergency|immediately|right\s+now|asap)\s+.{0,80}(send|transfer|give|share|provide|disclose)",
+        # Urgency + coercive action. "critical" was dropped from the urgency set: it is
+        # overwhelmingly an adjective in benign business/email text ("critical for our annual
+        # goals … will provide"), a poor urgency signal that produced false positives. The
+        # remaining tokens are unambiguous urgency markers.
+        r"(urgent|emergency|immediately|right\s+now|asap)\s+.{0,80}(send|transfer|give|share|provide|disclose)",
         ThreatType.SOCIAL_ENGINEERING, 0.70,
         "SE-001: Urgency + action social engineering",
     ),
@@ -486,6 +524,7 @@ SURFACE_MULTIPLIERS: dict[str, float] = {
     "public": 1.1,
     # Execution-context surfaces (tool outputs + persistent memory)
     "tool-return": 1.15,
+    "tool-output": 1.15,  # alias used by the AgentDojo defense adapter
     "memory-write": 1.1,
     "memory-read": 1.1,
     "skill-metadata": 1.15,
@@ -496,9 +535,22 @@ SURFACE_MULTIPLIERS: dict[str, float] = {
 # When these keywords appear in markdown headings, the section body is treated
 # as higher-risk (instruction override semantics in headings).
 _MARKDOWN_INJECTION_KEYWORDS = re.compile(
-    r"(ignore|forget|override|bypass|disregard|new\s+instructions?|you\s+are\s+now"
-    r"|act\s+as|pretend\s+to|do\s+not\s+follow|stop\s+following|your\s+task\s+is\s+now"
-    r"|important\s+note\s+for\s+(ai|assistant|agent|claude|gpt|llm))",
+    # Override verbs (ignore/forget/disregard/…) must be followed by an
+    # instruction-object — "ignore [all previous] instructions/rules/context",
+    # not a bare "ignore <anything>". Bare verbs matched benign phrasing like
+    # "please ignore this email" in password-reset notifications, a dominant
+    # false-positive source. The phrase-based signals below need no object.
+    r"("
+    r"(ignore|forget|disregard|override|bypass|discard)\s+"
+    r"(?:(?:all|any|the|these|those|your|my|its|previous|prior|above|earlier|preceding|"
+    r"foregoing|following|initial|original|system|current)\s+){0,4}"
+    r"(instructions?|prompts?|rules?|commands?|directives?|guidelines?|constraints?|"
+    r"restrictions?|limitations?|programming|safety|filters?|guardrails?|alignment|"
+    r"training|context|tasks?|everything)"
+    r"|new\s+instructions?|you\s+are\s+now|act\s+as|pretend\s+to|do\s+not\s+follow"
+    r"|stop\s+following|your\s+task\s+is\s+now"
+    r"|important\s+note\s+for\s+(ai|assistant|agent|claude|gpt|llm)"
+    r")",
     re.IGNORECASE,
 )
 
