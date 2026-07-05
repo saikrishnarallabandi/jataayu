@@ -260,6 +260,77 @@ never fires --- the engine has no deferred-instruction detector. Benign false-bl
 ordinary notes but 22.9\% on adversarially-tricky-but-benign notes. The run also surfaced a live
 regex false-positive (a shell-command alternation matching ``sh'' inside ``she'').
 
+\section{Comparison with prior approaches}
+Prompt-injection defenses fall into three classes: \emph{detection} (classify the input ---
+Prompt-Guard, ProtectAI, Lakera Guard), \emph{training} (fine-tune the model to resist injection
+--- StruQ~\cite{struq}, SecAlign~\cite{secalign}), and \emph{design} (make the harmful action
+unreachable by construction --- CaMeL~\cite{camel}, AgentDojo's tool-filter, and Jataayu's effect
+boundary). Jataayu spans the detection tier (its screening layers) and the design tier (its effect
+boundary); we compare against representatives of each. \textbf{These tables are not a controlled
+bake-off}: model, suite coverage, dataset, and metric construction differ across rows, and each
+value is the one reported by its own source. We label the confounds and draw only the conclusions
+they support.
+
+\begin{table}[htbp]\centering\small
+\caption{Agentic defenses on AgentDojo (targeted ASR $\downarrow$ / benign utility). AgentDojo
+built-in defenses and CaMeL are from their papers on the models shown; the Jataayu row is our
+workspace slice on a local qwen agent and is \emph{not} directly comparable (different model, single
+suite). $^\dagger$CaMeL reports successful-attack \emph{counts}; it drives genuine injections to
+zero by design (residual counts are AgentDojo eval artifacts, not injections~\cite{camel}).}
+\label{tab:cmp-agentic}
+\begin{tabular}{llccc}
+\toprule
+Approach & Class & Model & Targeted ASR & Benign utility \\
+\midrule
+No defense & --- & GPT-4o & 57.7\% & 69.0\% \\
+Spotlighting / delimiting & prompt & GPT-4o & 41.7\% & 72.7\% \\
+Repeat-prompt (sandwich) & prompt & GPT-4o & 27.8\% & 85.5\% \\
+PI detector & detection & GPT-4o & 7.9\% & 41.5\% \\
+Tool filter & design & GPT-4o & 6.8\% & 73.1\% \\
+CaMeL & design & o3 & $\approx$0\%$^\dagger$ & 77.3\% (from 84.5\%) \\
+\textbf{Jataayu} (tool-output scrub) & detection & \emph{qwen, workspace} & \good{0.0\%} (from 10\%) & \good{100\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Read honestly, Table~\ref{tab:cmp-agentic} places Jataayu's screening in the effective-defense
+regime alongside AgentDojo's \code{tool\_filter} (ASR 6.8\%) and \code{PI\_detector} (7.9\%), and its
+effect boundary in the same \emph{design} class as CaMeL --- with the difference that the effect
+boundary is deterministic and LLM-free (§3.1: 0.04\,ms/decision), whereas CaMeL routes through a
+privileged planner LLM. Our qwen baseline ASR (10\%) is far below GPT-4o's aggregate (57.7\%)
+largely because of model and single-suite scope, not because the task is easier --- which is exactly
+why we do not claim a head-to-head win here.
+
+\begin{table}[htbp]\centering\small
+\caption{Injection \emph{detection}: clean recall vs.\ robustness to character-perturbation evasion.
+Each value is on the method's own reported dataset (not one shared set), so the comparison is of
+reported \emph{characteristics}, not a controlled bake-off. The pattern is the point: dedicated
+classifiers have far higher clean recall than Jataayu's fast path, and far higher evasion
+vulnerability.}\label{tab:cmp-detect}
+\begin{tabular}{lll}
+\toprule
+Detector & Clean recall / TPR & Char-perturbation evasion \\
+\midrule
+ProtectAI deBERTa-v3 v2~\cite{protectai} & \good{99.7\%} (20k held-out) & \bad{77\% attack success} (char-injection)~\cite{guardrails} \\
+Meta Prompt-Guard-86M~\cite{promptguard} & \good{99.5\%} TPR (in-dist.) & \bad{99.8\% bypass} (char-spacing)~\cite{guardrails} \\
+\textbf{Jataayu} fast path & \bad{0.27--0.56} (deepset/sg/jb) & \good{0.00} (space-out, leetspeak) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:cmp-detect} is the honest core of the comparison. \emph{As a detector, Jataayu's fast
+path is worse}: dedicated classifiers reach $\sim$99\% clean recall where our regex pre-filter reaches
+0.27--0.56. We do not close that gap and do not try to --- the pre-filter is deliberately the weakest
+tier. But those same classifiers are largely defeated by trivial character perturbations (Prompt-Guard
+detection collapses from $\sim$100\% to 0.2\% under character-spacing~\cite{guardrails}; ProtectAI is
+bypassed $\sim$77\% of the time), whereas Jataayu's input normalization holds space-out and leetspeak
+evasion at 0.00. On the Lakera PINT leaderboard the same ordering holds among detectors (Lakera Guard
+95.2\%, ProtectAI-v2 79.1\%, Prompt-Guard-2 78.8\%)~\cite{pint}. The training-based defenses occupy a
+third point: StruQ zeroes non-adaptive ASR by fine-tuning but leaves GCG at 56--58\%~\cite{struq}, and
+SecAlign drives even optimization-based ASR below 10\% and InjecAgent 75.9\%$\to$0\% --- at the cost of
+retraining the model~\cite{secalign}, which Jataayu does not require. The through-line: detection alone
+is evadable and training is model-bound, so Jataayu, like CaMeL, moves the guarantee to the action.
+
 \section{Consolidated summary}
 \begin{table}[htbp]\centering\small
 \caption{Jataayu surfaces, benchmarks, and headline results. Green = strong; red = a disclosed
@@ -339,6 +410,20 @@ and fixed states.
   Tool-Integrated LLM Agents.} 2024.
 \bibitem{greshake} K.~Greshake et al. \emph{Not What You've Signed Up For: Compromising Real-World
   LLM-Integrated Applications with Indirect Prompt Injection.} ACM AISec, 2023.
+\bibitem{camel} E.~Debenedetti et al. \emph{Defeating Prompt Injections by Design (CaMeL).}
+  arXiv:2503.18813, 2025.
+\bibitem{struq} S.~Chen et al. \emph{StruQ: Defending Against Prompt Injection with Structured
+  Queries.} USENIX Security, 2025. arXiv:2402.06363.
+\bibitem{secalign} S.~Chen et al. \emph{SecAlign: Defending Against Prompt Injection with Preference
+  Optimization.} ACM CCS, 2025. arXiv:2410.05451.
+\bibitem{promptguard} Meta. \emph{Prompt-Guard-86M} and \emph{Llama Prompt Guard 2} model cards.
+  \texttt{huggingface.co/meta-llama}.
+\bibitem{protectai} Protect AI. \emph{deberta-v3-base-prompt-injection-v2} model card.
+  \texttt{huggingface.co/protectai}.
+\bibitem{guardrails} W.~Hackett et al. \emph{Bypassing Prompt Injection and Jailbreak Detection in
+  LLM Guardrails.} arXiv:2504.11168, 2025. (See also meta-llama/llama-models issue \#50.)
+\bibitem{pint} Lakera AI. \emph{PINT: Prompt Injection Test Benchmark.}
+  \texttt{github.com/lakeraai/pint-benchmark}.
 \end{thebibliography}
 
 \end{document}
