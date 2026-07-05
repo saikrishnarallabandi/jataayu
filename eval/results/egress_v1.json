@@ -1,0 +1,66 @@
+{
+  "benchmark": "Jataayu egress-channel (EchoLeak / AgentFlayer / Notion class)",
+  "api": "jataayu_check_egress (deterministic, no LLM)",
+  "surface": "github-comment",
+  "corpus": "/home/user/projects/jataayu/eval/data/egress_v1.jsonl",
+  "overall": {
+    "n_exfil": 23,
+    "n_benign": 12,
+    "recall_caught": 1.0,
+    "block_rate": 0.5217,
+    "precision": 1.0,
+    "fpr": 0.0,
+    "f1": 1.0,
+    "benign_pass_rate": 1.0,
+    "benign_false_block_rate": 0.0,
+    "tp": 23,
+    "fp": 0,
+    "tn": 12,
+    "fn": 0
+  },
+  "by_channel": {
+    "data-url": {
+      "n": 7,
+      "recall_caught": 1.0,
+      "block_rate": 0.2857,
+      "text_preserved_of_caught": 1.0,
+      "missed": []
+    },
+    "image": {
+      "n": 8,
+      "recall_caught": 1.0,
+      "block_rate": 0.25,
+      "text_preserved_of_caught": 1.0,
+      "missed": []
+    },
+    "relay": {
+      "n": 8,
+      "recall_caught": 1.0,
+      "block_rate": 1.0,
+      "text_preserved_of_caught": 1.0,
+      "missed": []
+    }
+  },
+  "confirmed_exfil": {
+    "n_secret_riding": 4,
+    "caught": 4,
+    "recall": 1.0,
+    "flagged_as_confirmed_secret": 4,
+    "confirmed_reason_rate": 1.0
+  },
+  "text_preservation": {
+    "n_caught": 23,
+    "preserved": 23,
+    "rate": 1.0,
+    "note": "human_marker present AND url_marker removed in redacted output"
+  },
+  "benign_false_blocks": [],
+  "latency_ms": {
+    "mean": 0.2872,
+    "p50": 0.1584,
+    "p99": 1.0814
+  },
+  "notes": [
+    "Recall = not-SAFE rate (the guard neutralizes at WARN and hard-blocks beacons/secrets at BLOCK). BLOCK is reserved for exfil-beacon hosts and confirmed-secret URLs; data-carrying links/images to other external hosts are WARN (URL neutralized, human text kept)."
+  ]
+}

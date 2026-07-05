@@ -1,0 +1,454 @@
+{
+  "benchmark": "Memory read/write poisoning (A6) \u2014 delayed injection via persistent agent memory",
+  "path": "fastpath",
+  "corpus": {
+    "file": "memory_poison_v1.jsonl",
+    "generator": "gen_memory_poison_v1.py",
+    "n_total": 190,
+    "n_poison": 99,
+    "n_benign": 91,
+    "poison_by_subclass": {
+      "direct-instruction": 34,
+      "deferred": 33,
+      "encoded": 32
+    }
+  },
+  "entry_points": {
+    "write": {
+      "latency_ms": {
+        "mean": 1.6274,
+        "p50": 0.6792,
+        "p99": 8.0386
+      },
+      "operating_points": {
+        "BLOCKED>=0.90": {
+          "threshold": 0.9,
+          "tp": 31,
+          "fp": 2,
+          "tn": 89,
+          "fn": 68,
+          "precision": 0.9394,
+          "recall": 0.3131,
+          "fpr": 0.022,
+          "f1": 0.4697
+        },
+        "HIGH>=0.70": {
+          "threshold": 0.7,
+          "tp": 47,
+          "fp": 7,
+          "tn": 84,
+          "fn": 52,
+          "precision": 0.8704,
+          "recall": 0.4747,
+          "fpr": 0.0769,
+          "f1": 0.6144
+        },
+        "MEDIUM>=0.45": {
+          "threshold": 0.45,
+          "tp": 55,
+          "fp": 9,
+          "tn": 82,
+          "fn": 44,
+          "precision": 0.8594,
+          "recall": 0.5556,
+          "fpr": 0.0989,
+          "f1": 0.6748
+        },
+        "LOW>=0.20": {
+          "threshold": 0.2,
+          "tp": 55,
+          "fp": 9,
+          "tn": 82,
+          "fn": 44,
+          "precision": 0.8594,
+          "recall": 0.5556,
+          "fpr": 0.0989,
+          "f1": 0.6748
+        }
+      },
+      "detection_by_subclass": {
+        "BLOCKED>=0.90": {
+          "overall": {
+            "n": 99,
+            "caught": 31,
+            "detection_rate": 0.3131
+          },
+          "direct-instruction": {
+            "n": 34,
+            "caught": 18,
+            "detection_rate": 0.5294
+          },
+          "deferred": {
+            "n": 33,
+            "caught": 0,
+            "detection_rate": 0.0
+          },
+          "encoded": {
+            "n": 32,
+            "caught": 13,
+            "detection_rate": 0.4062
+          }
+        },
+        "HIGH>=0.70": {
+          "overall": {
+            "n": 99,
+            "caught": 47,
+            "detection_rate": 0.4747
+          },
+          "direct-instruction": {
+            "n": 34,
+            "caught": 26,
+            "detection_rate": 0.7647
+          },
+          "deferred": {
+            "n": 33,
+            "caught": 0,
+            "detection_rate": 0.0
+          },
+          "encoded": {
+            "n": 32,
+            "caught": 21,
+            "detection_rate": 0.6562
+          }
+        },
+        "MEDIUM>=0.45": {
+          "overall": {
+            "n": 99,
+            "caught": 55,
+            "detection_rate": 0.5556
+          },
+          "direct-instruction": {
+            "n": 34,
+            "caught": 31,
+            "detection_rate": 0.9118
+          },
+          "deferred": {
+            "n": 33,
+            "caught": 0,
+            "detection_rate": 0.0
+          },
+          "encoded": {
+            "n": 32,
+            "caught": 24,
+            "detection_rate": 0.75
+          }
+        },
+        "LOW>=0.20": {
+          "overall": {
+            "n": 99,
+            "caught": 55,
+            "detection_rate": 0.5556
+          },
+          "direct-instruction": {
+            "n": 34,
+            "caught": 31,
+            "detection_rate": 0.9118
+          },
+          "deferred": {
+            "n": 33,
+            "caught": 0,
+            "detection_rate": 0.0
+          },
+          "encoded": {
+            "n": 32,
+            "caught": 24,
+            "detection_rate": 0.75
+          }
+        }
+      },
+      "false_block_by_split": {
+        "BLOCKED>=0.90": {
+          "overall": {
+            "n": 91,
+            "blocked": 2,
+            "false_block_rate": 0.022
+          },
+          "ordinary": {
+            "n": 56,
+            "blocked": 1,
+            "false_block_rate": 0.0179
+          },
+          "tricky": {
+            "n": 35,
+            "blocked": 1,
+            "false_block_rate": 0.0286
+          }
+        },
+        "HIGH>=0.70": {
+          "overall": {
+            "n": 91,
+            "blocked": 7,
+            "false_block_rate": 0.0769
+          },
+          "ordinary": {
+            "n": 56,
+            "blocked": 1,
+            "false_block_rate": 0.0179
+          },
+          "tricky": {
+            "n": 35,
+            "blocked": 6,
+            "false_block_rate": 0.1714
+          }
+        },
+        "MEDIUM>=0.45": {
+          "overall": {
+            "n": 91,
+            "blocked": 9,
+            "false_block_rate": 0.0989
+          },
+          "ordinary": {
+            "n": 56,
+            "blocked": 1,
+            "false_block_rate": 0.0179
+          },
+          "tricky": {
+            "n": 35,
+            "blocked": 8,
+            "false_block_rate": 0.2286
+          }
+        },
+        "LOW>=0.20": {
+          "overall": {
+            "n": 91,
+            "blocked": 9,
+            "false_block_rate": 0.0989
+          },
+          "ordinary": {
+            "n": 56,
+            "blocked": 1,
+            "false_block_rate": 0.0179
+          },
+          "tricky": {
+            "n": 35,
+            "blocked": 8,
+            "false_block_rate": 0.2286
+          }
+        }
+      },
+      "api": "jataayu_check_memory_write (surface=memory-write)"
+    },
+    "read": {
+      "latency_ms": {
+        "mean": 1.6967,
+        "p50": 0.6875,
+        "p99": 10.2152
+      },
+      "operating_points": {
+        "BLOCKED>=0.90": {
+          "threshold": 0.9,
+          "tp": 31,
+          "fp": 2,
+          "tn": 89,
+          "fn": 68,
+          "precision": 0.9394,
+          "recall": 0.3131,
+          "fpr": 0.022,
+          "f1": 0.4697
+        },
+        "HIGH>=0.70": {
+          "threshold": 0.7,
+          "tp": 47,
+          "fp": 7,
+          "tn": 84,
+          "fn": 52,
+          "precision": 0.8704,
+          "recall": 0.4747,
+          "fpr": 0.0769,
+          "f1": 0.6144
+        },
+        "MEDIUM>=0.45": {
+          "threshold": 0.45,
+          "tp": 55,
+          "fp": 9,
+          "tn": 82,
+          "fn": 44,
+          "precision": 0.8594,
+          "recall": 0.5556,
+          "fpr": 0.0989,
+          "f1": 0.6748
+        },
+        "LOW>=0.20": {
+          "threshold": 0.2,
+          "tp": 55,
+          "fp": 9,
+          "tn": 82,
+          "fn": 44,
+          "precision": 0.8594,
+          "recall": 0.5556,
+          "fpr": 0.0989,
+          "f1": 0.6748
+        }
+      },
+      "detection_by_subclass": {
+        "BLOCKED>=0.90": {
+          "overall": {
+            "n": 99,
+            "caught": 31,
+            "detection_rate": 0.3131
+          },
+          "direct-instruction": {
+            "n": 34,
+            "caught": 18,
+            "detection_rate": 0.5294
+          },
+          "deferred": {
+            "n": 33,
+            "caught": 0,
+            "detection_rate": 0.0
+          },
+          "encoded": {
+            "n": 32,
+            "caught": 13,
+            "detection_rate": 0.4062
+          }
+        },
+        "HIGH>=0.70": {
+          "overall": {
+            "n": 99,
+            "caught": 47,
+            "detection_rate": 0.4747
+          },
+          "direct-instruction": {
+            "n": 34,
+            "caught": 26,
+            "detection_rate": 0.7647
+          },
+          "deferred": {
+            "n": 33,
+            "caught": 0,
+            "detection_rate": 0.0
+          },
+          "encoded": {
+            "n": 32,
+            "caught": 21,
+            "detection_rate": 0.6562
+          }
+        },
+        "MEDIUM>=0.45": {
+          "overall": {
+            "n": 99,
+            "caught": 55,
+            "detection_rate": 0.5556
+          },
+          "direct-instruction": {
+            "n": 34,
+            "caught": 31,
+            "detection_rate": 0.9118
+          },
+          "deferred": {
+            "n": 33,
+            "caught": 0,
+            "detection_rate": 0.0
+          },
+          "encoded": {
+            "n": 32,
+            "caught": 24,
+            "detection_rate": 0.75
+          }
+        },
+        "LOW>=0.20": {
+          "overall": {
+            "n": 99,
+            "caught": 55,
+            "detection_rate": 0.5556
+          },
+          "direct-instruction": {
+            "n": 34,
+            "caught": 31,
+            "detection_rate": 0.9118
+          },
+          "deferred": {
+            "n": 33,
+            "caught": 0,
+            "detection_rate": 0.0
+          },
+          "encoded": {
+            "n": 32,
+            "caught": 24,
+            "detection_rate": 0.75
+          }
+        }
+      },
+      "false_block_by_split": {
+        "BLOCKED>=0.90": {
+          "overall": {
+            "n": 91,
+            "blocked": 2,
+            "false_block_rate": 0.022
+          },
+          "ordinary": {
+            "n": 56,
+            "blocked": 1,
+            "false_block_rate": 0.0179
+          },
+          "tricky": {
+            "n": 35,
+            "blocked": 1,
+            "false_block_rate": 0.0286
+          }
+        },
+        "HIGH>=0.70": {
+          "overall": {
+            "n": 91,
+            "blocked": 7,
+            "false_block_rate": 0.0769
+          },
+          "ordinary": {
+            "n": 56,
+            "blocked": 1,
+            "false_block_rate": 0.0179
+          },
+          "tricky": {
+            "n": 35,
+            "blocked": 6,
+            "false_block_rate": 0.1714
+          }
+        },
+        "MEDIUM>=0.45": {
+          "overall": {
+            "n": 91,
+            "blocked": 9,
+            "false_block_rate": 0.0989
+          },
+          "ordinary": {
+            "n": 56,
+            "blocked": 1,
+            "false_block_rate": 0.0179
+          },
+          "tricky": {
+            "n": 35,
+            "blocked": 8,
+            "false_block_rate": 0.2286
+          }
+        },
+        "LOW>=0.20": {
+          "overall": {
+            "n": 91,
+            "blocked": 9,
+            "false_block_rate": 0.0989
+          },
+          "ordinary": {
+            "n": 56,
+            "blocked": 1,
+            "false_block_rate": 0.0179
+          },
+          "tricky": {
+            "n": 35,
+            "blocked": 8,
+            "false_block_rate": 0.2286
+          }
+        }
+      },
+      "api": "jataayu_check_memory_read (surface=memory-read)"
+    }
+  },
+  "write_vs_read": {
+    "identical": true,
+    "n_rows_differing": 0,
+    "max_abs_score_delta": 0.0,
+    "mean_abs_score_delta": 0.0,
+    "note": "Store-time and recall-time screens route through the same engine and both surfaces carry the same 1.1 risk multiplier, so per-row scores are identical on the fast path \u2014 the defense is symmetric: whatever is caught on recall is equally caught on store, and vice versa.",
+    "disagreements": []
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "eval": "effect_boundary_edges",
+  "description": "commit() token-binding and capability-policy DENY paths (zero prior coverage)",
+  "n_cases": 6,
+  "n_passed": 6,
+  "n_failed": 0,
+  "all_passed": true,
+  "groups": {
+    "commit_token_binding": {
+      "n": 3,
+      "passed": 3
+    },
+    "capability_policy_deny": {
+      "n": 3,
+      "passed": 3
+    }
+  },
+  "cases": [
+    {
+      "case": "A1_happy_path_commit",
+      "expect": "executes",
+      "passed": true,
+      "detail": "unmutated commit executed"
+    },
+    {
+      "case": "A2_mutated_params_rejected",
+      "expect": "CommitRejected",
+      "passed": true,
+      "detail": "CommitRejected raised, executor did not fire: action was mutated after authorization (commit token mismatch)"
+    },
+    {
+      "case": "A3_commit_unauthorized_preview_rejected",
+      "expect": "CommitRejected",
+      "passed": true,
+      "detail": "CommitRejected raised on needs_approval preview: not authorized: needs_approval \u2014 untrusted-derived network effect requires human approval"
+    },
+    {
+      "case": "B1_forbidden_capability_deny",
+      "expect": "DENY",
+      "passed": true,
+      "detail": "decision=deny violations=['exec'] reason=\"capability 'exec' is forbidden for this agent\""
+    },
+    {
+      "case": "B2_allowlist_capability_not_listed_deny",
+      "expect": "DENY",
+      "passed": true,
+      "detail": "decision=deny violations=['network_write'] reason=\"capability 'network_write' is forbidden for this agent\""
+    },
+    {
+      "case": "B3_control_capability_allowed_allow",
+      "expect": "ALLOW",
+      "passed": true,
+      "detail": "decision=allow violations=[] reason='trusted input into network effect'"
+    }
+  ]
+}
