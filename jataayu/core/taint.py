@@ -57,11 +57,30 @@ _SHELL_SINK_TOOLS = frozenset({
 _FILE_WRITE_TOOLS = frozenset({
     "write_file", "create_file", "overwrite_file", "append_file", "edit_file",
     "str_replace_editor", "write_to_file", "save_file", "create_or_overwrite_file",
+    # Filesystem writes exposed by agent suites (AgentDojo workspace, etc.). These mutate
+    # or destroy files and were previously mis-classified as READ -> ALLOW.
+    "append_to_file", "delete_file",
 })
 
 _NETWORK_TOOLS = frozenset({
     "fetch", "http_request", "web_fetch", "curl", "wget", "make_request",
     "browse_web", "web_search", "send_email", "send_message",
+    # Effectful external actions exposed by agent suites (AgentDojo banking/slack/travel/
+    # workspace). Each commits an irreversible, attacker-influenceable side effect off the
+    # box — moving money, messaging/inviting people, booking, or externally sharing — so they
+    # are NETWORK-class sinks (approval-gated), not READs. Previously unmapped -> silently
+    # ALLOWed, which is the coverage gap the Tier-2 effect-boundary benchmark surfaces.
+    # banking (money movement / account mutation):
+    "send_money", "send_money_to_iban", "transfer_funds",
+    "schedule_transaction", "update_scheduled_transaction", "update_user_info",
+    # slack (social / messaging writes):
+    "send_direct_message", "send_channel_message", "post_message",
+    "invite_user_to_slack", "add_user_to_channel", "remove_user_from_slack", "post_webpage",
+    # travel (bookings / reservations):
+    "reserve_hotel", "reserve_restaurant", "reserve_car_rental", "book_flight",
+    # workspace (calendar writes / external document sharing):
+    "create_calendar_event", "reschedule_calendar_event", "add_calendar_event_participants",
+    "share_file", "share_document",
 })
 
 _SECRET_TOOLS = frozenset({

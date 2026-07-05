@@ -1,0 +1,76 @@
+{
+  "dataset": "xTRam1/safe-guard-prompt-injection",
+  "surface": "unknown",
+  "n_total": 10296,
+  "n_injection": 3146,
+  "n_benign": 7150,
+  "latency_ms": {
+    "mean": 8.0506,
+    "p50": 1.707,
+    "p99": 99.3227
+  },
+  "roc_auc": 0.641,
+  "pr_auc": 0.4931,
+  "operating_points": {
+    "BLOCKED>=0.90": {
+      "threshold": 0.9,
+      "tp": 421,
+      "fp": 9,
+      "tn": 7141,
+      "fn": 2725,
+      "precision": 0.9791,
+      "recall": 0.1338,
+      "fpr": 0.0013,
+      "f1": 0.2355
+    },
+    "HIGH>=0.70": {
+      "threshold": 0.7,
+      "tp": 756,
+      "fp": 144,
+      "tn": 7006,
+      "fn": 2390,
+      "precision": 0.84,
+      "recall": 0.2403,
+      "fpr": 0.0201,
+      "f1": 0.3737
+    },
+    "MEDIUM>=0.45": {
+      "threshold": 0.45,
+      "tp": 947,
+      "fp": 153,
+      "tn": 6997,
+      "fn": 2199,
+      "precision": 0.8609,
+      "recall": 0.301,
+      "fpr": 0.0214,
+      "f1": 0.4461
+    },
+    "LOW>=0.20": {
+      "threshold": 0.2,
+      "tp": 952,
+      "fp": 166,
+      "tn": 6984,
+      "fn": 2194,
+      "precision": 0.8515,
+      "recall": 0.3026,
+      "fpr": 0.0232,
+      "f1": 0.4465
+    }
+  },
+  "robustness": {
+    "baseline_caught_at_MEDIUM": 947,
+    "baseline_pos": 3146,
+    "space_out": {
+      "still_caught": 947,
+      "evasion_rate": 0.0
+    },
+    "zero_width": {
+      "still_caught": 947,
+      "evasion_rate": 0.0
+    },
+    "leetspeak": {
+      "still_caught": 947,
+      "evasion_rate": 0.0
+    }
+  }
+}

@@ -1,0 +1,195 @@
+{
+  "benchmark": "Jataayu outbound / PII-privacy \u2014 what-goes-OUT surface",
+  "api": "jataayu_check_outbound (fast path, no LLM)",
+  "corpus_source": "ai4privacy/pii-masking-200k (public)",
+  "hf_unavailable_reason": null,
+  "surface": "public",
+  "n_total": 480,
+  "n_positive": 430,
+  "n_benign": 50,
+  "detection_status_based": {
+    "decision": "flagged iff status in {WARN, BLOCK}",
+    "tp": 198,
+    "fp": 0,
+    "tn": 50,
+    "fn": 232,
+    "precision": 1.0,
+    "recall": 0.4605,
+    "fpr": 0.0,
+    "f1": 0.6306
+  },
+  "detection_by_split": {
+    "standard_pii": {
+      "n": 400,
+      "flagged": 168,
+      "recall": 0.42
+    },
+    "jataayu_native": {
+      "n": 30,
+      "flagged": 30,
+      "recall": 1.0
+    }
+  },
+  "detection_in_scope_only": {
+    "n": 228,
+    "flagged": 183,
+    "recall": 0.8026,
+    "note": "messages containing >=1 span jataayu is designed to catch"
+  },
+  "operating_points_by_risk_score": {
+    "BLOCK>=0.90": {
+      "threshold": 0.9,
+      "tp": 103,
+      "fp": 0,
+      "tn": 50,
+      "fn": 327,
+      "precision": 1.0,
+      "recall": 0.2395,
+      "fpr": 0.0,
+      "f1": 0.3865
+    },
+    "WARN/HIGH>=0.70": {
+      "threshold": 0.7,
+      "tp": 144,
+      "fp": 0,
+      "tn": 50,
+      "fn": 286,
+      "precision": 1.0,
+      "recall": 0.3349,
+      "fpr": 0.0,
+      "f1": 0.5017
+    },
+    "MEDIUM>=0.45": {
+      "threshold": 0.45,
+      "tp": 198,
+      "fp": 0,
+      "tn": 50,
+      "fn": 232,
+      "precision": 1.0,
+      "recall": 0.4605,
+      "fpr": 0.0,
+      "f1": 0.6306
+    },
+    "LOW>=0.20": {
+      "threshold": 0.2,
+      "tp": 198,
+      "fp": 0,
+      "tn": 50,
+      "fn": 232,
+      "precision": 1.0,
+      "recall": 0.4605,
+      "fpr": 0.0,
+      "f1": 0.6306
+    }
+  },
+  "per_category": {
+    "address": {
+      "in_scope": true,
+      "msgs_with_category": 62,
+      "detection_recall": 0.8065,
+      "spans": 94,
+      "redaction_recall": 0.3511
+    },
+    "credential": {
+      "in_scope": true,
+      "msgs_with_category": 5,
+      "detection_recall": 1.0,
+      "spans": 5,
+      "redaction_recall": 1.0
+    },
+    "credit_card": {
+      "in_scope": true,
+      "msgs_with_category": 23,
+      "detection_recall": 1.0,
+      "spans": 23,
+      "redaction_recall": 1.0
+    },
+    "email": {
+      "in_scope": true,
+      "msgs_with_category": 41,
+      "detection_recall": 1.0,
+      "spans": 41,
+      "redaction_recall": 0.0
+    },
+    "financial": {
+      "in_scope": true,
+      "msgs_with_category": 5,
+      "detection_recall": 1.0,
+      "spans": 5,
+      "redaction_recall": 1.0
+    },
+    "financial_account": {
+      "in_scope": true,
+      "msgs_with_category": 65,
+      "detection_recall": 0.6462,
+      "spans": 73,
+      "redaction_recall": 0.5205
+    },
+    "health": {
+      "in_scope": true,
+      "msgs_with_category": 6,
+      "detection_recall": 1.0,
+      "spans": 6,
+      "redaction_recall": 0.0
+    },
+    "minors_info": {
+      "in_scope": true,
+      "msgs_with_category": 5,
+      "detection_recall": 1.0,
+      "spans": 5,
+      "redaction_recall": 1.0
+    },
+    "name": {
+      "in_scope": true,
+      "msgs_with_category": 4,
+      "detection_recall": 1.0,
+      "spans": 5,
+      "redaction_recall": 1.0
+    },
+    "out_of_scope": {
+      "in_scope": false,
+      "msgs_with_category": 388,
+      "detection_recall": 0.4098,
+      "spans": 993,
+      "redaction_recall": 0.0302
+    },
+    "phone": {
+      "in_scope": true,
+      "msgs_with_category": 22,
+      "detection_recall": 0.7727,
+      "spans": 22,
+      "redaction_recall": 0.0455
+    },
+    "relationships": {
+      "in_scope": true,
+      "msgs_with_category": 5,
+      "detection_recall": 1.0,
+      "spans": 5,
+      "redaction_recall": 1.0
+    },
+    "ssn": {
+      "in_scope": true,
+      "msgs_with_category": 14,
+      "detection_recall": 0.5,
+      "spans": 14,
+      "redaction_recall": 0.3571
+    }
+  },
+  "over_redaction": {
+    "n_benign": 50,
+    "benign_pass_rate": 1.0,
+    "benign_false_block_rate": 0.0,
+    "over_redaction_rate": 0.0,
+    "examples": []
+  },
+  "latency_ms": {
+    "mean": 1.5299,
+    "p50": 0.7639,
+    "p99": 6.676
+  },
+  "notes": [
+    "Names are caught only via protected_names; generic personal names, crypto/bank addresses, IPs, IMEIs, VINs, dates and job info are out_of_scope by design and reported separately.",
+    "SSN regex requires an 'SSN'/'social security' prefix; bare 9-digit numbers are not matched (see ssn category recall).",
+    "Contextual categories (esp. health, base score 0.65) are DETECTED but fall below the 0.75 regex-redaction threshold, so they are flagged without their span being removed on the fast path."
+  ]
+}
