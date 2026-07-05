@@ -1,0 +1,76 @@
+{
+  "dataset": "jackhhao/jailbreak-classification",
+  "surface": "unknown",
+  "n_total": 1306,
+  "n_injection": 666,
+  "n_benign": 640,
+  "latency_ms": {
+    "mean": 28.341,
+    "p50": 12.2394,
+    "p99": 162.3458
+  },
+  "roc_auc": 0.7539,
+  "pr_auc": 0.7569,
+  "operating_points": {
+    "BLOCKED>=0.90": {
+      "threshold": 0.9,
+      "tp": 128,
+      "fp": 6,
+      "tn": 634,
+      "fn": 538,
+      "precision": 0.9552,
+      "recall": 0.1922,
+      "fpr": 0.0094,
+      "f1": 0.32
+    },
+    "HIGH>=0.70": {
+      "threshold": 0.7,
+      "tp": 366,
+      "fp": 28,
+      "tn": 612,
+      "fn": 300,
+      "precision": 0.9289,
+      "recall": 0.5495,
+      "fpr": 0.0437,
+      "f1": 0.6906
+    },
+    "MEDIUM>=0.45": {
+      "threshold": 0.45,
+      "tp": 375,
+      "fp": 61,
+      "tn": 579,
+      "fn": 291,
+      "precision": 0.8601,
+      "recall": 0.5631,
+      "fpr": 0.0953,
+      "f1": 0.6806
+    },
+    "LOW>=0.20": {
+      "threshold": 0.2,
+      "tp": 380,
+      "fp": 64,
+      "tn": 576,
+      "fn": 286,
+      "precision": 0.8559,
+      "recall": 0.5706,
+      "fpr": 0.1,
+      "f1": 0.6847
+    }
+  },
+  "robustness": {
+    "baseline_caught_at_MEDIUM": 375,
+    "baseline_pos": 666,
+    "space_out": {
+      "still_caught": 374,
+      "evasion_rate": 0.0027
+    },
+    "zero_width": {
+      "still_caught": 375,
+      "evasion_rate": 0.0
+    },
+    "leetspeak": {
+      "still_caught": 375,
+      "evasion_rate": 0.0
+    }
+  }
+}

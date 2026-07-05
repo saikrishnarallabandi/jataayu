@@ -36,3 +36,8 @@ exp/
 
 # session working notes
 tasks/
+
+# eval run artifacts (trajectory logs + transcripts)
+runs/
+eval/results/*.log
+eval/eval/

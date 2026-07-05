@@ -21,9 +21,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
+import httpx
 import openai
 
 from agentdojo.agent_pipeline import (
@@ -47,6 +49,77 @@ from agentdojo.logging import OutputLogger
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from jataayu_defense import JataayuPIDetector  # noqa: E402
 
+# --- LocalLLM parse fix (AgentDojo 0.1.35) -----------------------------------
+# AgentDojo's _parse_model_output does json.loads() on the raw body between
+# <function=name> and </function>. Local models produce two body shapes that
+# json.loads rejects, dropping the tool call ("[debug] broken JSON: ...") and
+# stalling the agent:
+#   (1) EMPTY body — Qwen emits a zero-arg call as `<function=get_current_day>
+#       </function>`, ignoring the prompt's "include {}" rule. Because the
+#       workspace agent's mandated first action is the no-arg get_current_day,
+#       EVERY task stalled on step 1 -> uniform 0 utility.
+#   (2) TRAILING garbage after a complete JSON object — most often a doubled
+#       closing brace (`{...}}`), which invalidates the whole string.
+# Fix: normalize an empty body to {}, and when the body doesn't parse, salvage
+# the first brace-balanced JSON object (string/escape aware) and use that.
+import json as _json  # noqa: E402
+import re as _re  # noqa: E402
+import agentdojo.agent_pipeline.llms.local_llm as _local_llm  # noqa: E402
+
+_orig_parse = _local_llm._parse_model_output
+_EMPTY_FN_CALL = _re.compile(r"(<function\s*=\s*[^>]+>)\s*(</function>)")
+_OPEN_FN = _re.compile(r"<function\s*=\s*[^>]+>")
+
+
+def _balanced_json(s: str) -> str | None:
+    """Return the first brace-balanced {...} object in s (respecting strings and
+    escapes), or None. Salvages `{...}}`, `{...} trailing text`, etc."""
+    start = s.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(s)):
+        c = s[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return s[start:i + 1]
+    return None
+
+
+def _parse_model_output_fixed(completion: str):
+    fixed = _EMPTY_FN_CALL.sub(r"\1{}\2", completion)
+    m = _OPEN_FN.search(fixed)
+    if m:
+        start = m.end()
+        end = fixed.find("</function>", start)
+        end = end if end != -1 else len(fixed)
+        body = fixed[start:end].strip()
+        if body:
+            try:
+                _json.loads(body)
+            except ValueError:
+                salvaged = _balanced_json(body)
+                if salvaged is not None:
+                    fixed = fixed[:start] + salvaged + fixed[end:]
+    return _orig_parse(fixed)
+
+
+_local_llm._parse_model_output = _parse_model_output_fixed
+
 
 def _make_llm(model: str, model_id: str | None, local_base_url: str | None):
     """Return the agent LLM element. For a hosted model, defer to AgentDojo's
@@ -56,7 +129,14 @@ def _make_llm(model: str, model_id: str | None, local_base_url: str | None):
     if model == "local":
         if not (model_id and local_base_url):
             raise ValueError("--model-id and --local-base-url are required for --model local")
-        client = openai.OpenAI(api_key="EMPTY", base_url=local_base_url)
+        # OPENAI_API_KEY carries the bearer token for auth'd gateways (e.g. the
+        # gateway OAuth gateway); defaults to EMPTY for open local endpoints
+        # (ollama). verify=False accepts the gateway's self-signed TLS cert.
+        client = openai.OpenAI(
+            api_key=os.environ.get("OPENAI_API_KEY", "EMPTY"),
+            base_url=local_base_url,
+            http_client=httpx.Client(verify=False, timeout=600.0),
+        )
         return LocalLLM(client, model_id, tool_delimiter="tool")
     # hosted: let from_config build the provider-correct client, then extract the llm
     cfg_pipe = AgentPipeline.from_config(PipelineConfig(

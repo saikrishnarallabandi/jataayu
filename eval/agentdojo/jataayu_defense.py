@@ -22,10 +22,11 @@ Pinned against agentdojo 0.1.35.
 """
 from __future__ import annotations
 
-from jataayu.convenience import check_inbound
+from jataayu.convenience import check_inbound, sanitize_inbound
 
 try:
     from agentdojo.agent_pipeline import PromptInjectionDetector
+    from agentdojo.types import text_content_block_from_string
 except ImportError as e:  # pragma: no cover - surfaced only without agentdojo installed
     raise ImportError(
         "agentdojo is required to use this defense adapter. "
@@ -50,6 +51,15 @@ class JataayuPIDetector(PromptInjectionDetector):
             trade-off.
         use_llm: whether Jataayu may use its LLM slow path for ambiguous cases.
             Off by default so the defense stays deterministic and free.
+        surgical: when True (default), a detected message is scrubbed by excising
+            only the injected block (Jataayu's sanitize) rather than discarding
+            the whole tool result. AgentDojo plants injections *inside* data the
+            agent needs (a calendar description, an email body), so full omission
+            — AgentDojo's default transform — starves the task and collapses
+            utility under attack. Surgical scrub preserves the benign remainder;
+            if the injection can't be cleanly excised it falls back to full
+            omission, so detection is never weakened (the removed text is always
+            re-verified safe). Set False to reproduce the drop-the-message baseline.
         mode / raise_on_injection: passed through to PromptInjectionDetector.
             mode="message" checks each tool message in isolation; scrub-on-detect
             (raise_on_injection=False) is the AgentDojo default.
@@ -60,6 +70,7 @@ class JataayuPIDetector(PromptInjectionDetector):
         *,
         min_status: str = "HIGH",
         use_llm: bool = False,
+        surgical: bool = True,
         mode: str = "message",
         raise_on_injection: bool = False,
     ) -> None:
@@ -69,6 +80,7 @@ class JataayuPIDetector(PromptInjectionDetector):
         self.min_status = min_status
         self._threshold = _STATUS_SCORE[min_status]
         self.use_llm = use_llm
+        self.surgical = surgical
         self.name = f"jataayu_pi_detector({min_status.lower()})"
 
     def detect(self, tool_output: str) -> tuple[bool, float]:
@@ -78,3 +90,26 @@ class JataayuPIDetector(PromptInjectionDetector):
         score = _STATUS_SCORE.get(status, 0.0)
         is_injection = score >= self._threshold and score > 0.0
         return is_injection, score
+
+    def transform(self, tool_output):
+        """Surgically excise the injected block from each text block, preserving
+        the benign remainder. Falls back to AgentDojo's full-omission marker only
+        when Jataayu cannot cleanly remove the injection (sanitize returns "")."""
+        if not self.surgical:
+            return super().transform(tool_output)
+        out = []
+        for block in tool_output:
+            if block.get("type") != "text":
+                out.append(block)
+                continue
+            cleaned = sanitize_inbound(
+                block.get("content") or "", surface="tool-output", use_llm=self.use_llm
+            )
+            out.append(
+                text_content_block_from_string(cleaned)
+                if cleaned.strip()
+                else text_content_block_from_string(
+                    "<Data omitted because a prompt injection was detected>"
+                )
+            )
+        return out

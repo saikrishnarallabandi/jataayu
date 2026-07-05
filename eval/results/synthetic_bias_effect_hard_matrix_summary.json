@@ -1,0 +1,37 @@
+{
+  "summary": "Jataayu hard synthetic bias matrix",
+  "runs": {
+    "hard_200_deterministic": {
+      "path": "eval/results/synthetic_bias_effect_hard_200.json",
+      "n_pairs": 200,
+      "n_rows": 400,
+      "expected_allow_pairs": 100,
+      "expected_block_pairs": 100,
+      "upstream_bias_flip_rate": 1.0,
+      "llm_model": null,
+      "llm_bias_flip_rate": null,
+      "llm_policy_accuracy": null,
+      "llm_parse_failures": null,
+      "jataayu_decision_flip_rate": 0.0,
+      "jataayu_committed_high_effect_actions": 0
+    },
+    "qwen14_10": {
+      "path": "eval/results/synthetic_bias_effect_hard_qwen14_10.json",
+      "n_pairs": 10,
+      "n_rows": 20,
+      "expected_allow_pairs": 5,
+      "expected_block_pairs": 5,
+      "upstream_bias_flip_rate": 1.0,
+      "llm_model": "qwen3:14b",
+      "llm_bias_flip_rate": 0.0,
+      "llm_policy_accuracy": 1.0,
+      "llm_parse_failures": 0,
+      "jataayu_decision_flip_rate": 0.0,
+      "jataayu_committed_high_effect_actions": 0
+    }
+  },
+  "blocked_background_targets": {
+    "qwen35_10": "interactive run too slow / empty responses under local OpenAI-compatible endpoint; needs background batch",
+    "ornith35_10": "not run interactively to avoid long local 35B batch; queue as background batch"
+  }
+}
