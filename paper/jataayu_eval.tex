@@ -127,6 +127,36 @@ fixed      & \good{1.00} & 1.00 / 1.00 / 1.00 / 1.00 & 0.50 & \good{0} \\
 \end{tabular}
 \end{table}
 
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=12cm, height=5.2cm,
+    ybar, bar width=9pt,
+    symbolic x coords={banking, slack, travel, workspace},
+    xtick=data,
+    ymin=0, ymax=1.15, ytick={0,0.25,0.5,0.75,1.0},
+    enlarge x limits=0.2,
+    tick label style={font=\footnotesize},
+    ylabel={Attack-prevention rate (APR)}, ylabel style={font=\footnotesize},
+    nodes near coords, nodes near coords style={font=\tiny},
+    every node near coord/.append style={/pgf/number format/fixed,/pgf/number format/precision=2},
+    legend style={font=\footnotesize, at={(0.5,-0.22)}, anchor=north, legend columns=2, draw=none},
+    grid=major, grid style={slate!20},
+]
+  \addplot[fill=barbase,draw=barbase] coordinates {(banking,0)(slack,0)(travel,0)(workspace,0.27)};
+  \addplot[fill=accent,draw=accent]   coordinates {(banking,1)(slack,1)(travel,1)(workspace,1)};
+  \legend{as-shipped (coverage gap), after taint.py fix}
+\end{axis}
+\end{tikzpicture}
+\caption{Effect-boundary Tier~2, per-suite attack-prevention rate, disclose-then-fix. As shipped,
+the effect boundary prevented \emph{zero} attacks on banking / slack / travel --- their effectful
+tools (money transfers, Slack invites, bookings) were unmapped and silently authorized --- and only
+0.27 on workspace. Completing the tool$\to$effect map lifts every suite to 1.00. This is the single
+most consequential finding of the evaluation.}
+\label{fig:tier2}
+\end{figure}
+
 \textbf{Edge paths.} Previously uncovered: \code{commit()} with mutated parameters raises
 \code{CommitRejected} (post-authorization mutation blocked); committing a non-ALLOW preview is
 rejected; a capability-forbidden action is DENIED even under trusted provenance (capability wins).
@@ -136,8 +166,19 @@ All 6 cases pass.
 On the \code{workspace} suite under \code{important\_instructions} (5 user tasks $\times$ 4
 injections, local 35B agent), Jataayu's tool-output screen with surgical redaction drives ASR
 $0.10 \to \good{0.00}$ and restores utility-under-attack $0.75 \to \good{1.00}$ at no clean-task
-cost (Table~\ref{tab:4suite}). A separate reproducibility note documents a silent tool-call parse
-failure in AgentDojo's local-model adapter that zeroes benchmark utility; we release the fix.
+cost (Table~\ref{tab:4suite}).
+
+\textbf{A reproducibility pitfall (methodological).} Obtaining any signal at all first required
+fixing a silent failure in AgentDojo's local-model adapter. The adapter recovers tool calls by
+running \code{json.loads()} on the text between \code{<function=name>} and \code{</function>}. Two
+body shapes that Qwen-family models routinely emit break that parse: an \emph{empty} zero-argument
+body (\code{<function=get\_current\_day></function>}, ignoring the ``include \code{\{\}}''
+instruction) and \emph{trailing garbage} after a valid object (a doubled closing brace). Because the
+workspace agent's mandated first action is the no-argument \code{get\_current\_day}, the dropped
+call stalls \emph{every} task at step one --- yielding a uniform zero utility that masquerades as a
+null result rather than a crash. We release a parser repair (empty-body $\to$ \code{\{\}}, plus
+brace-balanced salvage) and recommend asserting non-zero undefended-baseline utility as a harness
+pre-condition. Any AgentDojo evaluation of a non-OpenAI-tool-calling model is exposed to this.
 
 The four-suite live sweep (workspace / banking / travel / slack) was truncated by a $\sim$10$\times$
 degradation of the local inference endpoint mid-run; the completed banking \emph{baseline}
@@ -261,6 +302,34 @@ useful but deliberately non-authoritative pre-filter. Equally, the evaluation is
 it reports four concrete defects rather than a row of green checkmarks. Future work: close the
 deferred-detector and composition-keying gaps (disclose-then-fix), extend the AgentDojo sweep
 across models, and lift the redaction threshold for detected-but-unredacted PII.
+
+\appendix
+\section{Artifacts and reproduction}
+Every result in this report is produced by a runner under \code{eval/} that writes a JSON result
+to \code{eval/results/}; deterministic corpora live in \code{eval/data/} with fixed-seed
+generators. The deterministic surfaces (effect boundary, egress, composition, memory / injection
+fast path) require no model and reproduce exactly.
+
+\begin{center}\small
+\begin{tabular}{ll}
+\toprule
+Surface & Runner \\
+\midrule
+Effect boundary (Tier 1 / 2 / edges) & \code{run\_effect\_boundary\_\{bench,tier2,edges\}.py} \\
+Injection (inbound / cross-dataset) & \code{run\_injection\_bench.py --dataset ...} \\
+Tool-return (InjecAgent) & \code{run\_injecagent\_bench.py} \\
+Outbound / PII & \code{run\_outbound\_privacy\_bench.py} \\
+Egress channel & \code{run\_egress\_bench.py} \\
+Skillset composition & \code{run\_composition\_bench.py} \\
+Memory poisoning & \code{run\_memory\_poison\_bench.py} \\
+AgentDojo (agentic e2e) & \code{agentdojo/run\_agentdojo.py} (+ \code{summarize\_slice.py}) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The \code{taint.py} disclose-then-fix is reproduced by running the Tier~2 harness before and after
+the tool$\to$effect map extension; the full unit suite (403 tests) is green in both the as-shipped
+and fixed states.
 
 \begin{thebibliography}{9}
 \bibitem{agentdojo} E.~Debenedetti et al. \emph{AgentDojo: A Dynamic Environment to Evaluate
