@@ -18,12 +18,11 @@ from jataayu.guards.inbound import InboundGuard
 from jataayu.guards.outbound import OutboundGuard, PrivacyConfig
 from jataayu.core.threat import ThreatLevel
 
-# Default protected names — family members that should never appear in outbound
-# content on shared surfaces. Configure via PrivacyConfig for custom lists.
-DEFAULT_PROTECTED_NAMES = [
-    "Dana", "Carol", "Alice", "Bob",
-    "Evan", "Grace", "Frank",
-]
+# Protected names are empty by default: a generic install must not redact
+# arbitrary names out of the box. Supply your own per call via
+# `check_outbound(..., protected_names=[...])`, or configure them centrally
+# through a PrivacyConfig / policy file.
+DEFAULT_PROTECTED_NAMES: list[str] = []
 
 # Singleton guards (lazy-initialized)
 _inbound_guard: Optional[InboundGuard] = None
@@ -119,7 +118,8 @@ def check_outbound(
     Args:
         content: Draft message to evaluate.
         surface: Target surface (discord-channel, whatsapp-group, github-comment, etc.)
-        protected_names: Names that must never appear. Defaults to family names.
+        protected_names: Names that must never appear. Defaults to none —
+            pass your own list or configure them via a policy file.
         use_llm: Whether to use LLM for sanitization.
 
     Returns:

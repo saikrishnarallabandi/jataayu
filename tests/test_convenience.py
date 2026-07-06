@@ -65,8 +65,9 @@ class TestCheckOutbound:
         status, output = check_outbound(
             "My daughter Alice loves coding",
             surface="discord-channel",
+            protected_names=["Alice"],
         )
-        # Should catch either via protected name or PII pattern
+        # Caller-supplied protected name should be caught
         assert status in ("WARN", "BLOCK")
 
     def test_financial_info(self):

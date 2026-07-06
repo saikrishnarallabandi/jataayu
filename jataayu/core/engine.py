@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional
 
-from jataayu.core.threat import ThreatResult, ThreatLevel
+from jataayu.core.threat import ThreatResult
 from jataayu.surfaces.profiles import SURFACE_PROFILES
 
 
