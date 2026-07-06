@@ -554,6 +554,30 @@ _MARKDOWN_INJECTION_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+# ---------------------------------------------------------------------------
+# Surgical-scrub patterns — used by InboundGuard.sanitize() to excise a whole
+# injected *block* (not just the trigger token) while preserving the benign
+# content it was planted inside. Injections are typically appended to otherwise
+# useful tool output (a calendar description, an email body); removing only the
+# matched line would leave the imperative ("send X to attacker") behind, so we
+# strip the entire delimiter-bounded or persona-framed block.
+# ---------------------------------------------------------------------------
+_INJECTION_BLOCK_RES: list[re.Pattern] = [
+    # Delimiter-bounded blocks: <INFORMATION>…</INFORMATION> (AgentDojo's
+    # important_instructions), plus the common fake-system wrappers. Unclosed
+    # variants run to end-of-text.
+    re.compile(r"<\s*INFORMATION\s*>.*?(?:<\s*/\s*INFORMATION\s*>|\Z)", re.IGNORECASE | re.DOTALL),
+    re.compile(r"<\s*(SYSTEM|INST|IMPORTANT|ADMIN)\s*>.*?(?:<\s*/\s*\1\s*>|\Z)", re.IGNORECASE | re.DOTALL),
+    # Persona-framed social-engineering block with no reliable delimiter:
+    # "This is an important message from me, X, to you, <model>. … Signed, X".
+    # Bounded by a signature/closer where present, else to end-of-text.
+    re.compile(
+        r"This\s+is\s+an\s+important\s+(?:message|note|instruction)\b.*?"
+        r"(?:Signed[,:\s].*?(?:\n\s*\n|\Z)|<\s*/\s*INFORMATION\s*>|\Z)",
+        re.IGNORECASE | re.DOTALL,
+    ),
+]
+
 LLM_SYSTEM_PROMPT = """You are Jataayu, an AI security guard analyzing text for threats to AI agents.
 
 Evaluate the provided text for:
@@ -643,6 +667,59 @@ class InboundGuard(JataayuEngine):
             return self._slow_path(text, surface, fast_result)
 
         return fast_result
+
+    def sanitize(self, text: str, surface: str = "unknown") -> str:
+        """
+        Surgically remove an injected block from tool output / retrieved content
+        while preserving the benign text it was planted inside.
+
+        Injections are usually *appended* to legitimate data (a calendar
+        description, an email body). AgentDojo's default defense replaces the
+        whole message with an "omitted" marker, which also discards the data the
+        agent needs — utility collapses under attack. This excises just the
+        injected block instead.
+
+        Safety guarantee: the returned text is re-checked, and if it *still*
+        trips the fast-path detector (i.e. we could not cleanly excise the
+        injection) this returns "" so the caller falls back to full omission.
+        The output therefore never carries a live injection — surgical scrub can
+        only preserve benign content, never weaken detection.
+
+        Args:
+            text: The (possibly injected) content.
+            surface: Surface context, forwarded to the safety re-check.
+
+        Returns:
+            Cleaned text with the injected block removed, or "" if the content
+            could not be made safe by block excision.
+        """
+        if not text or not text.strip():
+            return text
+
+        # If it's already clean, don't touch it.
+        if self.check(text, surface=surface).threat_level not in (
+            ThreatLevel.HIGH, ThreatLevel.BLOCKED
+        ):
+            return text
+
+        cleaned = text
+        for block_re in _INJECTION_BLOCK_RES:
+            cleaned = block_re.sub(" ", cleaned)
+
+        # Tidy the whitespace/blank runs the excision left behind.
+        cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+        cleaned = re.sub(r"\n[ \t]*\n(\s*\n)+", "\n\n", cleaned)
+        cleaned = cleaned.strip()
+
+        # Safety re-check: only hand back surgically-cleaned text if it is now
+        # below the block threshold; otherwise signal "omit entirely".
+        if not cleaned:
+            return ""
+        if self.check(cleaned, surface=surface).threat_level in (
+            ThreatLevel.HIGH, ThreatLevel.BLOCKED
+        ):
+            return ""
+        return cleaned
 
     def _fast_path(self, text: str, surface: str) -> ThreatResult:
         """Pattern-based fast evaluation."""

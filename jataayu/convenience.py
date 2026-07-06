@@ -88,6 +88,25 @@ def check_inbound(
     return status, result.explanation
 
 
+def sanitize_inbound(
+    content: str,
+    surface: str = "unknown",
+    use_llm: bool = False,
+) -> str:
+    """
+    Surgically remove an injected block from inbound content while preserving the
+    benign text it was planted inside (e.g. strip the injection from a calendar
+    description without discarding the description).
+
+    Returns the cleaned text, or "" if the injection could not be cleanly excised
+    (in which case the caller should omit the content entirely). The result is
+    guaranteed not to trip the fast-path detector. See
+    InboundGuard.sanitize for the safety contract.
+    """
+    guard = _get_inbound_guard(use_llm=use_llm)
+    return guard.sanitize(content, surface=surface)
+
+
 def check_outbound(
     content: str,
     surface: str = "public",
