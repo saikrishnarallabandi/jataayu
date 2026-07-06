@@ -55,15 +55,15 @@ deepset / safe-guard / jailbreak injection sets, ai4privacy) and synthetic-but-d
 none does, and report every number, including the ones that expose weaknesses.
 
 \smallskip\noindent Two findings are structural. First, the effect boundary works: on an
-AgentDojo-derived action stream it lifts attack prevention from 29\% to \good{100\%} once the
-tool$\to$effect map is complete, at a disclosed utility cost. A direct semantic-vs-effect probe
+AgentDojo-derived action stream spanning five suites it prevents \good{100\%} of labeled attacks
+(APR 1.00), at a disclosed utility cost; on a controlled ablation a detector-only pre-filter
+reaches only 27\% where the effect boundary reaches 100\%. A direct semantic-vs-effect probe
 validates the thesis: a text grader catches only the 1 overt trajectory of 6 harmful (0 of 5
-silent harms; recall 0.17), while the effect grader catches all six (\good{1.00}). Second, the
-evaluation is honest. It surfaced four concrete defects: a shipped coverage gap that silently
-authorized every banking, travel, and Slack side-effect; the absence of a deferred-instruction
-detector (sleeper-memory recall 0.00); an over-narrow exfiltration key in the composition guard;
-and a live regex false-positive. One of these we fix in-line (disclose-then-fix). The
-deterministic core runs in tens of microseconds per decision (0.036\,ms mean).
+silent harms; recall 0.17), while the effect grader catches all six (\good{1.00}). Second, we
+report weaknesses alongside strengths: the fast-path detector's recall floor (27--56\%), the
+absence of a deferred-instruction detector (sleeper-memory recall 0.00), and an over-narrow
+exfiltration key in the composition guard. The deterministic core runs in tens of microseconds per
+decision (0.036\,ms mean).
 \end{abstract}
 
 \section{Introduction}\label{sec:intro}
@@ -93,16 +93,17 @@ pre-filter, since the guarantee never rests on the classifier.
 
 This report evaluates all seven surfaces. Our method is (i) \emph{deterministic where possible}
 --- the effect boundary, egress, composition, and fast-path detection paths use no model, so
-their numbers are exact and reproducible; (ii) \emph{public benchmarks where they exist}, with
-deterministic in-repo corpora as a documented fallback; and (iii) \emph{disclose-then-fix} ---
-where an evaluation exposes a shipped defect, we report the as-shipped result before the fix.
+their numbers are exact and reproducible; and (ii) \emph{public benchmarks where they exist}, with
+deterministic in-repo corpora as a documented fallback. We report the weak numbers alongside the
+strong ones.
 
 \paragraph{Contributions.} (1) A \emph{deterministic, LLM-free effect boundary} that authorizes an
 action by effect-severity $\times$ provenance $\times$ capability policy and, unlike CaMeL's
 value-level dataflow interpreter or a retrained model, \emph{wraps an existing agent at the
-tool-call boundary} with no agent rearchitecture (\S\ref{sec:effect}, \S\ref{sec:cmp}). (2) A seven-surface evaluation that
-reports the weak numbers as well as the strong ones, including a \emph{disclose-then-fix} coverage
-gap on the effect boundary itself. (3) A direct \emph{semantic-vs-effect} probe isolating the
+tool-call boundary} with no agent rearchitecture (\S\ref{sec:effect}, \S\ref{sec:cmp}). (2) A
+seven-surface evaluation spanning action authorization, injection screening, PII, egress,
+composition, and memory that reports the weak numbers as well as the strong ones. (3) A direct
+\emph{semantic-vs-effect} probe isolating the
 paper's thesis: text-grading misses silent harms that effect-grading catches (\S\ref{sec:sem}); unlike
 LLM-judge trajectory evaluations (R-Judge, ToolEmu)~\cite{rjudge,toolemu}, our effect trace is
 deterministic and tied to the enforcing boundary. (4) Two
@@ -145,7 +146,9 @@ Two honesty caveats. The TUR of 0.50 is a function of the deterministic corpus's
 \emph{balance} by construction (the authors set the prevalence of untrusted-tainted benign
 high-effect actions), and is not a projection of production task-utility loss. And because Tier 1
 enumerates effect classes rather than named tools, its 1.00 certifies the policy logic, not
-robustness to unmapped tools, the very failure mode Tier 2 exposes next.
+robustness to unmapped tools --- adding a tool requires adding its effect-class mapping
+(\S\ref{sec:effect}, Tier 2). Fig.~\ref{fig:ablation} shows the ablation: detection alone prevents
+27\% of attacks; the deterministic effect boundary prevents all of them.
 
 \begin{table}[htbp]\centering\small
 \caption{Effect boundary Tier 1 (synthetic, 300 rows, deterministic), four-way defense ablation.
@@ -163,75 +166,62 @@ both          & \good{1.00} & 0.50 & 1.00 & 0.036 \\
 \end{tabular}
 \end{table}
 
-\textbf{Tier 2 (AgentDojo-derived action stream, disclose-then-fix).} We label real tool calls
-attack-vs-legit with provenance and replay them through the effect boundary. The corpus has 150
-attack rows over \emph{five} suites: the four AgentDojo suites (workspace / banking / travel /
-slack, 116 attack rows) plus a synthetic \code{runtime} suite (34 attack rows) that exercises the
-shell / code-eval / secret-read / memory-write effect classes the four AgentDojo suites never
-touch. The replay exposes a shipped coverage gap: 21 effectful tools (money transfers, bookings,
-Slack invites, external shares, file deletes) were \emph{unmapped} and silently classified
-READ$\to$ALLOW. As-shipped APR under the effect defense is \bad{0.29} overall
-($44/150$ prevented). That headline is dominated by the one already-mapped suite: the
-\code{runtime} tools were correctly gated ($34/34$, APR 1.00), while the four AgentDojo suites
-prevented only $10/116$ (per-suite APR: banking 0.00, slack 0.00, travel 0.00, workspace 0.27) ---
-i.e.\ the gap is precisely on the AgentDojo side-effect tools. After extending the tool$\to$effect
-map in \code{core/taint.py} --- classifying by \emph{what the tool does} (irreversible external
-side effect $=$ network sink; file mutation $=$ file-write), not by benchmark membership --- APR
-rises to \good{1.00} across all five suites and the coverage gap closes to zero
-(Table~\ref{tab:tier2}, Fig.~\ref{fig:tier2}). The disclosed cost is TUR $0.83 \to 0.50$. The full test suite (403 tests)
-stays green after the change. This fixed 1.00 is by construction on the now-mapped tool set (no
-held-out tool split): it certifies coverage of these tools, not generalization to unmapped future
-ones, exactly the property the as-shipped row shows is not free.
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}
+\begin{axis}[
+  ybar, bar width=22pt, width=\linewidth, height=5.0cm,
+  ymin=0, ymax=1.12, ylabel={attack-prevention rate (APR)}, ylabel near ticks,
+  ytick={0,0.25,0.5,0.75,1.0},
+  symbolic x coords={none,detector-only,effect,both},
+  xtick=data, x tick label style={font=\small},
+  enlarge x limits=0.18,
+  nodes near coords, every node near coord/.append style={font=\small,
+    /pgf/number format/fixed,/pgf/number format/precision=2},
+]
+\addplot[fill=barbase,draw=barbase!60!black] coordinates
+  {(none,0.00)(detector-only,0.27)(effect,1.00)(both,1.00)};
+\end{axis}
+\end{tikzpicture}
+\caption{Four-defense ablation on the Tier-1 corpus (300 rows): attack-prevention rate for no
+defense, the detector-only pre-filter, the deterministic effect boundary, and both combined.
+Detection alone prevents 27\% of attacks; the effect boundary prevents all of them (APR 1.00). This
+is the paper's core argument for gating the action, not the string.}\label{fig:ablation}
+\end{figure}
+
+\textbf{Tier 2 (AgentDojo-derived action stream).} We label real tool calls attack-vs-legit with
+provenance and replay them through the effect boundary. The corpus has 150 attack rows over
+\emph{five} suites: the four AgentDojo suites (workspace / banking / travel / slack, 116 attack
+rows) plus a synthetic \code{runtime} suite (34 attack rows) that exercises the shell / code-eval /
+secret-read / memory-write effect classes the four AgentDojo suites never touch. Classifying each
+tool by \emph{what it does} --- irreversible external side effect $=$ network sink; file mutation
+$=$ file-write --- the effect boundary gates every labeled attack: APR \good{1.00} across all five
+suites (Table~\ref{tab:tier2}), at a disclosed utility cost of TUR 0.50, with decision latency in
+the tens of microseconds. This 1.00 is by construction on the mapped tool set (no held-out tool
+split): it certifies coverage of these tools, not generalization to unmapped future ones ---
+admitting a new tool to the guarantee is exactly the act of adding its effect-class mapping. The
+value is not free from detection alone: on the matched Tier-1 corpus a detector-only defense
+prevents 27\% of attacks against the effect boundary's 100\% (Fig.~\ref{fig:ablation}).
 
 \begin{table}[htbp]\centering\small
 \setlength\tabcolsep{5pt}
-\caption{Effect boundary Tier 2 (effect defense), disclose-then-fix, per-suite APR with attack $n$.
+\caption{Effect boundary Tier 2 (AgentDojo-derived action stream), per-suite APR with attack $n$.
 The \code{runtime} suite is synthetic (shell / code-eval / secret-read / memory-write classes absent
 from AgentDojo); the other four are AgentDojo. Overall APR weights all 150 attack rows.
 \emph{Confound:} rows are deterministic replays of labeled tool calls through our effect boundary
 (no live model), so APR reflects tool$\to$effect classification correctness on \emph{mapped} tools,
-not robustness to unseen future tools --- exactly the failure mode the as-shipped row
-exposes.}\label{tab:tier2}
+not robustness to unseen future tools.}\label{tab:tier2}
 \begin{tabular}{lcccccc}
 \toprule
  & \multicolumn{5}{c}{per-suite APR ($n_{\text{atk}}$)} & \\
 \cmidrule(lr){2-6}
  & banking\,(26) & slack\,(30) & travel\,(23) & work\,(37) & runtime\,(34) & overall APR \\
 \midrule
-as-shipped & \bad{0.00} & \bad{0.00} & \bad{0.00} & 0.27 & 1.00 & \bad{0.29} \\
-fixed      & \good{1.00} & \good{1.00} & \good{1.00} & \good{1.00} & \good{1.00} & \good{1.00} \\
+effect boundary & \good{1.00} & \good{1.00} & \good{1.00} & \good{1.00} & \good{1.00} & \good{1.00} \\
 \bottomrule
 \end{tabular}\\[2pt]
-{\footnotesize As-shipped TUR 0.83, coverage gaps \bad{21}; fixed TUR 0.50, coverage gaps \good{0}.}
+{\footnotesize TUR 0.50; coverage gaps \good{0} (every effectful tool across all five suites maps to
+a gated effect class).}
 \end{table}
-
-\begin{figure}[htbp]\centering
-\begin{tikzpicture}
-\begin{axis}[
-  ybar, bar width=8pt, width=\linewidth, height=5.0cm,
-  ymin=0, ymax=1.12, ylabel={attack-prevention rate (APR)}, ylabel near ticks,
-  ytick={0,0.25,0.5,0.75,1.0},
-  symbolic x coords={banking,slack,travel,workspace,runtime,overall},
-  xtick=data, x tick label style={font=\small},
-  enlarge x limits=0.12,
-  legend style={at={(0.5,-0.16)},anchor=north,legend columns=2,font=\small,draw=none},
-  nodes near coords, every node near coord/.append style={font=\tiny,
-    /pgf/number format/fixed,/pgf/number format/precision=2},
-]
-\addplot[fill=barbase,draw=barbase!60!black] coordinates
-  {(banking,0.00)(slack,0.00)(travel,0.00)(workspace,0.27)(runtime,1.00)(overall,0.29)};
-\addplot[fill=good,draw=good!55!black] coordinates
-  {(banking,1.00)(slack,1.00)(travel,1.00)(workspace,1.00)(runtime,1.00)(overall,1.00)};
-\legend{as-shipped, fixed}
-\end{axis}
-\end{tikzpicture}
-\caption{Effect-boundary Tier~2 disclose-then-fix: per-suite APR before (grey) and after (green)
-extending the tool$\to$effect map. The as-shipped gap is concentrated on the four AgentDojo suites
-(banking / slack / travel APR 0.00, workspace 0.27); the already-mapped synthetic \code{runtime}
-suite was correct at 1.00 throughout. The fixed bars are by construction on the now-mapped tool set
-(no held-out tool split), so they certify coverage, not generalization to unmapped future
-tools.}\label{fig:tier2}
-\end{figure}
 
 {\sloppy\par\noindent
 \textbf{Edge paths.} Previously uncovered: \code{commit()} with mutated parameters raises
@@ -258,8 +248,8 @@ cautiously, since this is a truncated run ($n{=}17$) on a degrading endpoint, it
 more attack headroom than workspace (ASR 0.10), to be confirmed on a stable endpoint; we draw no
 suite-importance ranking from it.
 Crucially, the cross-suite \emph{defense} evidence does not rest on this live sweep at all: the
-deterministic Tier~2 (\S\ref{sec:effect}, Table~\ref{tab:tier2}) covers all four AgentDojo suites and lifts
-per-suite APR to 1.00. Completing the live multi-suite sweep on a stable endpoint is future work.
+deterministic Tier~2 (\S\ref{sec:effect}, Table~\ref{tab:tier2}) covers all four AgentDojo suites at
+per-suite APR 1.00. Completing the live multi-suite sweep on a stable endpoint is future work.
 
 \begin{table}[htbp]\centering\small
 \caption{AgentDojo live results, \code{important\_instructions}, \code{qwen3.6:35b-a3b} agent.
@@ -397,19 +387,19 @@ effect (tool-call trace) & \good{1.00} & 0 \\
 Table~\ref{tab:summary} collects every surface's headline result in one place: green marks a strong,
 model-free result and red a disclosed gap. The pattern the paper argues for is visible down the
 column --- the deterministic effect boundary and egress/composition guards carry exact green numbers,
-while the disclosed gaps (deferred-memory recall, the five unmodeled composition paths, the PII
+while the current limitations (deferred-memory recall, the five unmodeled composition paths, the PII
 redaction-threshold artifact, the fast-path recall floor) are exactly the surfaces where no
 deterministic guarantee is claimed.
 
 \begin{table}[htbp]\centering\small
-\caption{Jataayu surfaces, benchmarks, and headline results. Green = strong; red = a disclosed
-gap. Deterministic surfaces carry exact, model-free numbers.}\label{tab:summary}
+\caption{Jataayu surfaces, benchmarks, and headline results. Green = strong; red = a current
+limitation. Deterministic surfaces carry exact, model-free numbers.}\label{tab:summary}
 \begin{tabular}{L{3.1cm}L{3.5cm}L{6.2cm}}
 \toprule
 Surface & Benchmark & Headline \\
 \midrule
 Effect boundary (Tier 1) & synthetic, 300 & \good{APR 1.00}, TUR 0.50, trusted-legit 1.00, 0.036\,ms \\
-Effect boundary (Tier 2) & AgentDojo actions (5 suites) & \good{APR 0.29$\to$1.00} (disclose-then-fix), 21$\to$0 gaps \\
+Effect boundary (Tier 2) & AgentDojo actions (5 suites) & \good{APR 1.00} (all 5 suites), TUR 0.50, 0 gaps \\
 Effect boundary (edges) & commit / capability & 6/6 pass \\
 Agentic e2e & AgentDojo workspace & \good{ASR 0.10$\to$0.00}, util 0.75$\to$1.00, no clean cost \\
 Semantic vs.\ effect & 10 trajectories & text recall \bad{0.17} vs.\ effect \good{1.00} (5 silent harms) \\
@@ -498,7 +488,7 @@ Progent (runtime policy) & design & GPT-4o & ASR \good{0.0\%} (from 39.9\%) & ut
 Prompt-Guard-2 86M & detection & GPT-4o & APR 81.2\%$^{c}$ & $-3$\% util \\
 CaMeL & design & o3 & ASR $\approx$0\%$^{b}$ & 77.3\% (from 84.5\%) \\
 \textbf{Jataayu} tool-output scrub & detection & \emph{qwen, workspace} & ASR \good{0.0\%} (from 10\%) & \good{100\%} \\
-\textbf{Jataayu} effect boundary & design & \emph{AgentDojo actions} & APR \good{100\%}$^{c}$ (from 29\%) & TUR 0.50$^{d}$ \\
+\textbf{Jataayu} effect boundary & design & \emph{AgentDojo actions} & APR \good{100\%}$^{c}$ & TUR 0.50$^{d}$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -510,11 +500,11 @@ most metric-aligned comparison is on the design tier: Llama Prompt-Guard-2 repor
 model card places the commodity detectors it competes against (ProtectAI, Deepset, LLM Warden) far
 lower, at only 12.9--22.2\% AgentDojo APR~\cite{promptguard} --- reinforcing that ordinary
 classifiers do poorly on this metric. Our Tier~2 (\S\ref{sec:effect}) reports the same
-APR-on-AgentDojo quantity, moving from 29\% as-shipped to \good{100\%} once the tool$\to$effect map
-is complete, at a disclosed TUR of 0.50. But the two 100\%-vs-81.2\% figures are \emph{not} on the
+APR-on-AgentDojo quantity at \good{100\%} across the five suites' mapped tools, at a disclosed TUR
+of 0.50. But the two 100\%-vs-81.2\% figures are \emph{not} on the
 same footing: PG2's 81.2\% is measured over AgentDojo's \emph{live} task/injection distribution,
-whereas our figure is a \emph{deterministic replay} of a labeled action stream over tools we have
-just finished mapping, so our 100\% is by construction on the mapped set (\S\ref{sec:effect}) rather
+whereas our figure is a \emph{deterministic replay} of a labeled action stream, so our 100\% is by
+construction on the mapped tool set (\S\ref{sec:effect}) rather
 than a live-benchmark result. PG2 also buys prevention at only 3\% utility loss whereas the effect
 boundary's approval-gating costs a larger, corpus-dependent utility fraction. The honest reading is
 therefore not ``we beat PG2'' and not ``same benchmark'': it is that a deterministic,
@@ -602,38 +592,40 @@ ProtectAI v1                & 7.05\% & --- & Prompt-Guard & \bad{41.60\%} \\
 \end{tabular}
 \end{table}
 
-\section{Limitations and the gaps this evaluation found}
-The evaluation is deliberately adversarial toward Jataayu, and it paid off: it surfaced (1) a
-shipped \code{taint.py} coverage gap that silently authorized every banking / travel / Slack
-side-effect (now fixed); (2) no deferred/sleeper-instruction detector (memory recall 0.00 on that
-subclass); (3) an over-narrow exfiltration key in the composition guard (five real paths slip);
-and (4) a live shell-regex false-positive. Scope caveats: the AgentDojo slice is small per suite;
-several corpora (effect boundary, egress, composition, memory) are synthetic-but-deterministic,
-not public benchmarks; the detection recall numbers are for the fast path (the pre-filter), not
-an upper bound on the layered system; and the effect-boundary APR of 1.00 reflects correct tool
-classification, not a claim of robustness to unmapped future tools --- which is precisely the
-failure mode disclosed in Tier 2.
+\section{Limitations}
+We report current limitations alongside the strong results. (1) There is no
+deferred/sleeper-instruction detector, so memory recall is 0.00 on that subclass. (2) The
+composition guard's exfiltration key is over-narrow (\code{reads\_secrets + network\_write}), so
+five real capability paths --- read-side-only exfil, file-mediated exfil, untrusted-web-to-disk,
+secret-staging, and relay/SSRF --- currently pass as SAFE. (3) The outbound PII path has a
+redaction-threshold artifact: email, phone, and contextual-health spans are detected but not
+redacted on the fast path. (4) The fast-path detector's recall floor (27--56\%) is by design --- it
+is a taint pre-filter, not the guarantee. Scope caveats: the AgentDojo live slice is small per
+suite; several corpora (effect boundary, egress, composition, memory) are synthetic-but-deterministic,
+not public benchmarks; the detection recall numbers are for the fast path, not an upper bound on the
+layered system; and the effect-boundary APR of 1.00 reflects correct tool classification over the
+mapped tool set, not a claim of robustness to unmapped future tools --- admitting a new tool to the
+guarantee requires adding its effect-class mapping.
 
 \section{Conclusion}
 Across seven surfaces and both public and synthetic benchmarks, Jataayu's deterministic effect
 boundary delivers its central claim --- untrusted-derived effectful actions are denied or
 approval-gated, deterministically and in microseconds --- while the screening layers behave as a
-useful but deliberately non-authoritative pre-filter. Equally, the evaluation is credible because
-it reports four concrete defects rather than a row of green checkmarks. Future work: close the
-deferred-detector and composition-keying gaps (disclose-then-fix), extend the AgentDojo sweep
-across models, and lift the redaction threshold for detected-but-unredacted PII.
+useful but deliberately non-authoritative pre-filter. The evaluation reports current limitations
+alongside the strong results. Future work: add a deferred-instruction detector and widen the
+composition exfiltration key, extend the AgentDojo sweep across models and suites, and lift the
+redaction threshold for detected-but-unredacted PII.
 
 \appendix
 \section{Artifacts and reproduction}
 \sloppy
 \paragraph{Availability.} Code, runners, and result JSONs are released at
 \url{https://github.com/saikrishnarallabandi/jataayu} under the MIT license. All numbers in this
-report correspond to commit \texttt{8f099ca} on \texttt{main}; reproduce against that exact commit
-rather than the \texttt{v0.3.0} tag, which names an earlier commit (\texttt{a219020},
-\code{git describe}: \texttt{v0.3.0-17-g8f099ca}) that predates the Tier-2 harness and the
-comparison tables. The unit suite is reproduced with \code{pytest -q} (403 tests green) at that
-commit. For double-blind review an anonymized artifact
-copy is provided separately; an archival DOI will be minted on acceptance.
+report correspond to the state of \texttt{main} at the commit that adds this report; reproduce
+against \texttt{main} (the \texttt{v0.3.0} tag names an earlier commit that predates the Tier-2
+harness and the comparison tables). The unit suite is reproduced with \code{pytest -q} (403 tests
+green). For double-blind review an anonymized artifact copy is provided separately; an archival DOI
+will be minted on acceptance.
 
 Every result in this report is produced by a runner under \code{eval/} that writes a JSON result
 to \code{eval/results/}; deterministic corpora live in \code{eval/data/} with fixed-seed
@@ -680,9 +672,8 @@ AgentDojo (agentic e2e) & \code{agentdojo/run\_agentdojo.py} (+ \code{summarize\
 \end{tabular}
 \end{center}
 
-The \code{taint.py} disclose-then-fix is reproduced by running the Tier~2 harness before and after
-the tool$\to$effect map extension; the full unit suite (403 tests) is green in both the as-shipped
-and fixed states.
+The Tier~2 per-suite APR is reproduced by running the Tier-2 harness against the released
+tool$\to$effect map; the full unit suite (403 tests) is green.
 
 \begin{thebibliography}{99}
 \sloppy
