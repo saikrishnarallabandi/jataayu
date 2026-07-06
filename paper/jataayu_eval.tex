@@ -321,6 +321,18 @@ effect boundary --- and the broader lesson is that \emph{no} detector tier is th
 guarantee: even strong learned detectors fall to adaptive attacks~\cite{firewalls}, which is why
 the durable boundary is the action (\S\ref{sec:effect}), not the classifier.
 
+\textbf{A trained detection tier can be strong---and still is not the guarantee.}
+To test whether a task-specialized tier closes the gap, we trained a LoRA adapter (rank 16, bf16) on
+\code{Qwen3-8B}~\cite{qwen3} using \emph{only} the safe-guard set, and evaluated it on deepset and
+jailbreak \emph{held out} (never seen in training; \code{training/injection\_lora/}). It generalizes:
+ROC-AUC \good{0.97} on both held-out sets, exceeding ProtectAI on deepset (0.97/0.59 vs.\ 0.88/0.41)
+and matching its AUC on jailbreak (Table~\ref{tab:pi}). This matters for the paper's thesis in two
+ways. First, it shows a genuinely strong detection tier is achievable---so the argument for the effect
+boundary is not ``detectors are bad,'' it is that detection is the wrong \emph{place} for the
+guarantee. Second, even this tier is more evadable than the encoder (zero-width evasion 14--38\% vs.\
+0\%) and, like all detectors, is a classifier over text: a missed input still reaches the agent, where
+it must clear the effect boundary before any effectful call executes.
+
 On \textbf{InjecAgent} (tool-return
 surface, 2108 paired cases) precision is 1.00 with recall 0.50 (fast) rising to 0.71 (LLM slow
 path). The slow-path judge is \code{qwen3:8b} served via ollama on a private tailnet with thinking
@@ -336,25 +348,29 @@ why the guarantee lives at the effect boundary, not here. Even a missed return t
 must still clear the effect boundary before any effectful call executes.
 
 \begin{table}[htbp]\centering\small
-\setlength\tabcolsep{5pt}
-\caption{Same-data head-to-head: Jataayu's regex fast path vs.\ ProtectAI deBERTa-v3 v2, both run
-by us on the \emph{identical} rows/labels and the same character-perturbation transforms (MEDIUM
-operating point; evasion = fraction of caught positives that flip to missed after the transform).
-ProtectAI is higher-recall on every set and comparably robust to space-out/zero-width; neither is
-strongly defeated by these perturbations. \emph{Confound:} each dataset has its own class balance,
-so rows are not a single combined benchmark.}\label{tab:pi}
+\setlength\tabcolsep{4pt}
+\caption{Same-data head-to-head: Jataayu's regex fast path, ProtectAI deBERTa-v3 v2, and a
+Qwen3-8B LoRA detector we trained, all run by us on the \emph{identical} rows/labels and
+perturbations (evasion = fraction of caught positives flipped to missed by the transform).
+The LoRA is trained on \emph{safe-guard only}; deepset and jailbreak are held out (never trained on),
+so safe-guard is the LoRA's training distribution and excluded from its comparison. Recall is at the
+MEDIUM operating point for the fast path / ProtectAI and at 1\% FPR for the LoRA (whose default
+threshold is miscalibrated on jailbreak). \emph{Confound:} each dataset has its own class balance.}
+\label{tab:pi}
 \begin{tabular}{llcccc}
 \toprule
 Dataset ($n$) & Detector & ROC-AUC & recall & \multicolumn{2}{c}{evasion (space / zw / leet)} \\
 \midrule
-\multirow{2}{*}{deepset (662)} & Jataayu fast path & 0.60 & 0.20 & \multicolumn{2}{c}{0.00 / 0.00 / 0.00} \\
- & ProtectAI v2 & \good{0.88} & \good{0.41} & \multicolumn{2}{c}{0.00 / 0.00 / 0.08} \\
+\multirow{3}{*}{deepset (662)} & Jataayu fast path & 0.60 & 0.20 & \multicolumn{2}{c}{0.00 / 0.00 / 0.00} \\
+ & ProtectAI v2 & 0.88 & 0.41 & \multicolumn{2}{c}{0.00 / 0.00 / 0.08} \\
+ & LoRA-8B (held out) & \good{0.97} & \good{0.59} & \multicolumn{2}{c}{0.05 / 0.14 / 0.03} \\
 \midrule
 \multirow{2}{*}{safe-guard (10{,}296)} & Jataayu fast path & 0.64 & 0.30 & \multicolumn{2}{c}{0.00 / 0.00 / 0.00} \\
  & ProtectAI v2 & \good{0.99} & \good{0.84} & \multicolumn{2}{c}{0.00 / 0.00 / 0.06} \\
 \midrule
-\multirow{2}{*}{jailbreak (1{,}306)} & Jataayu fast path & 0.75 & 0.56 & \multicolumn{2}{c}{0.003 / 0.00 / 0.00} \\
+\multirow{3}{*}{jailbreak (1{,}306)} & Jataayu fast path & 0.75 & 0.56 & \multicolumn{2}{c}{0.003 / 0.00 / 0.00} \\
  & ProtectAI v2 & \good{0.98} & \good{0.83} & \multicolumn{2}{c}{0.00 / 0.00 / 0.004} \\
+ & LoRA-8B (held out) & 0.97 & 0.60 & \multicolumn{2}{c}{0.10 / 0.38 / 0.13} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -841,6 +857,7 @@ tool$\to$effect map; the full unit suite (403 tests) is green.
   arXiv:2507.15219, 2025.
 \bibitem{firewalls} \emph{Indirect Prompt Injections: Are Firewalls All You Need, or Stronger
   Benchmarks?} arXiv:2510.05244, 2025.
+\bibitem{qwen3} Qwen Team. \emph{Qwen3 Technical Report.} arXiv:2505.09388, 2025.
 \end{thebibliography}
 
 \end{document}
