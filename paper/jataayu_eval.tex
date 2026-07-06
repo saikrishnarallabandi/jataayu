@@ -13,6 +13,7 @@
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
 \usepackage{array}
+\usepackage{multirow}
 \newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
 \usepackage{xcolor}
 \usepackage{pgfplots}
@@ -63,7 +64,7 @@ benchmark (1{,}054 real-agent cases), the boundary gates the exfiltration/harm s
 of effect and provenance, not text --- is byte-identical on the stronger-injection-text split. A direct semantic-vs-effect probe
 validates the thesis: a text grader catches only the 1 overt trajectory of 6 harmful (0 of 5
 silent harms; recall 0.17), while the effect grader catches all six (\good{1.00}). Second, we
-report weaknesses alongside strengths: the fast-path detector's recall floor (27--56\%), the
+report weaknesses alongside strengths: the fast-path detector's recall floor (20--56\%), the
 absence of a deferred-instruction detector (sleeper-memory recall 0.00), and an over-narrow
 exfiltration key in the composition guard. The deterministic core runs in tens of microseconds per
 decision (0.036\,ms mean).
@@ -306,10 +307,21 @@ banking (baseline only) & 17 & 0.29 / --- & 0.53 / --- & 0.80 / --- \\
 
 \subsection{Injection detection --- inbound, tool-return, cross-dataset}\label{sec:inbound}
 The fast-path detector is a high-precision, modest-recall pre-filter, by design the weakest
-tier. Across three public injection sets it is consistent (Table~\ref{tab:pi}): ROC-AUC
-0.63--0.75, precision $\ge$86\% at the MEDIUM operating point, and input normalization holds
-space-out / zero-width / leetspeak evasion at \good{$\le$0.3\%} (exactly 0.00 on deepset and
-safe-guard; 0.003 for space-out on jailbreak). On \textbf{InjecAgent} (tool-return
+tier. To place it honestly we ran a strong trained detector, \textbf{ProtectAI deBERTa-v3-base
+v2}~\cite{protectai}, on the \emph{identical} rows, labels, and perturbations
+(Table~\ref{tab:pi}; \code{run\_detector\_headtohead.py}). The result is unflattering to our fast
+path and we report it plainly: ProtectAI \emph{out-detects} it on all three sets (ROC-AUC
+0.88--0.99 vs.\ our 0.60--0.75; recall 0.41--0.84 vs.\ our 0.20--0.56). And the evasion advantage
+we might have claimed does not hold: on these same rows ProtectAI is \emph{also} robust to
+space-out and zero-width (evasion 0.00), and only mildly susceptible to leetspeak (0.4--8\%, vs.\
+our $\le$0.3\%). So a well-trained classifier is both higher-recall and comparably
+perturbation-robust here; our regex pre-filter is not competitive as a stand-alone detector, and
+we do not claim it is. Its role is a cheap, deterministic, model-free taint source feeding the
+effect boundary --- and the broader lesson is that \emph{no} detector tier is the place to rest the
+guarantee: even strong learned detectors fall to adaptive attacks~\cite{firewalls}, which is why
+the durable boundary is the action (\S\ref{sec:effect}), not the classifier.
+
+On \textbf{InjecAgent} (tool-return
 surface, 2108 paired cases) precision is 1.00 with recall 0.50 (fast) rising to 0.71 (LLM slow
 path). The slow-path judge is \code{qwen3:8b} served via ollama on a private tailnet with thinking
 disabled (\code{think:false}) at the model's default decoding, run at \code{llm\_threshold}=0.0 so
@@ -324,23 +336,27 @@ why the guarantee lives at the effect boundary, not here. Even a missed return t
 must still clear the effect boundary before any effectful call executes.
 
 \begin{table}[htbp]\centering\small
-\caption{Fast-path injection detection across public datasets (MEDIUM operating point). Evasion
-rate is post-normalization on caught patterns. \emph{Confound:} each dataset has its own
-label distribution and positive/negative balance; these are the regex pre-filter's numbers, not
-the layered system's, and are not comparable row-to-row as a single benchmark.}\label{tab:pi}
-\begin{tabular}{lccccc}
+\setlength\tabcolsep{5pt}
+\caption{Same-data head-to-head: Jataayu's regex fast path vs.\ ProtectAI deBERTa-v3 v2, both run
+by us on the \emph{identical} rows/labels and the same character-perturbation transforms (MEDIUM
+operating point; evasion = fraction of caught positives that flip to missed after the transform).
+ProtectAI is higher-recall on every set and comparably robust to space-out/zero-width; neither is
+strongly defeated by these perturbations. \emph{Confound:} each dataset has its own class balance,
+so rows are not a single combined benchmark.}\label{tab:pi}
+\begin{tabular}{llcccc}
 \toprule
-Dataset & $n$ & ROC-AUC & precision & recall & evasion \\
+Dataset ($n$) & Detector & ROC-AUC & recall & \multicolumn{2}{c}{evasion (space / zw / leet)} \\
 \midrule
-deepset/prompt-injections & 662 & 0.63 & 97\% & 27\% & 0.00\% \\
-safe-guard-prompt-injection & 10{,}296 & 0.64 & 86\% & 30\% & 0.00\% \\
-jailbreak-classification & 1{,}306 & 0.75 & 86\% & 56\% & 0.3\%$^{\dagger}$ \\
+\multirow{2}{*}{deepset (662)} & Jataayu fast path & 0.60 & 0.20 & \multicolumn{2}{c}{0.00 / 0.00 / 0.00} \\
+ & ProtectAI v2 & \good{0.88} & \good{0.41} & \multicolumn{2}{c}{0.00 / 0.00 / 0.08} \\
+\midrule
+\multirow{2}{*}{safe-guard (10{,}296)} & Jataayu fast path & 0.64 & 0.30 & \multicolumn{2}{c}{0.00 / 0.00 / 0.00} \\
+ & ProtectAI v2 & \good{0.99} & \good{0.84} & \multicolumn{2}{c}{0.00 / 0.00 / 0.06} \\
+\midrule
+\multirow{2}{*}{jailbreak (1{,}306)} & Jataayu fast path & 0.75 & 0.56 & \multicolumn{2}{c}{0.003 / 0.00 / 0.00} \\
+ & ProtectAI v2 & \good{0.98} & \good{0.83} & \multicolumn{2}{c}{0.00 / 0.00 / 0.004} \\
 \bottomrule
-\end{tabular}\\[2pt]
-{\footnotesize Recall / precision / evasion are percentages here to match
-Table~\ref{tab:cmp-detect}; ROC-AUC follows the conventional $[0,1]$ form. $^{\dagger}$deepset and
-safe-guard space-out evasion is exactly 0.00\%; the jailbreak set's space-out evasion is 0.3\%
-(374/375 caught). Zero-width and leetspeak evasion are 0.00\% on all three sets.}
+\end{tabular}
 \end{table}
 
 \subsection{Outbound --- PII redaction}
@@ -439,7 +455,7 @@ Effect boundary (Tier 3) & InjecAgent (1{,}054 public) & \good{kill-chain APR 1.
 Effect boundary (edges) & commit / capability & 6/6 pass \\
 Agentic e2e & AgentDojo workspace & \good{ASR 0.10$\to$0.00}, util 0.75$\to$1.00, no clean cost \\
 Semantic vs.\ effect & 10 trajectories & text recall \bad{0.17} vs.\ effect \good{1.00} (5 silent harms) \\
-Injection (inbound) & deepset/safe-guard/jailbreak & AUC 0.63--0.75, prec $\ge$86\%, recall 27--56\%, evasion $\le$0.3\% \\
+Injection (inbound) & deepset/safe-guard/jailbreak & AUC 0.60--0.75, prec $\ge$86\%, recall 20--56\%, evasion $\le$0.3\% \\
 Injection (tool-return) & InjecAgent (2108) & prec 1.00, recall 0.50$\to$0.71 (slow) \\
 Outbound / PII & ai4privacy (480) & prec 1.00, FPR 0.00, in-scope recall 0.80; \bad{redaction-threshold gap} \\
 Egress channel & PoC (35) & \good{recall 1.00}, prec 1.00, confirmed-exfil 1.00, text-preserve 1.00 \\
@@ -585,9 +601,11 @@ because of model and single-suite scope, so we do not claim a head-to-head e2e w
 \begin{table}[htbp]\centering\small
 \caption{Injection \emph{detection}: clean recall vs.\ robustness to character-perturbation evasion.
 Each value is on the method's own reported dataset (not one shared set), so this is a comparison of
-reported \emph{characteristics}. The pattern is the point: dedicated classifiers have far higher
-clean recall than Jataayu's fast path, and far higher evasion
-vulnerability.}\label{tab:cmp-detect}
+reported \emph{characteristics}; the same-data measurements are in Table~\ref{tab:pi}. Dedicated
+classifiers have far higher clean recall than Jataayu's fast path; the evasion column is
+\emph{protocol-dependent} (these published bypasses use a more aggressive char-injection than the
+simple perturbations of Table~\ref{tab:pi}, where ProtectAI is
+robust).}\label{tab:cmp-detect}
 \setlength\tabcolsep{5pt}
 \begin{tabular}{L{4.6cm}L{3.2cm}L{4.2cm}}
 \toprule
@@ -595,25 +613,29 @@ Detector & Clean recall / TPR & Char-perturbation evasion \\
 \midrule
 ProtectAI deBERTa-v3 v2~\cite{protectai} & \good{99.7\%} (20k held-out) & \bad{77\%} attack success (char-injection)~\cite{guardrails} \\
 Meta Prompt-Guard-86M~\cite{promptguard} & \good{99.5\%} (in-dist.\ TPR) & \bad{99.8\%} bypass (char-spacing)~\cite{guardrails} \\
-\textbf{Jataayu} fast path & \bad{27--56\%} (deepset/sg/jb) & \good{$\le$0.3\%} (space-out / leetspeak) \\
+\textbf{Jataayu} fast path & \bad{20--56\%} (deepset/sg/jb) & \good{$\le$0.3\%} (space-out / leetspeak) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Table~\ref{tab:cmp-detect} is the honest core of the comparison. \emph{As a detector, Jataayu's fast
-path is worse}: dedicated classifiers reach $\sim$99\% clean recall where our regex pre-filter reaches
-27--56\%. We do not close that gap and do not try to --- the pre-filter is deliberately the weakest
-tier. But those same classifiers are largely defeated by trivial character perturbations (Prompt-Guard
-detection collapses from $\sim$100\% to 0.2\% under character-spacing~\cite{guardrails}; ProtectAI is
-bypassed $\sim$77\% of the time), whereas Jataayu's input normalization holds space-out and leetspeak
-evasion at $\le$0.3\% (exactly 0\% except for space-out on the jailbreak set, at 0.3\%). On the Lakera PINT leaderboard the same ordering holds among detectors (Lakera Guard
-95.2\%, ProtectAI-v2 79.1\%, Prompt-Guard-2 78.8\%)~\cite{pint}. The training-based defenses occupy a
-third point: StruQ zeroes non-adaptive ASR by fine-tuning but leaves adaptive GCG at
-56--62\%~\cite{struq}; SecAlign drives even optimization-based ASR down (Llama3-8B $98\%\to1\%$,
-Mistral $89\%\to1\%$) and InjecAgent $75.9\%\to0\%$ --- at the cost of retraining the model with
-preference optimization~\cite{secalign}, which Jataayu does not require. The through-line: detection
-alone is evadable and training is model-bound, so Jataayu, like CaMeL, moves the guarantee to the
-action.
+Table~\ref{tab:cmp-detect} collects competitors' \emph{self-reported} numbers (each on its own
+dataset); it complements the same-data head-to-head of Table~\ref{tab:pi}. \emph{As a detector,
+Jataayu's fast path is clearly worse}: dedicated classifiers reach $\sim$99\% clean recall where our
+regex pre-filter reaches 20--56\%, and --- as Table~\ref{tab:pi} shows on identical rows --- a good
+trained detector (ProtectAI v2) is \emph{also} robust to space-out and zero-width, so we do
+\emph{not} claim a general evasion advantage for our pre-filter. The published evasion collapses
+(Prompt-Guard $\sim$100\%$\to$0.2\% under character-spacing; ProtectAI $\sim$77\% bypass) are under a
+\emph{more aggressive} char-injection protocol~\cite{guardrails} than the simple perturbations of
+Table~\ref{tab:pi}, so evasion vulnerability is protocol-dependent rather than a fixed detector
+property. The defensible reading is narrow: detector recall does not transfer across datasets (our
+head-to-head puts ProtectAI's deepset recall at 0.41, far below its self-reported 99.7\%), and
+\emph{every} detector tier is evadable under a strong enough adaptive attack~\cite{firewalls}. The
+training-based defenses occupy a third point: StruQ zeroes non-adaptive ASR by fine-tuning but leaves
+adaptive GCG at 56--62\%~\cite{struq}; SecAlign drives even optimization-based ASR down (Llama3-8B
+$98\%\to1\%$, Mistral $89\%\to1\%$) and InjecAgent $75.9\%\to0\%$ --- at the cost of retraining the
+model~\cite{secalign}, which Jataayu does not require. The through-line: detection is evadable and
+training is model-bound, so Jataayu, like CaMeL, rests the guarantee on the action, not the
+classifier --- which is why its fast path being a weak detector is by design, not a defect to hide.
 
 \paragraph{The low-false-positive operating point.} A production guardrail is judged not at its
 best F1 but at a fixed, low false-positive rate --- the regime the PromptShield benchmark
@@ -668,7 +690,7 @@ composition guard's exfiltration key is over-narrow (\code{reads\_secrets + netw
 five real capability paths --- read-side-only exfil, file-mediated exfil, untrusted-web-to-disk,
 secret-staging, and relay/SSRF --- currently pass as SAFE. (3) The outbound PII path has a
 redaction-threshold artifact: email, phone, and contextual-health spans are detected but not
-redacted on the fast path. (4) The fast-path detector's recall floor (27--56\%) is by design --- it
+redacted on the fast path. (4) The fast-path detector's recall floor (20--56\%) is by design --- it
 is a taint pre-filter, not the guarantee. Scope caveats: the AgentDojo live slice is small per
 suite; several corpora (egress, composition, memory, and the effect-boundary Tier 1/2 synthetic
 tiers) are synthetic-but-deterministic, not public benchmarks. Critically, the perfect scores on
@@ -745,6 +767,7 @@ Surface & Runner \\
 Effect boundary (Tier 1 / 2 / edges) & \code{run\_effect\_boundary\_\{bench,tier2,edges\}.py} \\
 Effect boundary Tier 3 (InjecAgent) & \code{run\_effect\_boundary\_injecagent.py --data ...} \\
 Injection (inbound / cross-dataset) & \code{run\_injection\_bench.py --dataset ...} \\
+Detector head-to-head (Table~\ref{tab:pi}) & \code{run\_detector\_headtohead.py} (loads ProtectAI v2 from HF) \\
 Tool-return (InjecAgent, fast path) & \code{run\_injecagent\_bench.py} \\
 Tool-return slow path (LLM judge) & \code{run\_slowpath\_bench.py --model qwen3:8b} \\
 Outbound / PII & \code{run\_outbound\_privacy\_bench.py} \\
