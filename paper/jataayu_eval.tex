@@ -57,7 +57,10 @@ none does, and report every number, including the ones that expose weaknesses.
 \smallskip\noindent Two findings are structural. First, the effect boundary works: on an
 AgentDojo-derived action stream spanning five suites it prevents \good{100\%} of labeled attacks
 (APR 1.00), at a disclosed utility cost; on a controlled ablation a detector-only pre-filter
-reaches only 27\% where the effect boundary reaches 100\%. A direct semantic-vs-effect probe
+reaches only 27\% where the effect boundary reaches 100\%. Grounding this on the public InjecAgent
+benchmark (1{,}054 real-agent cases), the boundary gates the exfiltration/harm step of every attack
+(kill-chain APR \good{1.00}) while blocking none of the user's own actions, and --- being a function
+of effect and provenance, not text --- is byte-identical on the stronger-injection-text split. A direct semantic-vs-effect probe
 validates the thesis: a text grader catches only the 1 overt trajectory of 6 harmful (0 of 5
 silent harms; recall 0.17), while the effect grader catches all six (\good{1.00}). Second, we
 report weaknesses alongside strengths: the fast-path detector's recall floor (27--56\%), the
@@ -221,6 +224,39 @@ effect boundary & \good{1.00} & \good{1.00} & \good{1.00} & \good{1.00} & \good{
 \end{tabular}\\[2pt]
 {\footnotesize TUR 0.50; coverage gaps \good{0} (every effectful tool across all five suites maps to
 a gated effect class).}
+\end{table}
+
+\textbf{Tier 3 (public grounding: InjecAgent, 1{,}054 real-agent cases).} To ground the effect
+boundary on a public benchmark rather than only synthetic corpora, we replay InjecAgent~\cite{injecagent}
+(Zhan et al., 1{,}054 base cases; 2{,}108 with the enhanced split) through it. Each case carries the
+attacker's \emph{target} tool call --- driven by a poisoned tool return, hence untrusted --- and the
+user's own legitimate call. We apply a single verb-based effect map (send / transfer / delete /
+unlock / post $=$ sink; get / read / search $=$ read) \emph{uniformly} to both. Results are in
+Table~\ref{tab:tier3}. The boundary gates \good{100\%} of direct-harm target actions (money moves,
+door unlocks, repo deletes) and allows \good{100\%} of the user's own trusted reads (false-block rate
+0). Data-stealing is the honest nuance: the attacker's \emph{first} step is a genuine sensitive read
+(a read is a read, so per-primary-action APR is only 0.03), but the exfiltration step that follows ---
+a network send of the read data --- is always gated, so the \emph{kill-chain} APR (any step in the
+attack chain gated before data leaves) is \good{1.00}. Because the decision is a function of effect
+and provenance, not text, the enhanced (stronger-injection-text) split is byte-identical to base: an
+adaptive-text attacker gains nothing.
+
+\begin{table}[htbp]\centering\small
+\setlength\tabcolsep{6pt}
+\caption{Effect boundary on InjecAgent (public, 1{,}054 cases). APR$_{\text{prim}}$ gates the
+attacker's first target action; APR$_{\text{chain}}$ gates any step before data leaves (the
+security-meaningful figure for data-stealing, whose opening move is a legitimate read). User rows
+are the legitimate task actions. \emph{Confound:} APR depends on the verb$\to$effect map (as in Tier
+2), applied uniformly to attacker and user tools; deterministic, no model.}\label{tab:tier3}
+\begin{tabular}{lccc}
+\toprule
+Split ($n$) & APR$_{\text{prim}}$ & APR$_{\text{chain}}$ & user allow-rate (FBR) \\
+\midrule
+direct-harm (510)   & \good{1.00} & \good{1.00} & 1.00 (0.00) \\
+data-stealing (544) & 0.03 & \good{1.00} & 1.00 (0.00) \\
+overall (1{,}054)   & 0.50 & \good{1.00} & \good{1.00} (0.00) \\
+\bottomrule
+\end{tabular}
 \end{table}
 
 {\sloppy\par\noindent
@@ -400,6 +436,7 @@ Surface & Benchmark & Headline \\
 \midrule
 Effect boundary (Tier 1) & synthetic, 300 & \good{APR 1.00}, TUR 0.50, trusted-legit 1.00, 0.036\,ms \\
 Effect boundary (Tier 2) & AgentDojo actions (5 suites) & \good{APR 1.00} (all 5 suites), TUR 0.50, 0 gaps \\
+Effect boundary (Tier 3) & InjecAgent (1{,}054 public) & \good{kill-chain APR 1.00}, user allow 1.00, text-independent \\
 Effect boundary (edges) & commit / capability & 6/6 pass \\
 Agentic e2e & AgentDojo workspace & \good{ASR 0.10$\to$0.00}, util 0.75$\to$1.00, no clean cost \\
 Semantic vs.\ effect & 10 trajectories & text recall \bad{0.17} vs.\ effect \good{1.00} (5 silent harms) \\
@@ -692,6 +729,7 @@ recommend asserting non-zero undefended-baseline utility as a harness preconditi
 Surface & Runner \\
 \midrule
 Effect boundary (Tier 1 / 2 / edges) & \code{run\_effect\_boundary\_\{bench,tier2,edges\}.py} \\
+Effect boundary Tier 3 (InjecAgent) & \code{run\_effect\_boundary\_injecagent.py --data ...} \\
 Injection (inbound / cross-dataset) & \code{run\_injection\_bench.py --dataset ...} \\
 Tool-return (InjecAgent, fast path) & \code{run\_injecagent\_bench.py} \\
 Tool-return slow path (LLM judge) & \code{run\_slowpath\_bench.py --model qwen3:8b} \\
