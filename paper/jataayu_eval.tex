@@ -435,7 +435,7 @@ effect-severity $\times$ provenance $\times$ capability that requires \emph{no l
 guard LLM, and no agent rearchitecture}: it is a drop-in wrapper at the existing tool-call site,
 decided in tens of microseconds. Where GuardAgent invokes a second model and Progent/AgentSpec
 require authored per-tool policies, Jataayu's default policy is derived from a small effect-class
-map, which is exactly the artifact whose incompleteness Tier~2 exposes and fixes.
+map --- the one artifact a new tool must be added to in order to join the guarantee (\S\ref{sec:effect}).
 
 Progent is the most metric-aligned of these neighbors: on AgentDojo it drives targeted ASR from a
 39.9\% no-defense baseline to \good{0\%} on GPT-4o with utility maintained~\cite{progent}
@@ -473,28 +473,61 @@ $^{c}$Prompt-Guard-2 and the Jataayu effect boundary report APR, not ASR; PG2's 
 3\% utility reduction~\cite{promptguard}.
 $^{d}$The Jataayu effect-boundary utility is a \emph{synthetic replay} TUR set by the deterministic
 corpus's provenance/effect balance (\S\ref{sec:effect}), not a live task-utility measurement, and is
-\emph{not} commensurable with the real-benchmark utilities in this column.}
+\emph{not} commensurable with the real-benchmark utilities in this column.
+$^{e}$FIDES stops all policy-violating injections in AgentDojo by design (IFC + deterministic policy,
+arXiv:2505.23643~\cite{fides}); its exact per-model utility figures are reported-but-secondary-sourced,
+not primary-verified here.
+$^{f}$Task Shield~\cite{taskshield} and PromptArmor~\cite{promptarmor} are measured on \emph{canonical}
+(non-adaptive) attacks; the adaptive-attack robustness of detector-tier defenses is
+contested~\cite{firewalls}. PromptArmor's best point is a GPT-4.1 guard at ASR 0.0\%/util 72.0\%; the
+row shows its o4-mini guard.
+$^{g}$MELON~\cite{melon} reports a no-defense baseline (16\% ASR) under a different attack configuration
+than the 57.7\% row here, so its \emph{absolute} ASR is not directly comparable; UA = utility under attack.}
 \label{tab:cmp-agentic}
-\begin{tabular}{L{2.9cm}lL{2.1cm}cc}
+\begin{tabular}{L{3.4cm}L{2.3cm}cc}
 \toprule
-Approach & Class & Model / suite & ASR $\downarrow$ / APR $\uparrow$ & Benign utility \\
+Approach & Model / suite & ASR $\downarrow$ / APR $\uparrow$ & Benign utility \\
 \midrule
-No defense & --- & GPT-4o & ASR 57.7\%$^{a}$ & 69.0\% \\
-Spotlighting / delimiting & prompt & GPT-4o & ASR 41.7\% & 72.7\% \\
-Repeat-prompt (sandwich) & prompt & GPT-4o & ASR 27.8\% & 85.5\% \\
-PI detector & detection & GPT-4o & ASR 7.9\% & 41.5\% \\
-Tool filter & design & GPT-4o & ASR 6.8\% & 73.1\% \\
-Progent (runtime policy) & design & GPT-4o & ASR \good{0.0\%} (from 39.9\%) & util maintained~\cite{progent} \\
-Prompt-Guard-2 86M & detection & GPT-4o & APR 81.2\%$^{c}$ & $-3$\% util \\
-CaMeL & design & o3 & ASR $\approx$0\%$^{b}$ & 77.3\% (from 84.5\%) \\
-\textbf{Jataayu} tool-output scrub & detection & \emph{qwen, workspace} & ASR \good{0.0\%} (from 10\%) & \good{100\%} \\
-\textbf{Jataayu} effect boundary & design & \emph{AgentDojo actions} & APR \good{100\%}$^{c}$ & TUR 0.50$^{d}$ \\
+\multicolumn{4}{l}{\textit{Design --- structural / capability boundary}}\\
+Tool filter & GPT-4o & ASR 6.8\% & 73.1\% \\
+Progent & GPT-4o & ASR \good{0.0\%} (from 39.9\%) & maintained~\cite{progent} \\
+FIDES (IFC) & GPT-4o & ASR $\approx$\good{0\%}$^{e}$ & util trade$^{e}$ \\
+CaMeL & o3 & ASR $\approx$0\%$^{b}$ & 77.3\% (from 84.5\%) \\
+\textbf{Jataayu} effect boundary & \emph{AgentDojo actions} & APR \good{100\%}$^{c}$ & TUR 0.50$^{d}$ \\
+\midrule
+\multicolumn{4}{l}{\textit{Detection / monitor}}\\
+PI detector & GPT-4o & ASR 7.9\% & 41.5\% \\
+Prompt-Guard-2 86M & GPT-4o & APR 81.2\%$^{c}$ & $-3$\% util \\
+Task Shield & GPT-4o & ASR 2.1\%$^{f}$ & 69.8\% \\
+PromptArmor & GPT-4.1 (o4-mini guard) & ASR \good{0.1\%}$^{f}$ & 76.4\% \\
+\textbf{Jataayu} tool-output scrub & \emph{qwen, workspace} & ASR \good{0.0\%} (from 10\%) & \good{100\%} \\
+\midrule
+\multicolumn{4}{l}{\textit{Runtime re-execution / prompt / baseline}}\\
+MELON & GPT-4o & ASR 0.2\%$^{g}$ & 58.8\% \\
+Spotlighting / delimiting & GPT-4o & ASR 41.7\% & 72.7\% \\
+Repeat-prompt (sandwich) & GPT-4o & ASR 27.8\% & 85.5\% \\
+No defense & GPT-4o & ASR 57.7\%$^{a}$ & 69.0\% \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Read honestly, Table~\ref{tab:cmp-agentic} places Jataayu's screening in the effective-defense
-regime alongside AgentDojo's \code{tool\_filter} (ASR 6.8\%) and \code{PI\_detector} (7.9\%). The
+Read honestly, Table~\ref{tab:cmp-agentic} groups the field by tier so Jataayu's two entries sit
+with their true peers. On the \emph{design} tier the capability-boundary systems (Progent, FIDES,
+CaMeL, and Jataayu's effect boundary) all reach $\approx$0 attack success --- prevention is what a
+structural boundary buys --- and differ mainly in deployment cost and utility trade: CaMeL
+rearchitects the agent, FIDES adds information-flow taint tracking, Progent authors per-tool
+policies, and Jataayu's effect boundary is a drop-in wrapper decided in microseconds. On the
+\emph{detection} tier the strongest current point is PromptArmor (an LLM preprocessor:
+ASR $\approx$0.1\% at 76\% utility on canonical attacks~\cite{promptarmor}), with Task Shield close
+behind; these outscore the commodity classifiers (Prompt-Guard-2 APR 81.2\%) but, being learned
+detectors, are the tier most exposed to adaptive attacks~\cite{firewalls}. Jataayu's tool-output
+scrub sits in this tier and its case rests on being deterministic and evasion-robust rather than on
+best-in-class recall. There is no single official AgentDojo leaderboard; the strongest published
+ASR-at-utility point is PromptArmor (detection, canonical attacks), while the strongest
+\emph{guarantee}-tier results are CaMeL and FIDES (provable $\approx$0 injection ASR at a utility
+cost), the company Jataayu's effect boundary keeps.
+
+The
 most metric-aligned comparison is on the design tier: Llama Prompt-Guard-2 reports an AgentDojo
 \emph{attack-prevention rate} of 81.2\% at a 3\% utility reduction~\cite{promptguard}, and its
 model card places the commodity detectors it competes against (ProtectAI, Deepset, LLM Warden) far
@@ -723,6 +756,16 @@ tool$\to$effect map; the full unit suite (403 tests) is green.
   of LLM Agents.} ICLR, 2025. arXiv:2410.09024.
 \bibitem{agentsafetybench} Z.~Zhang et al. \emph{Agent-SafetyBench: Evaluating the Safety of LLM
   Agents.} 2024. arXiv:2412.14470.
+\bibitem{fides} L.~Costa et al. \emph{Securing AI Agents with Information-Flow Control (FIDES).}
+  arXiv:2505.23643, 2025. \url{https://github.com/microsoft/fides}.
+\bibitem{taskshield} F.~Jia et al. \emph{Task Shield: Enforcing Task Alignment to Defend Against
+  Indirect Prompt Injection in LLM Agents.} ACL, 2025. arXiv:2412.16682.
+\bibitem{melon} K.~Zhu et al. \emph{MELON: Defending Against Indirect Prompt Injection through
+  Masked Re-execution.} ICML, 2025. arXiv:2502.05174.
+\bibitem{promptarmor} \emph{PromptArmor: Simple yet Effective Prompt Injection Defense.}
+  arXiv:2507.15219, 2025.
+\bibitem{firewalls} \emph{Indirect Prompt Injections: Are Firewalls All You Need, or Stronger
+  Benchmarks?} arXiv:2510.05244, 2025.
 \end{thebibliography}
 
 \end{document}
