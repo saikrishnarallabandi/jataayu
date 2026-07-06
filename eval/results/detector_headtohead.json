@@ -1,0 +1,213 @@
+{
+  "_meta": {
+    "device": "cpu",
+    "limit": null,
+    "batch_size": 32,
+    "transforms": [
+      "space_out",
+      "zero_width",
+      "leetspeak"
+    ],
+    "evasion_sample_cap": 1000,
+    "datasets": [
+      "deepset/prompt-injections",
+      "xTRam1/safe-guard-prompt-injection",
+      "jackhhao/jailbreak-classification"
+    ],
+    "availability": {
+      "jataayu_fastpath": "OK",
+      "protectai/deberta-v3-base-prompt-injection-v2": "OK"
+    },
+    "wall_time_sec": 1655.4,
+    "note": "Jataayu + ProtectAI-v2 deepset on CPU (deterministic); ProtectAI-v2 safe-guard/jailbreak from the GPU pass (deepset cross-verified identical GPU==CPU AUC 0.8823). Re-run run_detector_headtohead.py for full per-row stats."
+  },
+  "jataayu_fastpath": {
+    "_injection_label_mapping": "risk_score >= 0.45 (MEDIUM); regex fast-path",
+    "deepset/prompt-injections": {
+      "n": 662,
+      "n_injection": 263,
+      "n_benign": 399,
+      "roc_auc": 0.596,
+      "pr_auc": 0.5055,
+      "precision": 0.963,
+      "recall": 0.1977,
+      "fpr": 0.005,
+      "f1": 0.3281,
+      "tp": 52,
+      "fp": 2,
+      "tn": 397,
+      "fn": 211,
+      "threshold": 0.45,
+      "recall_at_1pct_fpr": 0.1977,
+      "threshold_at_1pct_fpr": 0.6,
+      "evasion": {
+        "baseline_caught_at_thr": 52,
+        "evasion_probe_n": 52,
+        "baseline_pos": 263,
+        "space_out": {
+          "still_caught": 52,
+          "evasion_rate": 0.0
+        },
+        "zero_width": {
+          "still_caught": 52,
+          "evasion_rate": 0.0
+        },
+        "leetspeak": {
+          "still_caught": 52,
+          "evasion_rate": 0.0
+        }
+      }
+    },
+    "xTRam1/safe-guard-prompt-injection": {
+      "n": 10296,
+      "n_injection": 3146,
+      "n_benign": 7150,
+      "roc_auc": 0.641,
+      "pr_auc": 0.4931,
+      "precision": 0.8609,
+      "recall": 0.301,
+      "fpr": 0.0214,
+      "f1": 0.4461,
+      "tp": 947,
+      "fp": 153,
+      "tn": 6997,
+      "fn": 2199,
+      "threshold": 0.45,
+      "recall_at_1pct_fpr": 0.1634,
+      "threshold_at_1pct_fpr": 0.75,
+      "evasion": {
+        "baseline_caught_at_thr": 947,
+        "evasion_probe_n": 947,
+        "baseline_pos": 3146,
+        "space_out": {
+          "still_caught": 947,
+          "evasion_rate": 0.0
+        },
+        "zero_width": {
+          "still_caught": 947,
+          "evasion_rate": 0.0
+        },
+        "leetspeak": {
+          "still_caught": 947,
+          "evasion_rate": 0.0
+        }
+      }
+    },
+    "jackhhao/jailbreak-classification": {
+      "n": 1306,
+      "n_injection": 666,
+      "n_benign": 640,
+      "roc_auc": 0.7539,
+      "pr_auc": 0.7569,
+      "precision": 0.8601,
+      "recall": 0.5631,
+      "fpr": 0.0953,
+      "f1": 0.6806,
+      "tp": 375,
+      "fp": 61,
+      "tn": 579,
+      "fn": 291,
+      "threshold": 0.45,
+      "recall_at_1pct_fpr": 0.3483,
+      "threshold_at_1pct_fpr": 0.8,
+      "evasion": {
+        "baseline_caught_at_thr": 375,
+        "evasion_probe_n": 375,
+        "baseline_pos": 666,
+        "space_out": {
+          "still_caught": 374,
+          "evasion_rate": 0.0027
+        },
+        "zero_width": {
+          "still_caught": 375,
+          "evasion_rate": 0.0
+        },
+        "leetspeak": {
+          "still_caught": 375,
+          "evasion_rate": 0.0
+        }
+      }
+    }
+  },
+  "protectai/deberta-v3-base-prompt-injection-v2": {
+    "_injection_label_mapping": "P(label 1='INJECTION')  [id2label={0: 'SAFE', 1: 'INJECTION'}]",
+    "_max_length": 512,
+    "deepset/prompt-injections": {
+      "n": 662,
+      "n_injection": 263,
+      "n_benign": 399,
+      "roc_auc": 0.8823,
+      "pr_auc": 0.8797,
+      "precision": 0.9646,
+      "recall": 0.4144,
+      "fpr": 0.01,
+      "f1": 0.5798,
+      "tp": 109,
+      "fp": 4,
+      "tn": 395,
+      "fn": 154,
+      "threshold": 0.5,
+      "recall_at_1pct_fpr": 0.403,
+      "threshold_at_1pct_fpr": 0.858747,
+      "evasion": {
+        "baseline_caught_at_thr": 109,
+        "evasion_probe_n": 109,
+        "baseline_pos": 263,
+        "space_out": {
+          "still_caught": 109,
+          "evasion_rate": 0.0
+        },
+        "zero_width": {
+          "still_caught": 109,
+          "evasion_rate": 0.0
+        },
+        "leetspeak": {
+          "still_caught": 100,
+          "evasion_rate": 0.0826
+        }
+      }
+    },
+    "xTRam1/safe-guard-prompt-injection": {
+      "n": 10296,
+      "n_injection": 3146,
+      "n_benign": 7150,
+      "roc_auc": 0.992,
+      "recall": 0.8373,
+      "fpr": 0.0018,
+      "recall_at_1pct_fpr": 0.9278,
+      "evasion": {
+        "space_out": {
+          "evasion_rate": 0.0
+        },
+        "zero_width": {
+          "evasion_rate": 0.0
+        },
+        "leetspeak": {
+          "evasion_rate": 0.057
+        }
+      },
+      "_provenance": "measured on GPU pass; derived tp/fp/pr_auc omitted"
+    },
+    "jackhhao/jailbreak-classification": {
+      "n": 1306,
+      "n_injection": 666,
+      "n_benign": 640,
+      "roc_auc": 0.9832,
+      "recall": 0.8273,
+      "fpr": 0.0063,
+      "recall_at_1pct_fpr": 0.8889,
+      "evasion": {
+        "space_out": {
+          "evasion_rate": 0.0
+        },
+        "zero_width": {
+          "evasion_rate": 0.0
+        },
+        "leetspeak": {
+          "evasion_rate": 0.0036
+        }
+      },
+      "_provenance": "measured on GPU pass; derived tp/fp/pr_auc omitted"
+    }
+  }
+}
