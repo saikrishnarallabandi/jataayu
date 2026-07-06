@@ -34,7 +34,6 @@ from typing import Optional
 
 from jataayu.guards.inbound import InboundGuard
 from jataayu.guards.outbound import OutboundGuard, PrivacyConfig
-from jataayu.core.engine import LLMBackend
 from jataayu.core.threat import ThreatLevel
 
 

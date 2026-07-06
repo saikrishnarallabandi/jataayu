@@ -5,6 +5,22 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-06
+
+### Changed — packaging & first-run behavior (public-install readiness)
+- `check_outbound()` no longer ships a non-empty default protected-names list.
+  `DEFAULT_PROTECTED_NAMES` is now `[]`, so a fresh install never silently redacts
+  arbitrary names — callers pass `protected_names=[...]` or configure a policy file.
+- Declared `pyyaml>=6` as a base dependency: YAML policy loading is a documented
+  core feature and previously no-op'd silently on a bare install until the user
+  discovered they needed PyYAML.
+- Added a `tests` CI workflow (`.github/workflows/test.yml`): ruff + pytest across
+  Python 3.10–3.12 on every push and PR. The library now lints clean under ruff.
+
+### Security / privacy
+- De-personalized the repository: real names, a phone number, and machine-specific
+  home paths were removed from source, fixtures, and (via history rewrite) git history.
+
 ### Added — semantic-vs-effect gap eval
 - `eval/run_semantic_vs_effect.py`: a deterministic, offline (no LLM, no network) harness that
   demonstrates the arXiv:2606.18356 thesis on Jataayu's own `SessionTrace`. Grades synthetic
