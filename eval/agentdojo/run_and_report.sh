@@ -3,12 +3,12 @@
 # Designed to be nohup'd:  nohup bash eval/agentdojo/run_and_report.sh > logfile 2>&1 &
 set -uo pipefail
 
-REPO=/home/user/projects/jataayu
-VENV=/tmp/claude-1000/-home-user-jataayu/02572bbc-17dc-469c-bf51-f97ab85f5905/scratchpad/adojo-venv
-PY="$VENV/bin/python"
-OPENCLAW=/home/user/.nvm/versions/node/v24.2.0/bin/openclaw
-WA_TARGET=+REDACTED
-OUT="$REPO/eval/results/agentdojo_workspace_local.json"
+# Derive the repo root from this script's location; override any path via env.
+REPO="${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+PY="${PY:-python3}"                 # a python with the agentdojo deps installed
+OPENCLAW="${OPENCLAW:-openclaw}"    # openclaw CLI on PATH (optional; for notifications)
+WA_TARGET="${WA_TARGET:-}"          # notification target; empty = skip notifications
+OUT="${OUT:-$REPO/eval/results/agentdojo_workspace_local.json}"
 
 MODEL_ID="${MODEL_ID:-qwen3.6:35b-a3b}"
 BASE_URL="${BASE_URL:-http://127.0.0.1:11436/v1}"
@@ -17,7 +17,7 @@ LOGDIR="${LOGDIR:-$REPO/runs/agentdojo/${SAFE_MODEL_ID}_$(date -u +%Y%m%dT%H%M%S
 
 cd "$REPO" || exit 1
 
-send() { "$OPENCLAW" message send --channel whatsapp --target "$WA_TARGET" --message "$1" 2>/dev/null; }
+send() { [ -n "$WA_TARGET" ] || return 0; "$OPENCLAW" message send --channel whatsapp --target "$WA_TARGET" --message "$1" 2>/dev/null; }
 
 send "[jataayu] AgentDojo local run started on ${MODEL_ID} (workspace/important_instructions, baseline vs jataayu). Will report numbers when done."
 

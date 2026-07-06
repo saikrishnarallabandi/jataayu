@@ -21,7 +21,7 @@ from jataayu.core.threat import ThreatLevel
 # Default protected names — family members that should never appear in outbound
 # content on shared surfaces. Configure via PrivacyConfig for custom lists.
 DEFAULT_PROTECTED_NAMES = [
-    "Sai", "Carol", "Alice", "Bob",
+    "Dana", "Carol", "Alice", "Bob",
     "Evan", "Grace", "Frank",
 ]
 

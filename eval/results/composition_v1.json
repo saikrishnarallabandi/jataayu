@@ -1,6 +1,6 @@
 {
   "headline": {
-    "corpus": "/home/user/projects/jataayu/eval/data/composition_v1.jsonl",
+    "corpus": "eval/data/composition_v1.jsonl",
     "total_sets": 57,
     "class_counts": {
       "POLICY": 15,

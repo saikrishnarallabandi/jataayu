@@ -2,7 +2,7 @@
   "benchmark": "Jataayu egress-channel (EchoLeak / AgentFlayer / Notion class)",
   "api": "jataayu_check_egress (deterministic, no LLM)",
   "surface": "github-comment",
-  "corpus": "/home/user/projects/jataayu/eval/data/egress_v1.jsonl",
+  "corpus": "eval/data/egress_v1.jsonl",
   "overall": {
     "n_exfil": 23,
     "n_benign": 12,
