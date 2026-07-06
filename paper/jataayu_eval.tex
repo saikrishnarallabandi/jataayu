@@ -611,7 +611,7 @@ robust).}\label{tab:cmp-detect}
 \toprule
 Detector & Clean recall / TPR & Char-perturbation evasion \\
 \midrule
-ProtectAI deBERTa-v3 v2~\cite{protectai} & \good{99.7\%} (20k held-out) & \bad{77\%} attack success (char-injection)~\cite{guardrails} \\
+ProtectAI deBERTa-v3~\cite{protectai} & \good{99.7\%} (v2, 20k held-out) & \bad{77\%} (v1, char-injection)~\cite{guardrails}; v2 robust (Table~\ref{tab:pi}) \\
 Meta Prompt-Guard-86M~\cite{promptguard} & \good{99.5\%} (in-dist.\ TPR) & \bad{99.8\%} bypass (char-spacing)~\cite{guardrails} \\
 \textbf{Jataayu} fast path & \bad{20--56\%} (deepset/sg/jb) & \good{$\le$0.3\%} (space-out / leetspeak) \\
 \bottomrule
@@ -624,10 +624,10 @@ Jataayu's fast path is clearly worse}: dedicated classifiers reach $\sim$99\% cl
 regex pre-filter reaches 20--56\%, and --- as Table~\ref{tab:pi} shows on identical rows --- a good
 trained detector (ProtectAI v2) is \emph{also} robust to space-out and zero-width, so we do
 \emph{not} claim a general evasion advantage for our pre-filter. The published evasion collapses
-(Prompt-Guard $\sim$100\%$\to$0.2\% under character-spacing; ProtectAI $\sim$77\% bypass) are under a
-\emph{more aggressive} char-injection protocol~\cite{guardrails} than the simple perturbations of
-Table~\ref{tab:pi}, so evasion vulnerability is protocol-dependent rather than a fixed detector
-property. The defensible reading is narrow: detector recall does not transfer across datasets (our
+(Prompt-Guard $\sim$100\%$\to$0.2\% under character-spacing; ProtectAI \emph{v1} $\sim$77\% bypass)
+are for an older model version and a \emph{more aggressive} char-injection protocol~\cite{guardrails}
+than the simple perturbations of Table~\ref{tab:pi}, so evasion vulnerability is version- and
+protocol-dependent rather than a fixed detector property. The defensible reading is narrow: detector recall does not transfer across datasets (our
 head-to-head puts ProtectAI's deepset recall at 0.41, far below its self-reported 99.7\%), and
 \emph{every} detector tier is evadable under a strong enough adaptive attack~\cite{firewalls}. The
 training-based defenses occupy a third point: StruQ zeroes non-adaptive ASR by fine-tuning but leaves
