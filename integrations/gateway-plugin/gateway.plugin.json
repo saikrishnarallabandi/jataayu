@@ -13,8 +13,19 @@
       },
       "python": {
         "type": "string",
-        "default": "/home/user/miniconda3/envs/orchestrator_env/bin/python",
-        "description": "Path to Python interpreter with jataayu installed"
+        "default": "python3",
+        "description": "Path to Python interpreter with jataayu installed (e.g. a conda/venv python)"
+      },
+      "jataayuPath": {
+        "type": "string",
+        "default": "",
+        "description": "Optional path to the jataayu package if not importable on sys.path"
+      },
+      "protectedNames": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": [],
+        "description": "Names/tickers the outbound guard should redact from shared surfaces"
       },
       "blockOnInboundHigh": {
         "type": "boolean",
