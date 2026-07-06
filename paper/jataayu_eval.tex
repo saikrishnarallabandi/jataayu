@@ -16,8 +16,6 @@
 \usepackage{multirow}
 \newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
 \usepackage{xcolor}
-\usepackage{pgfplots}
-\pgfplotsset{compat=1.18}
 \usepackage[hidelinks]{hyperref}
 \usepackage{caption}
 \captionsetup{font=small,labelfont=bf}
@@ -25,7 +23,6 @@
 \definecolor{accent}{HTML}{274690}
 \definecolor{good}{HTML}{1F7A4D}
 \definecolor{crit}{HTML}{B23A48}
-\definecolor{barbase}{HTML}{8B93A3}
 \definecolor{codebg}{HTML}{F4F5F7}
 \definecolor{slate}{HTML}{5B616E}
 
@@ -150,8 +147,9 @@ Two honesty caveats. The TUR of 0.50 is a function of the deterministic corpus's
 \emph{balance} by construction (the authors set the prevalence of untrusted-tainted benign
 high-effect actions), and is not a projection of production task-utility loss. And because Tier 1
 enumerates effect classes rather than named tools, its 1.00 certifies the policy logic, not
-tool-coverage (Tier 2 addresses that). Fig.~\ref{fig:ablation} shows the ablation: detection alone
-prevents 27\% of attacks; the deterministic effect boundary prevents all of them.
+tool-coverage (Tier 2 addresses that). The ablation (Table~\ref{tab:tier1}) is the paper's core
+argument in one place: detection alone prevents 27\% of attacks; the deterministic effect boundary
+prevents all of them.
 
 \begin{table}[htbp]\centering\small
 \caption{Effect boundary Tier 1 (synthetic, 300 rows, deterministic), four-way defense ablation.
@@ -169,27 +167,6 @@ both          & \good{1.00} & 0.50 & 1.00 & 0.036 \\
 \end{tabular}
 \end{table}
 
-\begin{figure}[htbp]\centering
-\begin{tikzpicture}
-\begin{axis}[
-  ybar, bar width=22pt, width=\linewidth, height=5.0cm,
-  ymin=0, ymax=1.12, ylabel={attack-prevention rate (APR)}, ylabel near ticks,
-  ytick={0,0.25,0.5,0.75,1.0},
-  symbolic x coords={none,detector-only,effect,both},
-  xtick=data, x tick label style={font=\small},
-  enlarge x limits=0.18,
-  nodes near coords, every node near coord/.append style={font=\small,
-    /pgf/number format/fixed,/pgf/number format/precision=2},
-]
-\addplot[fill=barbase,draw=barbase!60!black] coordinates
-  {(none,0.00)(detector-only,0.27)(effect,1.00)(both,1.00)};
-\end{axis}
-\end{tikzpicture}
-\caption{Four-defense ablation on the Tier-1 corpus (300 rows): attack-prevention rate for no
-defense, the detector-only pre-filter, the deterministic effect boundary, and both combined.
-Detection alone prevents 27\% of attacks; the effect boundary prevents all of them (APR 1.00). This
-is the paper's core argument for gating the action, not the string.}\label{fig:ablation}
-\end{figure}
 
 \textbf{Tier 2 (AgentDojo-derived action stream).} We label real tool calls attack-vs-legit with
 provenance and replay them through the effect boundary. The corpus has 150 attack rows over
@@ -203,7 +180,7 @@ the tens of microseconds. This 1.00 is by construction on the mapped tool set (n
 split): it certifies coverage of these tools, not generalization to unmapped future ones ---
 admitting a new tool to the guarantee is exactly the act of adding its effect-class mapping. The
 value is not free from detection alone: on the matched Tier-1 corpus a detector-only defense
-prevents 27\% of attacks against the effect boundary's 100\% (Fig.~\ref{fig:ablation}).
+prevents 27\% of attacks against the effect boundary's 100\% (Table~\ref{tab:tier1}).
 
 \begin{table}[htbp]\centering\small
 \setlength\tabcolsep{5pt}
