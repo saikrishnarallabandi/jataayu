@@ -183,9 +183,9 @@
     "examples": []
   },
   "latency_ms": {
-    "mean": 1.5299,
-    "p50": 0.7639,
-    "p99": 6.676
+    "mean": 2.1526,
+    "p50": 0.512,
+    "p99": 13.0526
   },
   "notes": [
     "Names are caught only via protected_names; generic personal names, crypto/bank addresses, IPs, IMEIs, VINs, dates and job info are out_of_scope by design and reported separately.",

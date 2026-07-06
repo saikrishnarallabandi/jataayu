@@ -25,7 +25,7 @@ from jataayu.guards.outbound import PrivacyConfig
 # ===========================================================================
 
 FAMILY_NAMES = [
-    "Sai",
+    "Dana",
     "Carol",
     "Alice",
     "Bob",
@@ -36,7 +36,7 @@ FAMILY_NAMES = [
 
 # Extended patterns (nicknames, alternate spellings)
 FAMILY_PATTERNS_EXTENDED = [
-    "Sai Krishna",
+    "Dana Miller",
     "Carol",
     "Alice",
     "Bob",
@@ -44,7 +44,7 @@ FAMILY_PATTERNS_EXTENDED = [
     "Grace",
     "Frank",
     "Helen",
-    "Rallabandi",
+    "Miller",
 ]
 
 

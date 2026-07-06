@@ -1,5 +1,5 @@
 {
-  "dataset": "/home/user/projects/jataayu/eval/data/effect_boundary_tier2.jsonl",
+  "dataset": "eval/data/effect_boundary_tier2.jsonl",
   "tier": 2,
   "n_total": 300,
   "n_attack": 150,
