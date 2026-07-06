@@ -1,7 +1,7 @@
 {
   "benchmark": "InjecAgent (public) \u2014 effect-boundary discrimination",
   "source": "InjecAgent, Zhan et al., ACL 2024 Findings (arXiv 2403.02691)",
-  "data_dir": "/tmp/claude-1000/-home2-srallaba-projects-project-aiewf2026/e910e320-fa10-4bd7-8b11-71e562856153/scratchpad/InjecAgent/data",
+  "data_dir": "eval/data/injecagent (InjecAgent public benchmark; see eval/data/injecagent/README.md)",
   "thesis": "gate the action (effect x provenance), not the injection string",
   "decision_path": "deterministic; no LLM",
   "approval_semantics": "NEEDS_APPROVAL counts as prevention (human-in-loop); own column",
