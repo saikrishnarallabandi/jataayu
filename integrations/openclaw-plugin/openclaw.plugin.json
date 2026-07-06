@@ -1,0 +1,26 @@
+{
+  "id": "jataayu",
+  "name": "Jataayu Security Guard",
+  "kind": "security",
+  "description": "ENFORCED inbound prompt-injection gate (blocks HIGH-risk turns before the agent runs) + advisory inbound/outbound tools. Fail-open.",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "default": true
+      },
+      "python": {
+        "type": "string",
+        "default": "/home/user/miniconda3/envs/judith_env/bin/python",
+        "description": "Path to Python interpreter with jataayu installed"
+      },
+      "blockOnInboundHigh": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enforced: block the turn when Jataayu flags HIGH prompt-injection risk. Fail-open on errors. Set false for warn/log-only."
+      }
+    }
+  }
+}
