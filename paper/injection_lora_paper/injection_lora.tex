@@ -20,8 +20,9 @@ A Held-Out Cross-Dataset Study}
 \maketitle
 
 \begin{abstract}
-Prompt-injection detectors are widely reported at $>$99\% recall, yet those numbers are almost
-always measured \emph{in-distribution} on the detector's own dataset. We ask whether they survive a
+Leading prompt-injection detectors report near-perfect recall---ProtectAI's classifier 99.7\%,
+Meta Prompt-Guard 99.5\% TPR---yet those numbers are almost always measured \emph{in-distribution}
+on the detector's own dataset. We ask whether they survive a
 change of dataset. Evaluating three detectors---a regex pre-filter, a fine-tuned DeBERTa classifier
 (ProtectAI), and an 8B LLM tuned with a single LoRA adapter---on a strict held-out protocol (train
 on one public injection set, test on two others never seen in training), we find that reported
@@ -43,7 +44,8 @@ consumes---is the top-ranked risk in the 2025 OWASP Top~10 for LLM
 Applications~\citep{owasp2025}. A common first line of defense is a \emph{detector}: a classifier
 that flags injection-bearing inputs before the model acts on them. Commercial and open detectors
 report striking numbers---ProtectAI's DeBERTa-v3 injection classifier reports 99.7\%
-recall~\citep{protectai}, and Meta's Prompt-Guard reports AUC $>$0.99~\citep{promptguard}.
+recall~\citep{protectai}, and Meta's Prompt-Guard reports 99.5\% TPR at AUC
+$>$0.99~\citep{promptguard}.
 
 These headline numbers are, almost without exception, measured \emph{in-distribution}: the test set
 is drawn from the same distribution (often the same corpus) as the training set. Deployment is
