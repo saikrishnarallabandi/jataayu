@@ -149,9 +149,8 @@ Two honesty caveats. The TUR of 0.50 is a function of the deterministic corpus's
 \emph{balance} by construction (the authors set the prevalence of untrusted-tainted benign
 high-effect actions), and is not a projection of production task-utility loss. And because Tier 1
 enumerates effect classes rather than named tools, its 1.00 certifies the policy logic, not
-robustness to unmapped tools --- adding a tool requires adding its effect-class mapping
-(\S\ref{sec:effect}, Tier 2). Fig.~\ref{fig:ablation} shows the ablation: detection alone prevents
-27\% of attacks; the deterministic effect boundary prevents all of them.
+tool-coverage (Tier 2 addresses that). Fig.~\ref{fig:ablation} shows the ablation: detection alone
+prevents 27\% of attacks; the deterministic effect boundary prevents all of them.
 
 \begin{table}[htbp]\centering\small
 \caption{Effect boundary Tier 1 (synthetic, 300 rows, deterministic), four-way defense ablation.
@@ -671,11 +670,16 @@ secret-staging, and relay/SSRF --- currently pass as SAFE. (3) The outbound PII 
 redaction-threshold artifact: email, phone, and contextual-health spans are detected but not
 redacted on the fast path. (4) The fast-path detector's recall floor (27--56\%) is by design --- it
 is a taint pre-filter, not the guarantee. Scope caveats: the AgentDojo live slice is small per
-suite; several corpora (effect boundary, egress, composition, memory) are synthetic-but-deterministic,
-not public benchmarks; the detection recall numbers are for the fast path, not an upper bound on the
-layered system; and the effect-boundary APR of 1.00 reflects correct tool classification over the
-mapped tool set, not a claim of robustness to unmapped future tools --- admitting a new tool to the
-guarantee requires adding its effect-class mapping.
+suite; several corpora (egress, composition, memory, and the effect-boundary Tier 1/2 synthetic
+tiers) are synthetic-but-deterministic, not public benchmarks. Critically, the perfect scores on
+those corpora (egress recall 1.00, composition in-model recall 1.00 / 0\% FP) are measured on threat
+models we authored and tested against exactly the risk classes each guard was built to model, so
+they are near-tautological evidence of \emph{coverage of the modeled classes}, not of real-world
+robustness --- the \emph{+5 unmodeled composition paths} and the \emph{in-model} qualifier are the
+honest boundary of that claim, and the public InjecAgent Tier 3 (\S\ref{sec:effect}) is the stronger
+grounding. The detection recall numbers are for the fast path, not an upper bound on the layered
+system; and the effect-boundary APR of 1.00 reflects correct tool classification over the mapped
+tool set, not robustness to unmapped future tools.
 
 \section{Conclusion}
 Across seven surfaces and both public and synthetic benchmarks, Jataayu's deterministic effect
@@ -698,9 +702,19 @@ green). For double-blind review an anonymized artifact copy is provided separate
 will be minted on acceptance.
 
 Every result in this report is produced by a runner under \code{eval/} that writes a JSON result
-to \code{eval/results/}; deterministic corpora live in \code{eval/data/} with fixed-seed
-generators. The deterministic surfaces (effect boundary, egress, composition, memory / injection
-fast path) require no model and reproduce exactly.
+to \code{eval/results/}; the synthetic corpora (effect-boundary Tier 1/2, egress, composition,
+memory) live in \code{eval/data/} with fixed-seed generators and reproduce exactly with no model.
+
+\paragraph{External datasets.} Three surfaces use public datasets we do \emph{not} vendor (each is
+released under its own license); obtain them and point the runner at them.
+\emph{InjecAgent} (Tier 3): clone \url{https://github.com/uiuc-kang-lab/InjecAgent} and copy its
+\code{data/test\_cases\_*.json} into \code{eval/data/injecagent/} (see that directory's README);
+the runner defaults to that path. \emph{ai4privacy} (outbound PII): pulled from HuggingFace
+(\code{ai4privacy/pii-masking-200k}) via \code{datasets}, with a deterministic in-repo fallback
+corpus (\code{--no-hf}). \emph{AgentDojo} (agentic e2e): installed via \code{pip install
+agentdojo==0.1.35}; suites are fetched by the harness. All three are deterministic given the data
+(the effect-boundary and detection paths use no model); only the AgentDojo live agent and the LLM
+slow path are model-dependent.
 
 \paragraph{AgentDojo live configuration.} The one non-deterministic surface (\S\ref{sec:agentic}) uses agent model
 \code{qwen3.6:35b-a3b} served over an OpenAI-compatible endpoint (ollama-style, on a private

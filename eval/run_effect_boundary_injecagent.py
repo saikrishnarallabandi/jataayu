@@ -83,10 +83,9 @@ HERE = Path(__file__).parent
 OUT_DIR = HERE / "results"
 OUT_DIR.mkdir(exist_ok=True)
 
-DEFAULT_DATA_DIR = Path(
-    "/tmp/claude-1000/-home2-srallaba-projects-project-aiewf2026/"
-    "e910e320-fa10-4bd7-8b11-71e562856153/scratchpad/InjecAgent/data"
-)
+# InjecAgent is a public benchmark; obtain it and place its `data/` here
+# (see eval/data/injecagent/README.md). Repo-relative so results are reproducible.
+DEFAULT_DATA_DIR = Path(__file__).resolve().parent / "data" / "injecagent"
 
 ALLOW, DENY, APPROVAL = "allow", "deny", "needs_approval"
 
