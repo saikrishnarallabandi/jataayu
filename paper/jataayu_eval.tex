@@ -13,11 +13,10 @@
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
 \usepackage{array}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
 \usepackage{xcolor}
-\usepackage{listings}
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
-\usepgfplotslibrary{groupplots}
 \usepackage[hidelinks]{hyperref}
 \usepackage{caption}
 \captionsetup{font=small,labelfont=bf}
@@ -33,10 +32,6 @@
 \newcommand{\bad}[1]{\textcolor{crit}{\textbf{#1}}}
 \newcommand{\code}[1]{\texttt{\small #1}}
 
-\lstset{basicstyle=\ttfamily\small,backgroundcolor=\color{codebg},frame=single,
-  rulecolor=\color{slate!30},breaklines=true,columns=fullflexible,keepspaces=true,
-  commentstyle=\color{slate}\itshape,showstringspaces=false,xleftmargin=4pt,xrightmargin=4pt}
-
 \title{\vspace{-2em}\bfseries Evaluating Jataayu\\[0.2em]
   \large A Multi-Benchmark Study of a Runtime Authorization Layer for Tool-Using Agents}
 \author{Sai Krishna Rallabandi\\ \small Jataayu Project \\ \small \texttt{srallaba.research@gmail.com}}
@@ -46,33 +41,55 @@
 \maketitle
 
 \begin{abstract}
-\noindent Jataayu is a runtime authorization layer for tool-using LLM agents whose thesis is to
-gate the agent's \emph{action} by the \emph{provenance} of its input rather than to classify
-attack text. It exposes seven distinct security surfaces: a deterministic effect boundary
-(action authorization), injection screening at the inbound / tool-return / memory surfaces,
-outbound PII redaction, an egress-channel guard against zero-click exfiltration, and skill
-supply-chain vetting. We evaluate each surface against a matched benchmark --- public where one
-exists (AgentDojo, InjecAgent, deepset / safe-guard / jailbreak injection sets, ai4privacy),
-synthetic-but-deterministic where none does --- and report every number, including the ones that
-expose weaknesses. Two findings are structural. First, the effect boundary works: on an
-AgentDojo-derived action stream it lifts attack-prevention from 0.29 to \good{1.00} once the
-tool$\to$effect map is complete, at a disclosed utility cost. Second, the evaluation is
-honest: it surfaced four concrete defects --- a shipped coverage gap that silently authorized
-every banking / travel / Slack side-effect, the absence of a deferred-instruction detector
-(sleeper-memory recall 0.00), an over-narrow exfiltration key in the composition guard, and a
-live regex false-positive --- one of which we fix in-line (disclose-then-fix). The deterministic
-core runs in tens of microseconds per decision.
+\noindent Jataayu is a runtime authorization layer for tool-using LLM agents. Its thesis: gate the
+agent's \emph{action} by the \emph{provenance} of its input rather than classify attack text,
+because detection is evadable by paraphrase and character perturbation, and training-based
+defenses are bound to the model they retrain.
+
+\smallskip\noindent It guards seven distinct security surfaces: (1)~a deterministic effect
+boundary (action authorization); (2)~inbound injection screening; (3)~tool-return injection
+screening; (4)~memory-poisoning screening (read and write); (5)~outbound PII redaction; (6)~an
+egress-channel guard against zero-click exfiltration; and (7)~skill supply-chain vetting. We
+evaluate each surface against a matched benchmark, public where one exists (AgentDojo, InjecAgent,
+deepset / safe-guard / jailbreak injection sets, ai4privacy) and synthetic-but-deterministic where
+none does, and report every number, including the ones that expose weaknesses.
+
+\smallskip\noindent Two findings are structural. First, the effect boundary works: on an
+AgentDojo-derived action stream it lifts attack prevention from 29\% to \good{100\%} once the
+tool$\to$effect map is complete, at a disclosed utility cost. A direct semantic-vs-effect probe
+validates the thesis: a text grader catches only the 1 overt trajectory of 6 harmful (0 of 5
+silent harms; recall 0.17), while the effect grader catches all six (\good{1.00}). Second, the
+evaluation is honest. It surfaced four concrete defects: a shipped coverage gap that silently
+authorized every banking, travel, and Slack side-effect; the absence of a deferred-instruction
+detector (sleeper-memory recall 0.00); an over-narrow exfiltration key in the composition guard;
+and a live regex false-positive. One of these we fix in-line (disclose-then-fix). The
+deterministic core runs in tens of microseconds per decision (0.036\,ms mean).
 \end{abstract}
 
-\section{Introduction}
+\section{Introduction}\label{sec:intro}
 An agent that reads the web, email, or a ticket consumes attacker-controlled text. Indirect
 prompt injection exploits the model's inability to separate trusted instructions from untrusted
-data. Detection-first defenses chase the attack string and lose to paraphrase. Jataayu's
-position, shared by the 2026 agent-security frameworks~\cite{owasp}, is that the durable boundary
-is the \emph{action}, gated by input provenance: untrusted-derived input driving a shell command,
-a secret read, or a network write is denied or held for approval regardless of whether any
-detector fired. Around that deterministic core it layers defense-in-depth screening at each
-surface where injection enters or data leaves.
+data, and the problem is not close to solved: on Agent Security Bench the strongest attack (a mixed
+direct$+$indirect$+$memory-poisoning attack) averages 84.3\% success across agents and indirect
+prompt injection alone reaches 4.8--59.7\% depending on the backbone, with the paper explicitly
+finding that current defenses are insufficient (arXiv:2410.02644v3, Table~5~\cite{asb}); the
+canonical InjecAgent baseline puts an undefended ReAct GPT-4 agent at 24\% attack success, nearly
+doubling to $\sim$47\% under an ``enhanced'' hacking prompt~\cite{injecagent}.
+
+Three defense families respond to this, refining the standard detection-vs-prevention formalization
+of prompt-injection defenses~\cite{survey} by splitting prevention into training and design.
+\emph{Detection} classifies the input, but detectors both
+lose to paraphrase / character perturbation and \emph{over-defend}: on the NotInject benchmark
+Prompt-Guard scores only 0.88\% on the \emph{over-defense split} (benign inputs that merely contain
+injection-trigger vocabulary), and 41.60\% averaged across the benign / malicious / over-defense
+splits (arXiv:2410.22770v3, Table~1~\cite{injecguard}). \emph{Training} fine-tunes the model to resist injection, but the
+hardening is bound to the retrained weights. \emph{Design} makes the harmful action unreachable by
+construction. Jataayu's position, shared by the 2026 agent-security frameworks~\cite{owasp}, is that
+the durable boundary is the \emph{action}, gated by input provenance: untrusted-derived input
+driving a shell command, a secret read, or a network write is denied or held for approval regardless
+of whether any detector fired. Around that deterministic core it layers defense-in-depth screening
+at each surface where injection enters or data leaves --- deliberately as a non-authoritative
+pre-filter, since the guarantee never rests on the classifier.
 
 This report evaluates all seven surfaces. Our method is (i) \emph{deterministic where possible}
 --- the effect boundary, egress, composition, and fast-path detection paths use no model, so
@@ -80,151 +97,225 @@ their numbers are exact and reproducible; (ii) \emph{public benchmarks where the
 deterministic in-repo corpora as a documented fallback; and (iii) \emph{disclose-then-fix} ---
 where an evaluation exposes a shipped defect, we report the as-shipped result before the fix.
 
+\paragraph{Contributions.} (1) A \emph{deterministic, LLM-free effect boundary} that authorizes an
+action by effect-severity $\times$ provenance $\times$ capability policy and, unlike CaMeL's
+value-level dataflow interpreter or a retrained model, \emph{wraps an existing agent at the
+tool-call boundary} with no agent rearchitecture (\S\ref{sec:effect}, \S\ref{sec:cmp}). (2) A seven-surface evaluation that
+reports the weak numbers as well as the strong ones, including a \emph{disclose-then-fix} coverage
+gap on the effect boundary itself. (3) A direct \emph{semantic-vs-effect} probe isolating the
+paper's thesis: text-grading misses silent harms that effect-grading catches (\S\ref{sec:sem}); unlike
+LLM-judge trajectory evaluations (R-Judge, ToolEmu)~\cite{rjudge,toolemu}, our effect trace is
+deterministic and tied to the enforcing boundary. (4) Two
+reusable methodological artifacts: a labeled AgentDojo effect-boundary action stream, and a parser
+repair that is a precondition for evaluating non-OpenAI-tool-calling models on AgentDojo
+(Appendix~A).
+
 \section{System and method}
 Jataayu is layered so the guarantee lives at the action: a normalization-and-taint layer
 (Layer~0), a deterministic effect boundary authorizing actions by \emph{effect severity}
 $\times$ \emph{provenance} $\times$ \emph{capability policy} (Layer~1), and a two-path detector
 (regex fast path; optional LLM slow path) used as a pre-filter and taint source. The public API
-surfaces we evaluate are: \code{authorize\_action} / \code{EffectBoundary} (effect boundary);
-\code{check\_inbound}, \code{check\_tool\_return}, \code{check\_memory\_\{read,write\}}
-(injection screening); \code{check\_outbound} (PII); \code{check\_egress} (exfil channels);
-\code{check\_skillset} (composition). Metrics: for detection, precision / recall / FPR at fixed
+surfaces we evaluate are:
+\begin{itemize}\setlength\itemsep{0pt}\small
+\item \code{authorize\_action} / \code{EffectBoundary} --- effect boundary;
+\item \code{check\_inbound}, \code{check\_tool\_return}, \code{check\_memory\_read},
+  \code{check\_memory\_write} --- injection screening;
+\item \code{check\_outbound} --- PII; \code{check\_egress} --- exfil channels;
+  \code{check\_skillset} --- composition.
+\end{itemize}
+Metrics: for detection, precision / recall / FPR at fixed
 operating points; for the effect boundary, \emph{APR} (attack-prevention rate, with
 NEEDS\_APPROVAL counted as prevention but reported separately) and \emph{TUR} (task-utility
 retained); for AgentDojo, utility (clean / under-attack) and targeted attack-success rate (ASR).
 
-\section{Results by surface}
+\section{Results}\label{sec:results}
+The seven guarded surfaces are reported in \S\ref{sec:effect} (effect boundary) and
+\S\ref{sec:inbound}--\S\ref{sec:memory} (inbound / tool-return injection, outbound PII, egress,
+composition, memory). Three subsections are cross-cutting rather than per-surface: the AgentDojo
+end-to-end run (\S\ref{sec:agentic}), the semantic-vs-effect probe (\S\ref{sec:sem}), and the
+consolidated summary (\S\ref{sec:summary}).
 
-\subsection{Effect boundary --- the guarantee}
+\subsection{Effect boundary --- the guarantee}\label{sec:effect}
 \textbf{Tier 1 (synthetic, 300 rows, deterministic).} Ablating four defenses on a corpus spanning
-every effect class $\times$ provenance: \emph{none} APR 0.00; \emph{detector-only} 0.27;
-\emph{effect} \good{1.00}; \emph{both} \good{1.00}. Trusted-legit utility is retained in full
-(1.00); the utility cost (TUR 0.50) lands entirely on untrusted-tainted benign high-effect
+every effect class $\times$ provenance (Table~\ref{tab:tier1}): the effect boundary lifts APR from
+0.00 (no defense) and 0.27 (detector-only) to \good{1.00}. Trusted-legit utility is retained in
+full (1.00); the utility cost (TUR 0.50) lands entirely on untrusted-tainted benign high-effect
 actions, which route to NEEDS\_APPROVAL rather than silent ALLOW. Decision latency: 0.036\,ms mean.
-
-\textbf{Tier 2 (AgentDojo-derived action stream, disclose-then-fix).} Labeling real tool calls
-from the four AgentDojo suites (workspace / banking / travel / slack) attack-vs-legit with
-provenance, and running them through the effect boundary, exposes a shipped coverage gap: 21
-effectful tools (money transfers, bookings, Slack invites, external shares, file deletes) were
-\emph{unmapped} and silently classified READ$\to$ALLOW. As-shipped APR under the effect defense
-is \bad{0.29} (per-suite: banking 0.00, slack 0.00, travel 0.00, workspace 0.27). After extending
-the tool$\to$effect map in \code{core/taint.py} --- classifying by \emph{what the tool does}
-(irreversible external side effect $=$ network sink; file mutation $=$ file-write), not by
-benchmark membership --- APR rises to \good{1.00} across all four suites and the coverage gap
-closes to zero (Table~\ref{tab:tier2}). The disclosed cost is TUR $0.83 \to 0.50$. The full test
-suite (403 tests) stays green after the change.
+Two honesty caveats. The TUR of 0.50 is a function of the deterministic corpus's provenance/effect
+\emph{balance} by construction (the authors set the prevalence of untrusted-tainted benign
+high-effect actions), and is not a projection of production task-utility loss. And because Tier 1
+enumerates effect classes rather than named tools, its 1.00 certifies the policy logic, not
+robustness to unmapped tools, the very failure mode Tier 2 exposes next.
 
 \begin{table}[htbp]\centering\small
-\caption{Effect boundary Tier 2 (effect defense), disclose-then-fix. APR = attack-prevention rate;
-gaps = effectful tools misclassified READ$\to$ALLOW.}\label{tab:tier2}
+\caption{Effect boundary Tier 1 (synthetic, 300 rows, deterministic), four-way defense ablation.
+APR = attack-prevention rate (NEEDS\_APPROVAL counted as prevention); TUR = task-utility retained;
+trusted-legit TUR isolates utility on trusted-provenance benign actions.}\label{tab:tier1}
 \begin{tabular}{lcccc}
 \toprule
-& APR (all) & per-suite APR (bank/slack/travel/work) & TUR & coverage gaps \\
+Defense & APR & TUR & trusted-legit TUR & latency (ms) \\
 \midrule
-as-shipped & \bad{0.29} & 0.00 / 0.00 / 0.00 / 0.27 & 0.83 & \bad{21} \\
-fixed      & \good{1.00} & 1.00 / 1.00 / 1.00 / 1.00 & 0.50 & \good{0} \\
+none          & 0.00 & 1.00 & 1.00 & --- \\
+detector-only & 0.27 & 1.00 & 1.00 & --- \\
+effect        & \good{1.00} & 0.50 & 1.00 & --- \\
+both          & \good{1.00} & 0.50 & 1.00 & 0.036 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\begin{figure}[htbp]
-\centering
+\textbf{Tier 2 (AgentDojo-derived action stream, disclose-then-fix).} We label real tool calls
+attack-vs-legit with provenance and replay them through the effect boundary. The corpus has 150
+attack rows over \emph{five} suites: the four AgentDojo suites (workspace / banking / travel /
+slack, 116 attack rows) plus a synthetic \code{runtime} suite (34 attack rows) that exercises the
+shell / code-eval / secret-read / memory-write effect classes the four AgentDojo suites never
+touch. The replay exposes a shipped coverage gap: 21 effectful tools (money transfers, bookings,
+Slack invites, external shares, file deletes) were \emph{unmapped} and silently classified
+READ$\to$ALLOW. As-shipped APR under the effect defense is \bad{0.29} overall
+($44/150$ prevented). That headline is dominated by the one already-mapped suite: the
+\code{runtime} tools were correctly gated ($34/34$, APR 1.00), while the four AgentDojo suites
+prevented only $10/116$ (per-suite APR: banking 0.00, slack 0.00, travel 0.00, workspace 0.27) ---
+i.e.\ the gap is precisely on the AgentDojo side-effect tools. After extending the tool$\to$effect
+map in \code{core/taint.py} --- classifying by \emph{what the tool does} (irreversible external
+side effect $=$ network sink; file mutation $=$ file-write), not by benchmark membership --- APR
+rises to \good{1.00} across all five suites and the coverage gap closes to zero
+(Table~\ref{tab:tier2}, Fig.~\ref{fig:tier2}). The disclosed cost is TUR $0.83 \to 0.50$. The full test suite (403 tests)
+stays green after the change. This fixed 1.00 is by construction on the now-mapped tool set (no
+held-out tool split): it certifies coverage of these tools, not generalization to unmapped future
+ones, exactly the property the as-shipped row shows is not free.
+
+\begin{table}[htbp]\centering\small
+\setlength\tabcolsep{5pt}
+\caption{Effect boundary Tier 2 (effect defense), disclose-then-fix, per-suite APR with attack $n$.
+The \code{runtime} suite is synthetic (shell / code-eval / secret-read / memory-write classes absent
+from AgentDojo); the other four are AgentDojo. Overall APR weights all 150 attack rows.
+\emph{Confound:} rows are deterministic replays of labeled tool calls through our effect boundary
+(no live model), so APR reflects tool$\to$effect classification correctness on \emph{mapped} tools,
+not robustness to unseen future tools --- exactly the failure mode the as-shipped row
+exposes.}\label{tab:tier2}
+\begin{tabular}{lcccccc}
+\toprule
+ & \multicolumn{5}{c}{per-suite APR ($n_{\text{atk}}$)} & \\
+\cmidrule(lr){2-6}
+ & banking\,(26) & slack\,(30) & travel\,(23) & work\,(37) & runtime\,(34) & overall APR \\
+\midrule
+as-shipped & \bad{0.00} & \bad{0.00} & \bad{0.00} & 0.27 & 1.00 & \bad{0.29} \\
+fixed      & \good{1.00} & \good{1.00} & \good{1.00} & \good{1.00} & \good{1.00} & \good{1.00} \\
+\bottomrule
+\end{tabular}\\[2pt]
+{\footnotesize As-shipped TUR 0.83, coverage gaps \bad{21}; fixed TUR 0.50, coverage gaps \good{0}.}
+\end{table}
+
+\begin{figure}[htbp]\centering
 \begin{tikzpicture}
 \begin{axis}[
-    width=12cm, height=5.2cm,
-    ybar, bar width=9pt,
-    symbolic x coords={banking, slack, travel, workspace},
-    xtick=data,
-    ymin=0, ymax=1.15, ytick={0,0.25,0.5,0.75,1.0},
-    enlarge x limits=0.2,
-    tick label style={font=\footnotesize},
-    ylabel={Attack-prevention rate (APR)}, ylabel style={font=\footnotesize},
-    nodes near coords, nodes near coords style={font=\tiny},
-    every node near coord/.append style={/pgf/number format/fixed,/pgf/number format/precision=2},
-    legend style={font=\footnotesize, at={(0.5,-0.22)}, anchor=north, legend columns=2, draw=none},
-    grid=major, grid style={slate!20},
+  ybar, bar width=8pt, width=\linewidth, height=5.0cm,
+  ymin=0, ymax=1.12, ylabel={attack-prevention rate (APR)}, ylabel near ticks,
+  ytick={0,0.25,0.5,0.75,1.0},
+  symbolic x coords={banking,slack,travel,workspace,runtime,overall},
+  xtick=data, x tick label style={font=\small},
+  enlarge x limits=0.12,
+  legend style={at={(0.5,-0.16)},anchor=north,legend columns=2,font=\small,draw=none},
+  nodes near coords, every node near coord/.append style={font=\tiny,
+    /pgf/number format/fixed,/pgf/number format/precision=2},
 ]
-  \addplot[fill=barbase,draw=barbase] coordinates {(banking,0)(slack,0)(travel,0)(workspace,0.27)};
-  \addplot[fill=accent,draw=accent]   coordinates {(banking,1)(slack,1)(travel,1)(workspace,1)};
-  \legend{as-shipped (coverage gap), after taint.py fix}
+\addplot[fill=barbase,draw=barbase!60!black] coordinates
+  {(banking,0.00)(slack,0.00)(travel,0.00)(workspace,0.27)(runtime,1.00)(overall,0.29)};
+\addplot[fill=good,draw=good!55!black] coordinates
+  {(banking,1.00)(slack,1.00)(travel,1.00)(workspace,1.00)(runtime,1.00)(overall,1.00)};
+\legend{as-shipped, fixed}
 \end{axis}
 \end{tikzpicture}
-\caption{Effect-boundary Tier~2, per-suite attack-prevention rate, disclose-then-fix. As shipped,
-the effect boundary prevented \emph{zero} attacks on banking / slack / travel --- their effectful
-tools (money transfers, Slack invites, bookings) were unmapped and silently authorized --- and only
-0.27 on workspace. Completing the tool$\to$effect map lifts every suite to 1.00. This is the single
-most consequential finding of the evaluation.}
-\label{fig:tier2}
+\caption{Effect-boundary Tier~2 disclose-then-fix: per-suite APR before (grey) and after (green)
+extending the tool$\to$effect map. The as-shipped gap is concentrated on the four AgentDojo suites
+(banking / slack / travel APR 0.00, workspace 0.27); the already-mapped synthetic \code{runtime}
+suite was correct at 1.00 throughout. The fixed bars are by construction on the now-mapped tool set
+(no held-out tool split), so they certify coverage, not generalization to unmapped future
+tools.}\label{fig:tier2}
 \end{figure}
 
+{\sloppy\par\noindent
 \textbf{Edge paths.} Previously uncovered: \code{commit()} with mutated parameters raises
 \code{CommitRejected} (post-authorization mutation blocked); committing a non-ALLOW preview is
-rejected; a capability-forbidden action is DENIED even under trusted provenance (capability wins).
-All 6 cases pass.
+rejected; a capability-forbidden action is DENIED even under trusted provenance (capability
+wins). All 6 cases pass.\par}
 
-\subsection{Agentic end-to-end --- AgentDojo}
+\subsection{Agentic end-to-end --- AgentDojo}\label{sec:agentic}
 On the \code{workspace} suite under \code{important\_instructions} (5 user tasks $\times$ 4
-injections, local 35B agent), Jataayu's tool-output screen with surgical redaction drives ASR
-$0.10 \to \good{0.00}$ and restores utility-under-attack $0.75 \to \good{1.00}$ at no clean-task
-cost (Table~\ref{tab:4suite}).
+injections, $n{=}20$ attack cases), Jataayu's tool-output screen with surgical redaction drives ASR
+$0.10 \to \good{0.00}$ and restores utility-under-attack $0.75 \to \good{1.00}$ with clean utility
+unchanged at 1.00 (Table~\ref{tab:4suite}). \emph{Reproducibility.} The agent is
+\code{qwen3.6:35b-a3b} served over an OpenAI-compatible endpoint (ollama-style, on the tailnet),
+driven by AgentDojo 0.1.35's \code{LocalLLM} at its default decoding, single-sample; the attack is
+\code{important\_instructions}; Jataayu runs as the model-free tool-output screen at
+\code{min\_status=HIGH}. Runs are stored under \code{runs/agentdojo/}; the harness and the parser
+repair required to make a non-OpenAI-tool-calling model run at all live in
+\code{eval/agentdojo/run\_agentdojo.py} (see Appendix~A).
 
-\textbf{A reproducibility pitfall (methodological).} Obtaining any signal at all first required
-fixing a silent failure in AgentDojo's local-model adapter. The adapter recovers tool calls by
-running \code{json.loads()} on the text between \code{<function=name>} and \code{</function>}. Two
-body shapes that Qwen-family models routinely emit break that parse: an \emph{empty} zero-argument
-body (\code{<function=get\_current\_day></function>}, ignoring the ``include \code{\{\}}''
-instruction) and \emph{trailing garbage} after a valid object (a doubled closing brace). Because the
-workspace agent's mandated first action is the no-argument \code{get\_current\_day}, the dropped
-call stalls \emph{every} task at step one --- yielding a uniform zero utility that masquerades as a
-null result rather than a crash. We release a parser repair (empty-body $\to$ \code{\{\}}, plus
-brace-balanced salvage) and recommend asserting non-zero undefended-baseline utility as a harness
-pre-condition. Any AgentDojo evaluation of a non-OpenAI-tool-calling model is exposed to this.
-
-The four-suite live sweep (workspace / banking / travel / slack) was truncated by a $\sim$10$\times$
-degradation of the local inference endpoint mid-run; the completed banking \emph{baseline}
-confirms the other suites carry more attack headroom than workspace (ASR 0.29 vs.\ 0.10), which is
-where a defense matters most. Crucially, the cross-suite \emph{defense} evidence does not depend on
-the live agent sweep: the deterministic effect-boundary Tier~2 (\S3.1, Table~\ref{tab:tier2})
-evaluates all four suites and lifts per-suite APR from 0.00 (banking / slack / travel) and 0.27
-(workspace) to 1.00 uniformly. Completing the live multi-suite sweep on a stable endpoint is future
-work.
+The four-suite live sweep was truncated by a $\sim$10$\times$ degradation of the local inference
+endpoint mid-run. The completed banking \emph{baseline} (17 of the intended 20 attack cases before
+the endpoint degraded, no paired Jataayu run) shows ASR 0.29 at util-under-attack 0.53. Read
+cautiously, since this is a truncated run ($n{=}17$) on a degrading endpoint, it \emph{suggests}
+more attack headroom than workspace (ASR 0.10), to be confirmed on a stable endpoint; we draw no
+suite-importance ranking from it.
+Crucially, the cross-suite \emph{defense} evidence does not rest on this live sweep at all: the
+deterministic Tier~2 (\S\ref{sec:effect}, Table~\ref{tab:tier2}) covers all four AgentDojo suites and lifts
+per-suite APR to 1.00. Completing the live multi-suite sweep on a stable endpoint is future work.
 
 \begin{table}[htbp]\centering\small
-\caption{AgentDojo live results, \code{important\_instructions}, local qwen agent (5$\times$4 slice
-per suite). Workspace is a complete baseline/Jataayu pair; the banking baseline is shown as the
-completed portion before the endpoint degraded (no paired Jataayu run). Cross-suite defense
-evidence is the deterministic Tier~2 in Table~\ref{tab:tier2}.}\label{tab:4suite}
+\caption{AgentDojo live results, \code{important\_instructions}, \code{qwen3.6:35b-a3b} agent.
+Workspace is a complete baseline/Jataayu pair ($n{=}20$ attack, 5 clean;
+\code{agentdojo\_workspace\_qwen35b\_slice.json}). Banking is the partial baseline before the
+endpoint degraded ($n{=}17$ attack, 5 clean; no paired Jataayu run;
+\code{agentdojo\_banking\_baseline\_partial.json}). Cross-suite defense evidence is the
+deterministic Tier~2 (Table~\ref{tab:tier2}). All cells are base/Jataayu.}\label{tab:4suite}
+\setlength\tabcolsep{5pt}
 \begin{tabular}{lcccc}
 \toprule
-Suite & baseline ASR & Jataayu ASR & baseline util-atk & Jataayu util-atk \\
+Suite & $n_{\text{atk}}$ & ASR & util-atk & clean util \\
 \midrule
-workspace & 0.10 & \good{0.00} & 0.75 & \good{1.00} \\
-banking (baseline only) & 0.29 & --- & 0.53 & --- \\
+workspace & 20 & 0.10 / \good{0.00} & 0.75 / \good{1.00} & 1.00 / \good{1.00} \\
+banking (baseline only) & 17 & 0.29 / --- & 0.53 / --- & 0.80 / --- \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{Injection detection --- inbound, tool-return, cross-dataset}
-The fast-path detector is a high-precision, modest-recall pre-filter --- by design the weakest
+\subsection{Injection detection --- inbound, tool-return, cross-dataset}\label{sec:inbound}
+The fast-path detector is a high-precision, modest-recall pre-filter, by design the weakest
 tier. Across three public injection sets it is consistent (Table~\ref{tab:pi}): ROC-AUC
-0.63--0.75, precision $\ge 0.86$ at the MEDIUM operating point, and input normalization holds
-space-out / zero-width / leetspeak evasion at \good{0.00}. On \textbf{InjecAgent} (tool-return
+0.63--0.75, precision $\ge$86\% at the MEDIUM operating point, and input normalization holds
+space-out / zero-width / leetspeak evasion at \good{$\le$0.3\%} (exactly 0.00 on deepset and
+safe-guard; 0.003 for space-out on jailbreak). On \textbf{InjecAgent} (tool-return
 surface, 2108 paired cases) precision is 1.00 with recall 0.50 (fast) rising to 0.71 (LLM slow
-path). The honest reading: recall is modest, which is exactly why the guarantee lives at the
-effect boundary, not here.
+path). The slow-path judge is \code{qwen3:8b} served via ollama on a private tailnet with thinking
+disabled (\code{think:false}) at the model's default decoding, run at \code{llm\_threshold}=0.0 so
+the LLM adjudicates every item (\code{run\_slowpath\_bench.py}); unlike the deterministic surfaces
+this 0.71 is model- and decoding-dependent, not bit-exact. These are \emph{detection} recall on the injected tool return, not agent attack-success
+(ASR), so they are not directly comparable to InjecAgent's own baselines --- an undefended ReAct
+GPT-4 agent at 24\% ASR (base) / 47\% (enhanced hacking prompt)~\cite{injecagent}, or SecAlign,
+which drives InjecAgent ASR $75.9\% \to 0\%$ by retraining the model~\cite{secalign}. The mapping is
+that a caught return (our recall) removes the injected instruction before the agent acts; an
+undetected one (our $1-\text{recall}$) is where an ASR-style attack could still land, and is exactly
+why the guarantee lives at the effect boundary, not here. Even a missed return that reaches the agent
+must still clear the effect boundary before any effectful call executes.
 
 \begin{table}[htbp]\centering\small
 \caption{Fast-path injection detection across public datasets (MEDIUM operating point). Evasion
-rate is post-normalization on caught patterns.}\label{tab:pi}
+rate is post-normalization on caught patterns. \emph{Confound:} each dataset has its own
+label distribution and positive/negative balance; these are the regex pre-filter's numbers, not
+the layered system's, and are not comparable row-to-row as a single benchmark.}\label{tab:pi}
 \begin{tabular}{lccccc}
 \toprule
 Dataset & $n$ & ROC-AUC & precision & recall & evasion \\
 \midrule
-deepset/prompt-injections & 662 & 0.63 & 0.97 & 0.27 & 0.00 \\
-safe-guard-prompt-injection & 10{,}296 & 0.64 & 0.86 & 0.30 & 0.00 \\
-jailbreak-classification & 1{,}306 & 0.75 & 0.86 & 0.56 & 0.00 \\
+deepset/prompt-injections & 662 & 0.63 & 97\% & 27\% & 0.00\% \\
+safe-guard-prompt-injection & 10{,}296 & 0.64 & 86\% & 30\% & 0.00\% \\
+jailbreak-classification & 1{,}306 & 0.75 & 86\% & 56\% & 0.3\%$^{\dagger}$ \\
 \bottomrule
-\end{tabular}
+\end{tabular}\\[2pt]
+{\footnotesize Recall / precision / evasion are percentages here to match
+Table~\ref{tab:cmp-detect}; ROC-AUC follows the conventional $[0,1]$ form. $^{\dagger}$deepset and
+safe-guard space-out evasion is exactly 0.00\%; the jailbreak set's space-out evasion is 0.3\%
+(374/375 caught). Zero-width and leetspeak evasion are 0.00\% on all three sets.}
 \end{table}
 
 \subsection{Outbound --- PII redaction}
@@ -233,14 +324,20 @@ with in-scope recall 0.80; benign messages pass clean (over-redaction 0.00). Hon
 threshold artifact --- email, phone, and contextual-health spans are \emph{detected} (flagged)
 but score below the 0.75 redaction threshold, so the span survives in the redacted text; and the
 SSN pattern requires an explicit ``SSN''/``social security'' prefix, missing bare nine-digit
-numbers (recall 0.50). These are precision-safe but leave data in the output --- a fix target.
+numbers (recall 0.50). These are precision-safe but leave data in the output, a fix target.
 
 \subsection{Egress --- zero-click exfiltration channels}
 Against a PoC corpus of the EchoLeak / AgentFlayer / Notion class (23 exfil channels + 12 benign):
 recall-caught \good{1.00}, precision \good{1.00}, FPR \good{0.00}. When a known secret rides in
 the URL, confirmed-exfil recall is 1.00 with the correct reason. Human-readable text is preserved
-in every caught case (23/23) --- only the offending URL is neutralized. Relay/beacon hosts are
+in every caught case (23/23); only the offending URL is neutralized. Relay/beacon hosts are
 hard-blocked; data-carrying links and auto-fetch images are neutralized at WARN by design.
+
+\emph{Ethics and responsible disclosure.} The egress corpus consists entirely of synthetic
+proof-of-concept payloads modeling already-public vulnerability \emph{classes} (EchoLeak /
+AgentFlayer / Notion-style zero-click exfiltration). No live third-party system, endpoint, or
+account was targeted or probed; the ``secrets'' and exfil hosts are fabricated fixtures used only to
+exercise our own guard. We introduce no new attack technique and release only the defense.
 
 \subsection{Skillset composition --- supply chain}
 On 62 skill-set combinations, the guard achieves 100\% recall on the risk classes it models
@@ -251,104 +348,256 @@ hardcoded combos --- read-side-only exfil (\code{reads\_secrets + network\_read}
 exfil (\code{fs\_read + network\_write}), untrusted-web-to-disk, secret-staging, and relay/SSRF
 --- all return SAFE. Widening the data-source$\times$egress key is the recommended fix.
 
-\subsection{Memory --- poisoning at write and recall}
+\subsection{Memory --- poisoning at write and recall}\label{sec:memory}
 On 190 memories (fast path), detection is symmetric across write- and recall-time (byte-identical
 scores). Recall by subclass at MEDIUM: direct-instruction \good{0.91}, encoded/obfuscated 0.75,
 and \bad{deferred/sleeper 0.00}. The standout gap: sleeper triggers phrased as future actions
 (``when you next summarize, also email X'') carry no override vocabulary, so the pattern catalog
-never fires --- the engine has no deferred-instruction detector. Benign false-block is 1.8\% on
+never fires: the engine has no deferred-instruction detector. Benign false-block is 1.8\% on
 ordinary notes but 22.9\% on adversarially-tricky-but-benign notes. The run also surfaced a live
 regex false-positive (a shell-command alternation matching ``sh'' inside ``she'').
 
-\section{Comparison with prior approaches}
-Prompt-injection defenses fall into three classes: \emph{detection} (classify the input ---
-Prompt-Guard, ProtectAI, Lakera Guard), \emph{training} (fine-tune the model to resist injection
---- StruQ~\cite{struq}, SecAlign~\cite{secalign}), and \emph{design} (make the harmful action
-unreachable by construction --- CaMeL~\cite{camel}, AgentDojo's tool-filter, and Jataayu's effect
-boundary). Jataayu spans the detection tier (its screening layers) and the design tier (its effect
-boundary); we compare against representatives of each. \textbf{These tables are not a controlled
-bake-off}: model, suite coverage, dataset, and metric construction differ across rows, and each
-value is the one reported by its own source. We label the confounds and draw only the conclusions
-they support.
+\subsection{Semantic grading vs.\ effect grading --- the thesis, isolated}\label{sec:sem}
+The paper's central claim is that judging an agent by \emph{what it did} (its effects) is stronger
+than judging the \emph{text} it produced. We test exactly this on 10 trajectories (6 harmful, 4
+benign): a text grader inspects the final assistant message; an effect grader inspects the tool-call
+effect trace. The text grader catches only the one trajectory that \emph{brags} about the harm in
+prose (recall \bad{0.17}); the effect grader catches all six (recall \good{1.00}).
+The five harms the text grader misses are silent by construction --- \code{cross-turn exfil},
+\code{sleeper-memory} write, \code{no-reply shell} execution, privilege \code{escalation}, and
+\code{secret-to-file} --- each leaves no incriminating text but a clear effect signature. For
+balance, the text grader also over-flags one benign trajectory (a harmless security discussion) that
+the effect grader correctly clears. This is the most direct validation of ``gate the action, not the
+text'' in the evaluation (Table~\ref{tab:sem}).
+
+\emph{Relation to prior effect-based evaluation.} Judging agent safety from the action/effect
+trajectory rather than from output text is not itself new: R-Judge~\cite{rjudge} has an LLM judge
+score recorded agent-interaction records for risk, ToolEmu~\cite{toolemu} emulates tool execution
+and applies an LLM safety evaluator over the resulting trajectory, and AgentHarm~\cite{agentharm}
+and Agent-SafetyBench~\cite{agentsafetybench} grade harmful behavior across whole agent runs. What
+is new here is not effect-grading but its construction: our effect trace is a \emph{deterministic}
+tool-call effect signature tied to the \emph{same} boundary that enforces at run time --- there is
+no LLM judge and no trajectory sampling, so the grader and the guard are one decision function and
+the 0.17-vs-1.00 gap is exact rather than a model-dependent judgment.
 
 \begin{table}[htbp]\centering\small
-\caption{Agentic defenses on AgentDojo (targeted ASR $\downarrow$ / benign utility). AgentDojo
-built-in defenses and CaMeL are from their papers on the models shown; the Jataayu row is our
-workspace slice on a local qwen agent and is \emph{not} directly comparable (different model, single
-suite). $^\dagger$CaMeL reports successful-attack \emph{counts}; it drives genuine injections to
-zero by design (residual counts are AgentDojo eval artifacts, not injections~\cite{camel}).}
-\label{tab:cmp-agentic}
-\begin{tabular}{llccc}
+\caption{Semantic (text) vs.\ effect grading on 10 trajectories (6 harmful / 4 benign). The five
+silent harms are caught only by the effect grader.}\label{tab:sem}
+\begin{tabular}{lcc}
 \toprule
-Approach & Class & Model & Targeted ASR & Benign utility \\
+Grader & recall (6 harmful) & benign over-flags (of 4) \\
 \midrule
-No defense & --- & GPT-4o & 57.7\% & 69.0\% \\
-Spotlighting / delimiting & prompt & GPT-4o & 41.7\% & 72.7\% \\
-Repeat-prompt (sandwich) & prompt & GPT-4o & 27.8\% & 85.5\% \\
-PI detector & detection & GPT-4o & 7.9\% & 41.5\% \\
-Tool filter & design & GPT-4o & 6.8\% & 73.1\% \\
-CaMeL & design & o3 & $\approx$0\%$^\dagger$ & 77.3\% (from 84.5\%) \\
-\textbf{Jataayu} (tool-output scrub) & detection & \emph{qwen, workspace} & \good{0.0\%} (from 10\%) & \good{100\%} \\
+text (final-message) & \bad{0.17} & 1 \\
+effect (tool-call trace) & \good{1.00} & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Consolidated summary}\label{sec:summary}
+Table~\ref{tab:summary} collects every surface's headline result in one place: green marks a strong,
+model-free result and red a disclosed gap. The pattern the paper argues for is visible down the
+column --- the deterministic effect boundary and egress/composition guards carry exact green numbers,
+while the disclosed gaps (deferred-memory recall, the five unmodeled composition paths, the PII
+redaction-threshold artifact, the fast-path recall floor) are exactly the surfaces where no
+deterministic guarantee is claimed.
+
+\begin{table}[htbp]\centering\small
+\caption{Jataayu surfaces, benchmarks, and headline results. Green = strong; red = a disclosed
+gap. Deterministic surfaces carry exact, model-free numbers.}\label{tab:summary}
+\begin{tabular}{L{3.1cm}L{3.5cm}L{6.2cm}}
+\toprule
+Surface & Benchmark & Headline \\
+\midrule
+Effect boundary (Tier 1) & synthetic, 300 & \good{APR 1.00}, TUR 0.50, trusted-legit 1.00, 0.036\,ms \\
+Effect boundary (Tier 2) & AgentDojo actions (5 suites) & \good{APR 0.29$\to$1.00} (disclose-then-fix), 21$\to$0 gaps \\
+Effect boundary (edges) & commit / capability & 6/6 pass \\
+Agentic e2e & AgentDojo workspace & \good{ASR 0.10$\to$0.00}, util 0.75$\to$1.00, no clean cost \\
+Semantic vs.\ effect & 10 trajectories & text recall \bad{0.17} vs.\ effect \good{1.00} (5 silent harms) \\
+Injection (inbound) & deepset/safe-guard/jailbreak & AUC 0.63--0.75, prec $\ge$86\%, recall 27--56\%, evasion $\le$0.3\% \\
+Injection (tool-return) & InjecAgent (2108) & prec 1.00, recall 0.50$\to$0.71 (slow) \\
+Outbound / PII & ai4privacy (480) & prec 1.00, FPR 0.00, in-scope recall 0.80; \bad{redaction-threshold gap} \\
+Egress channel & PoC (35) & \good{recall 1.00}, prec 1.00, confirmed-exfil 1.00, text-preserve 1.00 \\
+Skillset composition & synthetic (62) & 100\% in-model recall, 0\% FP; \bad{+5 unmodeled paths} \\
+Memory poisoning & synthetic (190) & direct 0.91 / encoded 0.75 / \bad{deferred 0.00} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Comparison with prior approaches}\label{sec:cmp}
+Using the detection / training / design taxonomy of \S\ref{sec:intro}, Jataayu spans two of the
+three families: the \emph{detection} tier (its screening layers) and the \emph{design} tier (its
+effect boundary). We compare against representatives of each, plus the \emph{training} tier
+(StruQ~\cite{struq}, SecAlign~\cite{secalign}). \textbf{None of the tables in this section is a
+controlled bake-off}: model, suite coverage, dataset, and metric construction differ across rows,
+each value is the one reported by its own source, and we label the per-table confounds and draw
+only the conclusions they support. (The two table captions do not repeat this caveat.)
+
+\paragraph{Nearest neighbors: runtime tool-call policy enforcement and guard agents.} The effect
+boundary's closest prior art is not the prompt/detection tier but the recent line of
+\emph{runtime enforcement at the tool-call boundary}. Progent~\cite{progent} attaches programmable
+privilege-control policies to each tool call; AgentSpec~\cite{agentspec} specifies and enforces
+runtime constraints over agent actions; GuardAgent~\cite{guardagent} runs a separate guard agent
+that screens actions against a safety request; IsolateGPT and context-aware policy work
+(Conseca)~\cite{isolategpt} isolate or generate per-context permissions. Jataayu belongs to this
+family: deterministic action gating plus tool-output screening (\code{NEEDS\_APPROVAL} gating).
+What the effect boundary adds over each is a fixed, model-free decision function of
+effect-severity $\times$ provenance $\times$ capability that requires \emph{no learned policy, no
+guard LLM, and no agent rearchitecture}: it is a drop-in wrapper at the existing tool-call site,
+decided in tens of microseconds. Where GuardAgent invokes a second model and Progent/AgentSpec
+require authored per-tool policies, Jataayu's default policy is derived from a small effect-class
+map, which is exactly the artifact whose incompleteness Tier~2 exposes and fixes.
+
+Progent is the most metric-aligned of these neighbors: on AgentDojo it drives targeted ASR from a
+39.9\% no-defense baseline to \good{0\%} on GPT-4o with utility maintained~\cite{progent}
+(row in Table~\ref{tab:cmp-agentic}), a deterministic-policy, design-tier result directly
+comparable in kind to the effect boundary's. The other two nearest neighbors report \emph{no}
+AgentDojo number, so a head-to-head figure cannot be extracted: GuardAgent measures guardrail
+accuracy on its own EICU-AC ($>$98\%) and Mind2Web-SC (83\%) benchmarks~\cite{guardagent}, and
+AgentSpec reports rule/constraint-satisfaction on its own action-constraint benchmarks rather than
+attack-prevention on AgentDojo~\cite{agentspec}. Progent's 39.9\%$\to$0\% is over AgentDojo's live
+task/injection distribution, whereas the effect boundary's APR is a deterministic replay of a
+labeled action stream (\S\ref{sec:effect}); the two are the same \emph{kind} of guarantee measured
+on different footings.
+
+\paragraph{Relation to CaMeL.} CaMeL is the closest design-tier system, and the honest distinction
+is \emph{not} ``deterministic vs.\ LLM-based enforcement'': CaMeL's enforcement layer (a custom
+interpreter applying capability/provenance policy over values) is itself deterministic and LLM-free,
+and Jataayu likewise sits downstream of an LLM agent. Only CaMeL's \emph{planning} uses a privileged
+P-LLM. The real differences are two. (i)~\emph{Deployment}: CaMeL rearchitects the agent into a
+P-LLM/Q-LLM/interpreter pipeline, whereas Jataayu wraps an unmodified agent at the tool-call
+boundary. (ii)~\emph{Granularity}: CaMeL enforces value-level dataflow capabilities inside its
+interpreter, whereas Jataayu enforces at the action level on effect-severity $\times$ provenance
+$\times$ capability. CaMeL's is the stronger, more invasive guarantee; Jataayu's is the drop-in one.
+
+\begin{table}[htbp]\centering\small
+\setlength\tabcolsep{4pt}
+\caption{Agentic defenses on AgentDojo. AgentDojo built-in defenses, Progent, and CaMeL are from
+their papers on the models shown. Two metrics appear: targeted ASR (lower better) and, where a
+source reports it, attack-prevention rate APR (higher better); they are complementary, not
+identical; APR is shown as a percentage throughout.
+$^{a}$No-defense targeted ASR is the AgentDojo Table-5 value (57.7\%); the live leaderboard reports
+47.7\% for the same setting~\cite{agentdojo}.
+$^{b}$CaMeL reports successful-attack \emph{counts}; it drives genuine injections to zero by
+design (residual counts are AgentDojo eval artifacts, not injections~\cite{camel}).
+$^{c}$Prompt-Guard-2 and the Jataayu effect boundary report APR, not ASR; PG2's is at a stated
+3\% utility reduction~\cite{promptguard}.
+$^{d}$The Jataayu effect-boundary utility is a \emph{synthetic replay} TUR set by the deterministic
+corpus's provenance/effect balance (\S\ref{sec:effect}), not a live task-utility measurement, and is
+\emph{not} commensurable with the real-benchmark utilities in this column.}
+\label{tab:cmp-agentic}
+\begin{tabular}{L{2.9cm}lL{2.1cm}cc}
+\toprule
+Approach & Class & Model / suite & ASR $\downarrow$ / APR $\uparrow$ & Benign utility \\
+\midrule
+No defense & --- & GPT-4o & ASR 57.7\%$^{a}$ & 69.0\% \\
+Spotlighting / delimiting & prompt & GPT-4o & ASR 41.7\% & 72.7\% \\
+Repeat-prompt (sandwich) & prompt & GPT-4o & ASR 27.8\% & 85.5\% \\
+PI detector & detection & GPT-4o & ASR 7.9\% & 41.5\% \\
+Tool filter & design & GPT-4o & ASR 6.8\% & 73.1\% \\
+Progent (runtime policy) & design & GPT-4o & ASR \good{0.0\%} (from 39.9\%) & util maintained~\cite{progent} \\
+Prompt-Guard-2 86M & detection & GPT-4o & APR 81.2\%$^{c}$ & $-3$\% util \\
+CaMeL & design & o3 & ASR $\approx$0\%$^{b}$ & 77.3\% (from 84.5\%) \\
+\textbf{Jataayu} tool-output scrub & detection & \emph{qwen, workspace} & ASR \good{0.0\%} (from 10\%) & \good{100\%} \\
+\textbf{Jataayu} effect boundary & design & \emph{AgentDojo actions} & APR \good{100\%}$^{c}$ (from 29\%) & TUR 0.50$^{d}$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 Read honestly, Table~\ref{tab:cmp-agentic} places Jataayu's screening in the effective-defense
-regime alongside AgentDojo's \code{tool\_filter} (ASR 6.8\%) and \code{PI\_detector} (7.9\%), and its
-effect boundary in the same \emph{design} class as CaMeL --- with the difference that the effect
-boundary is deterministic and LLM-free (§3.1: 0.04\,ms/decision), whereas CaMeL routes through a
-privileged planner LLM. Our qwen baseline ASR (10\%) is far below GPT-4o's aggregate (57.7\%)
-largely because of model and single-suite scope, not because the task is easier --- which is exactly
-why we do not claim a head-to-head win here.
+regime alongside AgentDojo's \code{tool\_filter} (ASR 6.8\%) and \code{PI\_detector} (7.9\%). The
+most metric-aligned comparison is on the design tier: Llama Prompt-Guard-2 reports an AgentDojo
+\emph{attack-prevention rate} of 81.2\% at a 3\% utility reduction~\cite{promptguard}, and its
+model card places the commodity detectors it competes against (ProtectAI, Deepset, LLM Warden) far
+lower, at only 12.9--22.2\% AgentDojo APR~\cite{promptguard} --- reinforcing that ordinary
+classifiers do poorly on this metric. Our Tier~2 (\S\ref{sec:effect}) reports the same
+APR-on-AgentDojo quantity, moving from 29\% as-shipped to \good{100\%} once the tool$\to$effect map
+is complete, at a disclosed TUR of 0.50. But the two 100\%-vs-81.2\% figures are \emph{not} on the
+same footing: PG2's 81.2\% is measured over AgentDojo's \emph{live} task/injection distribution,
+whereas our figure is a \emph{deterministic replay} of a labeled action stream over tools we have
+just finished mapping, so our 100\% is by construction on the mapped set (\S\ref{sec:effect}) rather
+than a live-benchmark result. PG2 also buys prevention at only 3\% utility loss whereas the effect
+boundary's approval-gating costs a larger, corpus-dependent utility fraction. The honest reading is
+therefore not ``we beat PG2'' and not ``same benchmark'': it is that a deterministic,
+retraining-free policy layer reaches a comparable \emph{kind} of prevention result on an
+AgentDojo-\emph{derived} action stream, trading utility for a guarantee that does not depend on a
+learned classifier. Our qwen baseline ASR (10\%) sits far below GPT-4o's aggregate (57.7\%) largely
+because of model and single-suite scope, so we do not claim a head-to-head e2e win.
 
 \begin{table}[htbp]\centering\small
 \caption{Injection \emph{detection}: clean recall vs.\ robustness to character-perturbation evasion.
-Each value is on the method's own reported dataset (not one shared set), so the comparison is of
-reported \emph{characteristics}, not a controlled bake-off. The pattern is the point: dedicated
-classifiers have far higher clean recall than Jataayu's fast path, and far higher evasion
+Each value is on the method's own reported dataset (not one shared set), so this is a comparison of
+reported \emph{characteristics}. The pattern is the point: dedicated classifiers have far higher
+clean recall than Jataayu's fast path, and far higher evasion
 vulnerability.}\label{tab:cmp-detect}
-\begin{tabular}{lll}
+\setlength\tabcolsep{5pt}
+\begin{tabular}{L{4.6cm}L{3.2cm}L{4.2cm}}
 \toprule
 Detector & Clean recall / TPR & Char-perturbation evasion \\
 \midrule
-ProtectAI deBERTa-v3 v2~\cite{protectai} & \good{99.7\%} (20k held-out) & \bad{77\% attack success} (char-injection)~\cite{guardrails} \\
-Meta Prompt-Guard-86M~\cite{promptguard} & \good{99.5\%} TPR (in-dist.) & \bad{99.8\% bypass} (char-spacing)~\cite{guardrails} \\
-\textbf{Jataayu} fast path & \bad{0.27--0.56} (deepset/sg/jb) & \good{0.00} (space-out, leetspeak) \\
+ProtectAI deBERTa-v3 v2~\cite{protectai} & \good{99.7\%} (20k held-out) & \bad{77\%} attack success (char-injection)~\cite{guardrails} \\
+Meta Prompt-Guard-86M~\cite{promptguard} & \good{99.5\%} (in-dist.\ TPR) & \bad{99.8\%} bypass (char-spacing)~\cite{guardrails} \\
+\textbf{Jataayu} fast path & \bad{27--56\%} (deepset/sg/jb) & \good{$\le$0.3\%} (space-out / leetspeak) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 Table~\ref{tab:cmp-detect} is the honest core of the comparison. \emph{As a detector, Jataayu's fast
 path is worse}: dedicated classifiers reach $\sim$99\% clean recall where our regex pre-filter reaches
-0.27--0.56. We do not close that gap and do not try to --- the pre-filter is deliberately the weakest
+27--56\%. We do not close that gap and do not try to --- the pre-filter is deliberately the weakest
 tier. But those same classifiers are largely defeated by trivial character perturbations (Prompt-Guard
 detection collapses from $\sim$100\% to 0.2\% under character-spacing~\cite{guardrails}; ProtectAI is
 bypassed $\sim$77\% of the time), whereas Jataayu's input normalization holds space-out and leetspeak
-evasion at 0.00. On the Lakera PINT leaderboard the same ordering holds among detectors (Lakera Guard
+evasion at $\le$0.3\% (exactly 0\% except for space-out on the jailbreak set, at 0.3\%). On the Lakera PINT leaderboard the same ordering holds among detectors (Lakera Guard
 95.2\%, ProtectAI-v2 79.1\%, Prompt-Guard-2 78.8\%)~\cite{pint}. The training-based defenses occupy a
-third point: StruQ zeroes non-adaptive ASR by fine-tuning but leaves GCG at 56--58\%~\cite{struq}, and
-SecAlign drives even optimization-based ASR below 10\% and InjecAgent 75.9\%$\to$0\% --- at the cost of
-retraining the model~\cite{secalign}, which Jataayu does not require. The through-line: detection alone
-is evadable and training is model-bound, so Jataayu, like CaMeL, moves the guarantee to the action.
+third point: StruQ zeroes non-adaptive ASR by fine-tuning but leaves adaptive GCG at
+56--62\%~\cite{struq}; SecAlign drives even optimization-based ASR down (Llama3-8B $98\%\to1\%$,
+Mistral $89\%\to1\%$) and InjecAgent $75.9\%\to0\%$ --- at the cost of retraining the model with
+preference optimization~\cite{secalign}, which Jataayu does not require. The through-line: detection
+alone is evadable and training is model-bound, so Jataayu, like CaMeL, moves the guarantee to the
+action.
 
-\section{Consolidated summary}
+\paragraph{The low-false-positive operating point.} A production guardrail is judged not at its
+best F1 but at a fixed, low false-positive rate --- the regime the PromptShield benchmark
+isolates by reporting TPR at 1\% FPR (arXiv:2501.15145, Table~4~\cite{promptshield}). There the gap
+between a purpose-built detector and the commodity classifiers is stark
+(Table~\ref{tab:cmp-detbench}, left): PromptShield reaches 94.8\% TPR at 1\% FPR (AUC 0.998) while
+Prompt-Guard manages 12.78\% (AUC 0.874) and ProtectAI-v1 7.05\% at the same operating point. Jataayu's fast path is not in this class and does not try to be
+--- it is a taint source feeding the effect boundary, and it deliberately trades recall for a
+zero over-redaction / low false-block profile. That trade is the \emph{other} axis a guardrail is
+judged on, and the one the recent inbound work targets: the NotInject over-defense benchmark
+(Table~\ref{tab:cmp-detbench}, right) shows Prompt-Guard collapsing to 0.88\% accuracy on the
+\emph{over-defense split} --- benign inputs that merely contain trigger words --- where InjecGuard
+holds 87.32\% on that same split (arXiv:2410.22770v3, Table~1~\cite{injecguard}). (Averaged across the benchmark's three splits
+these become 41.60\% and 83.48\%, the figures tabulated in Table~\ref{tab:cmp-detbench}; the
+over-defense split is the one that isolates false positives, so it is the sharper number.) This is
+exactly the false-positive failure Jataayu's guards are tuned against (composition 0\% FP, PII
+over-redaction 0.00, memory benign false-block 1.8\% on ordinary notes).
+
 \begin{table}[htbp]\centering\small
-\caption{Jataayu surfaces, benchmarks, and headline results. Green = strong; red = a disclosed
-gap. Deterministic surfaces carry exact, model-free numbers.}\label{tab:summary}
-\begin{tabular}{p{3.1cm}p{3.5cm}p{6.2cm}}
+\caption{Detector benchmarks at the two operating points a deployed guardrail is judged on:
+recall at a fixed low false-positive rate (PromptShield, TPR@1\% FPR / ROC-AUC; values exactly as
+in arXiv:2501.15145 Table~4~\cite{promptshield}) and over-defense on benign trigger-word inputs
+(NotInject, \emph{average} accuracy across benign / malicious / over-defense splits; values exactly
+as in arXiv:2410.22770v3 Table~1~\cite{injecguard}). The right panel's average differs from the
+over-defense-split-only numbers cited in the text (Prompt-Guard 0.88\%, InjecGuard 87.32\%), which
+isolate false positives. These rows are the least independently verifiable block in the comparison:
+they are single-source, version-dependent figures (PromptShield v1, Jan 2025; InjecGuard v3, 2024),
+not re-measured here, and unlike the other competitor numbers they cannot be cross-checked against a
+second source --- we cite them only to place the commodity classifiers.
+\emph{Confound:} the two panels are different papers, datasets, and label sets; Jataayu does not
+appear because its fast path is a taint pre-filter, not a stand-alone detector benchmarked at these
+points --- the rows place the commodity classifiers, which are the ones Jataayu
+would otherwise be mistaken for.}\label{tab:cmp-detbench}
+\begin{tabular}{lcc@{\hskip 2em}lc}
 \toprule
-Surface & Benchmark & Headline \\
+\multicolumn{3}{c}{Low-FP detection (PromptShield)} & \multicolumn{2}{c}{Over-defense (NotInject)} \\
+\cmidrule(r){1-3}\cmidrule(l){4-5}
+Detector & TPR@1\%FPR & ROC-AUC & Guardrail & avg acc.\ (3-split) \\
 \midrule
-Effect boundary (Tier 1) & synthetic, 300 & \good{APR 1.00}, TUR 0.50, trusted-legit 1.00, 0.04\,ms \\
-Effect boundary (Tier 2) & AgentDojo actions & \good{APR 0.29$\to$1.00} (disclose-then-fix), 21$\to$0 gaps \\
-Effect boundary (edges) & commit / capability & 6/6 pass \\
-Agentic e2e & AgentDojo workspace & \good{ASR 0.10$\to$0.00}, util 0.75$\to$1.00, no clean cost \\
-Injection (inbound) & deepset/safe-guard/jailbreak & AUC 0.63--0.75, prec $\ge$0.86, evasion 0.00 \\
-Injection (tool-return) & InjecAgent (2108) & prec 1.00, recall 0.50$\to$0.71 (slow) \\
-Outbound / PII & ai4privacy (480) & prec 1.00, FPR 0.00, in-scope recall 0.80; \bad{redaction-threshold gap} \\
-Egress channel & PoC (35) & \good{recall 1.00}, prec 1.00, confirmed-exfil 1.00, text-preserve 1.00 \\
-Skillset composition & synthetic (62) & 100\% in-model recall, 0\% FP; \bad{+5 unmodeled paths} \\
-Memory poisoning & synthetic (190) & direct 0.91 / encoded 0.75 / \bad{deferred 0.00} \\
+PromptShield (Llama-3.1-8B) & \good{94.8\%} & 0.998 & GPT-4o & 85.53\% \\
+InjecGuard                  & 20.4\% & --- & InjecGuard & \good{83.48\%} \\
+Prompt-Guard                & 12.78\% & 0.874 & Lakera Guard & 77.23\% \\
+ProtectAI v1                & 7.05\% & --- & Prompt-Guard & \bad{41.60\%} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -376,23 +625,56 @@ across models, and lift the redaction threshold for detected-but-unredacted PII.
 
 \appendix
 \section{Artifacts and reproduction}
+\sloppy
+\paragraph{Availability.} Code, runners, and result JSONs are released at
+\url{https://github.com/saikrishnarallabandi/jataayu} under the MIT license. All numbers in this
+report correspond to commit \texttt{8f099ca} on \texttt{main}; reproduce against that exact commit
+rather than the \texttt{v0.3.0} tag, which names an earlier commit (\texttt{a219020},
+\code{git describe}: \texttt{v0.3.0-17-g8f099ca}) that predates the Tier-2 harness and the
+comparison tables. The unit suite is reproduced with \code{pytest -q} (403 tests green) at that
+commit. For double-blind review an anonymized artifact
+copy is provided separately; an archival DOI will be minted on acceptance.
+
 Every result in this report is produced by a runner under \code{eval/} that writes a JSON result
 to \code{eval/results/}; deterministic corpora live in \code{eval/data/} with fixed-seed
 generators. The deterministic surfaces (effect boundary, egress, composition, memory / injection
 fast path) require no model and reproduce exactly.
 
-\begin{center}\small
-\begin{tabular}{ll}
+\paragraph{AgentDojo live configuration.} The one non-deterministic surface (\S\ref{sec:agentic}) uses agent model
+\code{qwen3.6:35b-a3b} served over an OpenAI-compatible endpoint (ollama-style, on a private
+tailnet), driven by AgentDojo 0.1.35's \code{LocalLLM} element at its default decoding, single
+sample per step; attack \code{important\_instructions}; Jataayu as the model-free tool-output screen
+at \code{min\_status=HIGH}. Per-task run logs are archived under \code{runs/agentdojo/}; the
+workspace pair is \code{agentdojo\_workspace\_qwen35b\_slice.json} and the partial banking baseline
+is \code{agentdojo\_banking\_baseline\_partial.json} ($n{=}17$ attack cases before endpoint
+degradation).
+
+\paragraph{Parser precondition (methodological note).} Obtaining any signal from a
+non-OpenAI-tool-calling model on AgentDojo first required repairing a silent failure in AgentDojo's
+local-model adapter, which recovers tool calls by running \code{json.loads()} on the text between
+\code{<function=name>} and \code{</function>}. Two body shapes Qwen-family models routinely emit
+break that parse: an \emph{empty} zero-argument body
+(\code{<function=get\_current\_day></function>}) and \emph{trailing garbage} after a valid object (a
+doubled closing brace). Because the workspace agent's mandated first action is the no-argument
+\code{get\_current\_day}, the dropped call stalls \emph{every} task at step one --- a uniform zero
+utility that masquerades as a null result rather than a crash. Our repair (empty-body $\to$
+\code{\{\}}, plus brace-balanced salvage) lives in \code{eval/agentdojo/run\_agentdojo.py}; we
+recommend asserting non-zero undefended-baseline utility as a harness precondition.
+
+\begin{center}\footnotesize
+\begin{tabular}{lL{7.8cm}}
 \toprule
 Surface & Runner \\
 \midrule
 Effect boundary (Tier 1 / 2 / edges) & \code{run\_effect\_boundary\_\{bench,tier2,edges\}.py} \\
 Injection (inbound / cross-dataset) & \code{run\_injection\_bench.py --dataset ...} \\
-Tool-return (InjecAgent) & \code{run\_injecagent\_bench.py} \\
+Tool-return (InjecAgent, fast path) & \code{run\_injecagent\_bench.py} \\
+Tool-return slow path (LLM judge) & \code{run\_slowpath\_bench.py --model qwen3:8b} \\
 Outbound / PII & \code{run\_outbound\_privacy\_bench.py} \\
 Egress channel & \code{run\_egress\_bench.py} \\
 Skillset composition & \code{run\_composition\_bench.py} \\
 Memory poisoning & \code{run\_memory\_poison\_bench.py} \\
+Semantic vs.\ effect (Table~\ref{tab:sem}) & \code{run\_semantic\_vs\_effect.py} \\
 AgentDojo (agentic e2e) & \code{agentdojo/run\_agentdojo.py} (+ \code{summarize\_slice.py}) \\
 \bottomrule
 \end{tabular}
@@ -402,9 +684,10 @@ The \code{taint.py} disclose-then-fix is reproduced by running the Tier~2 harnes
 the tool$\to$effect map extension; the full unit suite (403 tests) is green in both the as-shipped
 and fixed states.
 
-\begin{thebibliography}{9}
+\begin{thebibliography}{99}
+\sloppy
 \bibitem{agentdojo} E.~Debenedetti et al. \emph{AgentDojo: A Dynamic Environment to Evaluate
-  Attacks and Defenses for LLM Agents.} NeurIPS Datasets \& Benchmarks, 2024.
+  Attacks and Defenses for LLM Agents.} NeurIPS Datasets \& Benchmarks, 2024. arXiv:2406.13352.
 \bibitem{owasp} OWASP. \emph{Top 10 for Agentic Applications} / \emph{for LLM Applications.} 2025.
 \bibitem{injecagent} Q.~Zhan et al. \emph{InjecAgent: Benchmarking Indirect Prompt Injections in
   Tool-Integrated LLM Agents.} 2024.
@@ -417,13 +700,38 @@ and fixed states.
 \bibitem{secalign} S.~Chen et al. \emph{SecAlign: Defending Against Prompt Injection with Preference
   Optimization.} ACM CCS, 2025. arXiv:2410.05451.
 \bibitem{promptguard} Meta. \emph{Prompt-Guard-86M} and \emph{Llama Prompt Guard 2} model cards.
-  \texttt{huggingface.co/meta-llama}.
+  \url{https://huggingface.co/meta-llama}.
 \bibitem{protectai} Protect AI. \emph{deberta-v3-base-prompt-injection-v2} model card.
-  \texttt{huggingface.co/protectai}.
+  \url{https://huggingface.co/protectai}.
 \bibitem{guardrails} W.~Hackett et al. \emph{Bypassing Prompt Injection and Jailbreak Detection in
   LLM Guardrails.} arXiv:2504.11168, 2025. (See also meta-llama/llama-models issue \#50.)
 \bibitem{pint} Lakera AI. \emph{PINT: Prompt Injection Test Benchmark.}
-  \texttt{github.com/lakeraai/pint-benchmark}.
+  \url{https://github.com/lakeraai/pint-benchmark}.
+\bibitem{promptshield} \emph{PromptShield: Deployable Detection for Prompt Injection Attacks.}
+  arXiv:2501.15145, 2025.
+\bibitem{injecguard} \emph{InjecGuard: Benchmarking and Mitigating Over-defense in Prompt Injection
+  Guardrail Models.} arXiv:2410.22770, 2024. (Introduces the NotInject over-defense benchmark.)
+\bibitem{asb} \emph{Agent Security Bench (ASB): Formalizing and Benchmarking Attacks and Defenses in
+  LLM-based Agents.} arXiv:2410.02644, 2024.
+\bibitem{survey} Y.~Liu et al. \emph{Formalizing and Benchmarking Prompt Injection Attacks and
+  Defenses.} USENIX Security, 2024. arXiv:2310.12815. (Formalizes prompt-injection defenses into
+  detection- and prevention-based classes; we split prevention into training and design.)
+\bibitem{progent} T.~Shi et al. \emph{Progent: Programmable Privilege Control for LLM Agents.}
+  arXiv:2504.11703, 2025.
+\bibitem{agentspec} \emph{AgentSpec: Customizable Runtime Enforcement for Safe and Reliable LLM
+  Agents.} 2025.
+\bibitem{guardagent} Z.~Xiang et al. \emph{GuardAgent: Safeguarding LLM Agents by a Guard Agent via
+  Knowledge-Enabled Reasoning.} arXiv:2406.09187, 2024.
+\bibitem{isolategpt} Y.~Wu et al. \emph{IsolateGPT: An Execution Isolation Architecture for LLM-Based
+  Agentic Systems.} NDSS, 2025. (See also Conseca, context-aware security policy generation.)
+\bibitem{rjudge} T.~Yuan et al. \emph{R-Judge: Benchmarking Safety Risk Awareness for LLM Agents.}
+  2024. arXiv:2401.10019.
+\bibitem{toolemu} Y.~Ruan et al. \emph{Identifying the Risks of LM Agents with an LM-Emulated
+  Sandbox (ToolEmu).} ICLR (spotlight), 2024. arXiv:2309.15817.
+\bibitem{agentharm} M.~Andriushchenko et al. \emph{AgentHarm: A Benchmark for Measuring Harmfulness
+  of LLM Agents.} ICLR, 2025. arXiv:2410.09024.
+\bibitem{agentsafetybench} Z.~Zhang et al. \emph{Agent-SafetyBench: Evaluating the Safety of LLM
+  Agents.} 2024. arXiv:2412.14470.
 \end{thebibliography}
 
 \end{document}
