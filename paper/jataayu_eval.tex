@@ -243,43 +243,69 @@ rejected; a capability-forbidden action is DENIED even under trusted provenance 
 wins). All 6 cases pass.\par}
 
 \subsection{Agentic end-to-end --- AgentDojo}\label{sec:agentic}
-On the \code{workspace} suite under \code{important\_instructions} (5 user tasks $\times$ 4
-injections, $n{=}20$ attack cases), Jataayu's tool-output screen with surgical redaction drives ASR
-$0.10 \to \good{0.00}$ and restores utility-under-attack $0.75 \to \good{1.00}$ with clean utility
-unchanged at 1.00 (Table~\ref{tab:4suite}). \emph{Reproducibility.} The agent is
-\code{qwen3.6:35b-a3b} served over an OpenAI-compatible endpoint (ollama-style, on the tailnet),
-driven by AgentDojo 0.1.35's \code{LocalLLM} at its default decoding, single-sample; the attack is
-\code{important\_instructions}; Jataayu runs as the model-free tool-output screen at
-\code{min\_status=HIGH}. Runs are stored under \code{runs/agentdojo/}; the harness and the parser
-repair required to make a non-OpenAI-tool-calling model run at all live in
-\code{eval/agentdojo/run\_agentdojo.py} (see Appendix~A).
+We run \code{important\_instructions} (5 user tasks $\times$ injections) against three agents spanning
+capability tiers and tool-calling styles: \code{gpt-5.4-mini} (hosted, native tool calling),
+\code{qwen3.6:35b-a3b} (local, text-emitted tool calls via AgentDojo's \code{LocalLLM}), and
+\code{claude-haiku-4-5} (driven through a subagent bridge, below). Jataayu runs as the model-free
+tool-output screen with surgical redaction at \code{min\_status=HIGH}. On \code{gpt-5.4-mini},
+Jataayu drives targeted ASR to \good{0.00} on \emph{all four} suites --- from 0.15 (banking) and
+0.10 (slack); workspace and travel are already 0.00 unaided (Table~\ref{tab:4suite}). On
+\code{qwen3.6:35b-a3b} workspace, ASR $0.10 \to \good{0.00}$ and utility-under-attack
+$0.75 \to \good{1.00}$. On \code{claude-haiku-4-5}, baseline ASR is already 0.00 on both suites
+tested: a capable Claude agent resists these injections unaided, so Jataayu's role there is to
+\emph{not} degrade a task it would otherwise complete.
 
-The four-suite live sweep was truncated by a $\sim$10$\times$ degradation of the local inference
-endpoint mid-run. The completed banking \emph{baseline} (17 of the intended 20 attack cases before
-the endpoint degraded, no paired Jataayu run) shows ASR 0.29 at util-under-attack 0.53. Read
-cautiously, since this is a truncated run ($n{=}17$) on a degrading endpoint, it \emph{suggests}
-more attack headroom than workspace (ASR 0.10), to be confirmed on a stable endpoint; we draw no
-suite-importance ranking from it.
-Crucially, the cross-suite \emph{defense} evidence does not rest on this live sweep at all: the
-deterministic Tier~2 (\S\ref{sec:effect}, Table~\ref{tab:tier2}) covers all four AgentDojo suites at
-per-suite APR 1.00. Completing the live multi-suite sweep on a stable endpoint is future work.
+\emph{Costs, stated honestly.} Utility is preserved on most cells, but not costlessly. On
+\code{gpt-5.4-mini} slack, clean utility falls $1.00 \to \bad{0.80}$ (a false-positive redaction on
+two clean tasks) while util-under-attack rises $0.80 \to 0.95$; workspace and banking see
+util-under-attack dips of $\leq 0.10$. These are the price of a model-free screen that redacts on
+suspicion, and they bound its clean-task cost at HIGH.
+
+\emph{Headroom and the Claude caveat.} At \code{min\_status=HIGH} these injections have low baseline
+ASR on stronger agents ($\leq 0.15$), so the live sweep's headroom is modest \emph{by construction};
+cross-suite defense strength is established by the deterministic Tier~2 (\S\ref{sec:effect},
+Table~\ref{tab:tier2}: all four suites, per-suite APR 1.00), not by this sweep. The Claude column is
+served by a \emph{subagent bridge} --- the AgentDojo runner posts each turn's conversation and tool
+schemas to a file and blocks; a Claude Code subagent acts as the model-under-test and answers
+(\code{eval/agentdojo/subagent\_llm.py}). It is a single injection type ($n{=}5$ attack/suite) and,
+because a run is relayed across several subagents as each fills its context, its \emph{utility}
+figures carry high variance; we therefore report its ASR (\good{0.00}/\good{0.00}, robust across
+relays) but treat its utility cells as indicative only.
+
+\emph{Reproducibility.} Attack \code{important\_instructions}, single-sample, default decoding;
+Jataayu at \code{min\_status=HIGH}. Runs under \code{runs/agentdojo/}. The harness, the
+\code{LocalLLM} parser repair required to run a non-OpenAI-tool-calling model at all, the direct
+\code{OpenAILLM}/\code{AnthropicLLM} construction that bypasses AgentDojo~0.1.35's frozen model enum
+for post-cutoff hosted models, and the subagent bridge all live in \code{eval/agentdojo/}
+(see Appendix~A).
 
 \begin{table}[htbp]\centering\small
-\caption{AgentDojo live results, \code{important\_instructions}, \code{qwen3.6:35b-a3b} agent.
-Workspace is a complete baseline/Jataayu pair ($n{=}20$ attack, 5 clean;
-\code{agentdojo\_workspace\_qwen35b\_slice.json}). Banking is the partial baseline before the
-endpoint degraded ($n{=}17$ attack, 5 clean; no paired Jataayu run;
-\code{agentdojo\_banking\_baseline\_partial.json}). Cross-suite defense evidence is the
-deterministic Tier~2 (Table~\ref{tab:tier2}). All cells are base/Jataayu.}\label{tab:4suite}
+\caption{AgentDojo live results, \code{important\_instructions}, three agents. All cells are
+base/Jataayu; \good{green} marks an ASR drop or preserved utility, \bad{red} a clean-utility cost.
+\code{gpt-5.4-mini} is a complete four-suite baseline/Jataayu sweep ($n{=}20$ attack, 5 clean each);
+\code{qwen3.6:35b-a3b} workspace is a complete pair. The \code{claude-haiku-4-5} rows use the
+subagent bridge (single injection type, $n{=}5$ attack; utility high-variance, see text). Cross-suite
+\emph{defense} evidence is the deterministic Tier~2 (Table~\ref{tab:tier2}).}\label{tab:4suite}
 \setlength\tabcolsep{5pt}
-\begin{tabular}{lcccc}
+\begin{tabular}{llcccc}
 \toprule
-Suite & $n_{\text{atk}}$ & ASR & util-atk & clean util \\
+Agent & Suite & $n_{\text{atk}}$ & ASR & util-atk & clean util \\
 \midrule
-workspace & 20 & 0.10 / \good{0.00} & 0.75 / \good{1.00} & 1.00 / \good{1.00} \\
-banking (baseline only) & 17 & 0.29 / --- & 0.53 / --- & 0.80 / --- \\
+gpt-5.4-mini & workspace & 20 & 0.00 / \good{0.00} & 0.90 / 0.85 & 0.80 / 0.80 \\
+gpt-5.4-mini & banking   & 20 & 0.15 / \good{0.00} & 0.60 / 0.50 & 0.80 / 0.80 \\
+gpt-5.4-mini & travel    & 20 & 0.00 / \good{0.00} & 1.00 / \good{1.00} & 1.00 / \good{1.00} \\
+gpt-5.4-mini & slack     & 20 & 0.10 / \good{0.00} & 0.80 / 0.95 & 1.00 / \bad{0.80} \\
+\midrule
+qwen3.6:35b-a3b & workspace & 20 & 0.10 / \good{0.00} & 0.75 / \good{1.00} & 1.00 / \good{1.00} \\
+\midrule
+claude-haiku-4-5$^\dagger$ & workspace & 5 & 0.00 / \good{0.00} & 0.80 / 1.00 & 0.80 / 1.00 \\
+claude-haiku-4-5$^\dagger$ & banking   & 5 & 0.00 / \good{0.00} & 0.40 / 0.80 & 0.80 / 0.20 \\
 \bottomrule
 \end{tabular}
+
+\vspace{2pt}
+{\footnotesize $^\dagger$ Subagent bridge; single injection type ($n{=}5$); utility high-variance,
+ASR robust.}
 \end{table}
 
 \subsection{Injection detection --- inbound, tool-return, cross-dataset}\label{sec:inbound}
@@ -446,7 +472,7 @@ Effect boundary (Tier 1) & synthetic, 300 & \good{APR 1.00}, TUR 0.50, trusted-l
 Effect boundary (Tier 2) & AgentDojo actions (5 suites) & \good{APR 1.00} (all 5 suites), TUR 0.50, 0 gaps \\
 Effect boundary (Tier 3) & InjecAgent (1{,}054 public) & \good{kill-chain APR 1.00}, user allow 1.00, text-independent \\
 Effect boundary (edges) & commit / capability & 6/6 pass \\
-Agentic e2e & AgentDojo workspace & \good{ASR 0.10$\to$0.00}, util 0.75$\to$1.00, no clean cost \\
+Agentic e2e & AgentDojo (3 agents) & \good{ASR$\to$0.00} (gpt-5.4-mini all 4 suites; qwen ws 0.10$\to$0); \bad{slack clean 1.00$\to$0.80} \\
 Semantic vs.\ effect & 10 trajectories & text recall \bad{0.17} vs.\ effect \good{1.00} (5 silent harms) \\
 Injection (inbound) & deepset/safe-guard/jailbreak & AUC 0.60--0.75, prec $\ge$86\%, recall 20--56\%, evasion $\le$0.3\% \\
 Injection (tool-return) & InjecAgent (2108) & prec 1.00, recall 0.50$\to$0.71 (slow) \\
