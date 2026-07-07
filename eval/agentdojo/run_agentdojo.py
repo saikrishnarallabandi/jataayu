@@ -120,6 +120,29 @@ def _parse_model_output_fixed(completion: str):
 
 _local_llm._parse_model_output = _parse_model_output_fixed
 
+# Force resolution of the TaskResults <-> FunctionCall forward reference. Under
+# pydantic 2.12 some code paths (notably load_task_results for cached results)
+# hit `TaskResults is not fully defined` unless model_rebuild() has run.
+try:
+    from agentdojo.functions_runtime import FunctionCall as _FunctionCall  # noqa: F401
+    from agentdojo.benchmark import TaskResults as _TaskResults
+    _TaskResults.model_rebuild()
+except Exception:
+    pass
+
+# Register current hosted model ids so the important_instructions attack can map
+# a pipeline name -> prose model name (AgentDojo 0.1.35's table predates them).
+# base_attacks imports the same dict object, so an in-place update is visible there.
+import agentdojo.models as _admodels  # noqa: E402
+_admodels.MODEL_NAMES.update({
+    "gpt-5.4-mini": "GPT-4",
+    "gpt-5.4": "GPT-4",
+    "claude-sonnet-5": "Claude",
+    "claude-opus-4-8": "Claude",
+    "claude-haiku-4-5": "Claude",
+    "claude-subagent": "Claude",
+})
+
 
 def _make_llm(model: str, model_id: str | None, local_base_url: str | None):
     """Return the agent LLM element. For a hosted model, defer to AgentDojo's
@@ -138,7 +161,33 @@ def _make_llm(model: str, model_id: str | None, local_base_url: str | None):
             http_client=httpx.Client(verify=False, timeout=600.0),
         )
         return LocalLLM(client, model_id, tool_delimiter="tool")
-    # hosted: let from_config build the provider-correct client, then extract the llm
+    # hosted native-tool providers. AgentDojo 0.1.35's ModelsEnum predates
+    # gpt-5.x / claude-opus-4-8 etc., so we bypass from_config and construct the
+    # provider LLM directly (native tool calling, unlike the LocalLLM text path).
+    if model == "subagent":
+        # Agent-under-test driven by a Claude Code subagent over file RPC
+        # (no Anthropic API key needed). See subagent_llm.py.
+        import atexit
+        from subagent_llm import SubagentLLM
+        rpc = os.environ.get("JATAAYU_RPC_DIR")
+        if not rpc:
+            raise ValueError("JATAAYU_RPC_DIR must be set for --model subagent")
+        atexit.register(lambda: (Path(rpc) / "DONE").write_text("done"))
+        return SubagentLLM(rpc, model_label=model_id or "claude-subagent")
+    if model in ("openai", "anthropic"):
+        if not model_id:
+            raise ValueError("--model-id is required for --model openai/anthropic")
+        if model == "openai":
+            # OpenAILLM defaults temperature=0.0, which `0.0 or NOT_GIVEN` drops,
+            # so no sampling param is sent (gpt-5.x reasoning models require that).
+            from agentdojo.agent_pipeline.llms.openai_llm import OpenAILLM
+            return OpenAILLM(openai.OpenAI(), model_id)  # reads OPENAI_API_KEY
+        # anthropic: temperature=None -> NOT_GIVEN, required for Opus 4.8 / Sonnet 5
+        # (sampling params 400 on those). Reads ANTHROPIC_API_KEY.
+        import anthropic as _anthropic
+        from agentdojo.agent_pipeline.llms.anthropic_llm import AnthropicLLM
+        return AnthropicLLM(_anthropic.Anthropic(), model_id, temperature=None)
+    # other hosted models: let from_config build the provider-correct client
     cfg_pipe = AgentPipeline.from_config(PipelineConfig(
         llm=model, model_id=None, defense=None,
         system_message_name=None, system_message=None,
@@ -165,7 +214,14 @@ def _build_pipeline(model, with_jataayu, min_status, model_id=None, local_base_u
         llm,
         ToolsExecutionLoop(loop_elements),
     ])
-    tag = model if model != "local" else f"local:{model_id}"
+    if model == "local":
+        tag = f"local:{model_id}"
+    elif model in ("openai", "anthropic"):
+        tag = model_id  # embeds the model_id so the attack's model-name lookup matches
+    elif model == "subagent":
+        tag = model_id or "claude-subagent"
+    else:
+        tag = model
     pipeline.name = (f"jataayu_{min_status.lower()}_{tag}" if with_jataayu
                      else f"baseline_{tag}")
     return pipeline
@@ -233,7 +289,7 @@ def main() -> None:
         ))
 
     report = {
-        "model": args.model_id if args.model == "local" and args.model_id else args.model,
+        "model": args.model_id if args.model in ("local", "openai", "anthropic") and args.model_id else args.model,
         "suite": args.suite, "attack": args.attack,
         "user_tasks": args.user_tasks or "ALL",
         "agentdojo_version": "0.1.35", "results": rows,
