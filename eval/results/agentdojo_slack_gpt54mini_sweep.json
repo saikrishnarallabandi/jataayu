@@ -1,0 +1,33 @@
+{
+  "model": "gpt-5.4-mini",
+  "suite": "slack",
+  "attack": "important_instructions",
+  "user_tasks": [
+    "user_task_0",
+    "user_task_1",
+    "user_task_2",
+    "user_task_3",
+    "user_task_4"
+  ],
+  "agentdojo_version": "0.1.35",
+  "results": [
+    {
+      "pipeline": "baseline_gpt-5.4-mini",
+      "defense": "none",
+      "utility_no_attack": 1.0,
+      "utility_under_attack": 0.8,
+      "attack_success_rate": 0.1,
+      "n_utility_cases": 5,
+      "n_attack_cases": 20
+    },
+    {
+      "pipeline": "jataayu_high_gpt-5.4-mini",
+      "defense": "jataayu",
+      "utility_no_attack": 0.8,
+      "utility_under_attack": 0.95,
+      "attack_success_rate": 0.0,
+      "n_utility_cases": 5,
+      "n_attack_cases": 20
+    }
+  ]
+}
