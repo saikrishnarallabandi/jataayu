@@ -4,6 +4,12 @@
   "kind": "security",
   "description": "ENFORCED inbound prompt-injection gate (blocks HIGH-risk turns before the agent runs) + advisory inbound/outbound tools. Fail-open.",
   "version": "0.1.0",
+  "contracts": {
+    "tools": [
+      "jataayu_check_inbound",
+      "jataayu_check_outbound"
+    ]
+  },
   "configSchema": {
     "type": "object",
     "properties": {
