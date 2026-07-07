@@ -53,8 +53,12 @@ module.exports = {
     // never break message delivery. (before_agent_run treats undefined as BLOCK,
     // so we always return an explicit {outcome} object.)
     const blockOnInboundHigh = config.blockOnInboundHigh !== false; // default: enforce
-    if (typeof api.registerHook === "function") {
-      api.registerHook("before_agent_run", async (event) => {
+    // Register as a TYPED hook via api.on — this is the bus that the
+    // before_agent_run gate (runBeforeAgentRun/hasHooks) actually reads.
+    // api.registerHook binds the internal event bus, which never fires
+    // before_agent_run, so the gate would silently never run.
+    if (typeof api.on === "function") {
+      api.on("before_agent_run", async (event) => {
         try {
           const content =
             (event && (event.prompt || event.content || event.text || "")) || "";
@@ -85,7 +89,7 @@ print(json.dumps({"risk": risk, "reason": r.explanation[:160]}))
         } catch (_e) {
           return { outcome: "pass" }; // FAIL OPEN
         }
-      }, { name: "jataayu-inbound-gate" });
+      }, { priority: 100 });
     }
 
     // Register inbound injection check tool
