@@ -6,12 +6,15 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+eval/
 downloads/
+runs/
 eggs/
 .eggs/
 lib/
 lib64/
 parts/
+training/
 sdist/
 var/
 wheels/
@@ -41,3 +44,30 @@ tasks/
 runs/
 eval/results/*.log
 eval/eval/
+
+# model weights & training data artifacts (large; regenerable, not for the repo
+# or the RELAI simulator workspace)
+*.safetensors
+*.bin
+*.gguf
+*.pt
+*.pth
+*.ckpt
+*.onnx
+adapter_model.*
+adapter_config.json
+training/**/data/*.jsonl
+training/**/exp/
+training/**/checkpoints/
+
+# RELAI local files
+.relai/config.toml
+.relai/.npmrc
+.relai/node_modules/
+.relai/runs/
+.relai/optimizer_runs/
+.relai/memory
+.relai/optimizer-state/
+.relai/optimizer-scope.json
+.relai/simulator.env
+.relai/tag-records/
