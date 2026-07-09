@@ -54,7 +54,9 @@ class LLMBackend:
     def _default_url(self) -> str:
         defaults = {
             "ollama": "http://localhost:11434",
-            "openai": "https://api.openai.com/v1",
+            # base URL is the host root; _call_openai_compat appends /v1/chat/completions.
+            # (Must NOT include /v1 here or the request path doubles to /v1/v1/… → 404.)
+            "openai": "https://api.openai.com",
             "anthropic": "https://api.anthropic.com",
             "gateway": self._gateway_url(),
         }
