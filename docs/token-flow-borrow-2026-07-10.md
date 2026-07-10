@@ -146,3 +146,11 @@ Add to existing `run_memory_poison_bench.py` and `run_composition_bench.py` as s
 - Ep21 (Token-Flow): flow-level interception.
 - Ep22 (Multi-Agent Firewall): network-layer interception (HTTP/WS) + harness-layer interception (our TokenFlow) share same provenance model. Together: browser ext/proxy for web LLM + TokenFlow for agent harness = full stack.
 
+
+## Update 2026-07-10 18:53 Slice 2-3 Applied
+
+- `api.py`: new `jataayu_audit_flow()` that builds TokenFlow from preview params, returns dict with decision/risk/arbitration flag. No breaking change, additive.
+- `core/audit.py`: TraceEvent now stores `flow_id`, `source_flow_ids`, `token_flow_audit`. `SessionTrace.record()` accepts same. New detector `_detect_sleeper_memory_flow_lineage()` that tracks memory write flow_id -> later dangerous effect via source_flow_ids chain. Wired into `audit()` alongside existing sleeper detector.
+- This enables causal flow lineage: Turn1 web-fetch flow-web-001 -> memory_write flow-mem-001 lineage [flow-web-001] -> file.write flow-file-001 lineage [flow-mem-001] is now flagged as `sleeper_memory_flow_lineage` HIGH with both indices.
+- Next: Slice 4 skill_write auto-detection from filesystem path + workflow file detection.
+

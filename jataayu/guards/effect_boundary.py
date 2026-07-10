@@ -117,6 +117,9 @@ _CODE_EVAL_TOOLS = frozenset(
 _MEMORY_WRITE_TOOLS = frozenset(
     {"memory_write", "save_memory", "remember", "store_memory", "kv_set"}
 )
+_SKILL_WRITE_TOOLS = frozenset(
+    {"skill_write", "save_skill", "create_skill", "automation_write", "write_skill"}
+)
 
 # ---------------------------------------------------------------------------
 # Token-level effect signals.
@@ -405,8 +408,6 @@ def _verb_tokens(name: str) -> tuple[set[str], Optional[str], set[str]]:
     verbs = {toks[0], toks[-1]}
     head = verbs if "." in name else {toks[0]}
     return verbs, toks[-1], head
-
-
 class Decision(Enum):
     ALLOW = "allow"
     DENY = "deny"
@@ -698,6 +699,7 @@ class EffectBoundary:
             return self.tool_effects[t], True
 
         # 1. Exact whole-string match against the curated sink sets (most specific).
+        t_norm = t.replace(".", "_").replace("-", "_")
         if t in _CODE_EVAL_TOOLS:
             return EffectClass.CODE_EVAL, True
         if t in _SHELL_SINK_TOOLS:
@@ -706,6 +708,8 @@ class EffectBoundary:
             return EffectClass.SECRET_READ, True
         if t in _MEMORY_WRITE_TOOLS:
             return EffectClass.MEMORY_WRITE, True
+        if t in _SKILL_WRITE_TOOLS or t_norm in _SKILL_WRITE_TOOLS:
+            return EffectClass.FILE_WRITE, True
         if t in _FILE_WRITE_TOOLS:
             return EffectClass.FILE_WRITE, True
         if t in _NETWORK_TOOLS:

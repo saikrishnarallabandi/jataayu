@@ -709,3 +709,75 @@ def jataayu_check_egress(
         "risk_score": result.risk_score,
         "threat_types": [t.value for t in result.threat_types],
     }
+
+
+# ---- TokenFlow API (borrowed from arXiv:2607.08395 Ep21) ----
+
+def jataayu_audit_flow(
+    content_preview: str,
+    source_surface: str = "unknown",
+    sink_type: str = "memory_write",
+    *,
+    source_type: str = "unknown",
+    source_provenance: str = "untrusted",
+    source_audience: str = "private",
+    sink_surface: str = "unknown",
+    sink_audience: str = "self",
+    turn: int = 0,
+    session_id: str = "session",
+    source_flow_ids: list[str] = None,
+    content: str = None,
+) -> dict:
+    """
+    Audit a token flow (source->sink) before it becomes a tool argument/memory write.
+
+    This is the flow-level primitive borrowed from Token-Flow Firewall (arXiv:2607.08395).
+    It sits BEFORE EffectBoundary and produces richer audit records:
+      source_surface/audience + sink_type/privilege + flow_id lineage
+
+    Why:
+      - Memory writes and skill writes are privileged sinks / persistence amplifiers.
+      - Audience drift (private DM -> group outbound) needs explicit check.
+      - Flow lineage enables stronger sleeper-memory detection across turns.
+
+    Args:
+        content_preview: First ~300 chars of content (never raw secret) for audit.
+        source_surface: Where text came from (e.g. github-issue, web-page, direct-message, memory)
+        sink_type: Where it's headed: file_write, memory_write, skill_write, automation_write, network, secret_read, shell, code_eval, outbound, read
+        source_type: e.g. web-page, tool-return, memory-recall, dm
+        source_provenance: trusted | untrusted
+        source_audience: private | group | public | self
+        sink_surface, sink_audience: analogous for destination
+        turn, session_id: for trajectory chaining
+        source_flow_ids: upstream flow IDs that built this content (for lineage)
+        content: Full content if available (hashed, not stored raw in audit).
+
+    Returns:
+        dict: flow, decision (allow/deny/needs_approval), risk (low/medium/high),
+              reason, needs_llm_arbitration, effect_class, audit_record
+    """
+    from jataayu.guards.token_flow import TokenFlowGuard, TokenFlow
+    from jataayu.guards.effect_boundary import Provenance
+    import hashlib
+
+    prov = Provenance.TRUSTED if source_provenance.lower()=="trusted" else Provenance.UNTRUSTED
+    full = content if content is not None else content_preview
+    chash = hashlib.sha256(full.encode()).hexdigest()[:12] if full else ""
+
+    flow = TokenFlow(
+        source_type=source_type,
+        source_provenance=prov,
+        source_surface=source_surface,
+        source_audience=source_audience,
+        content_preview=content_preview[:300],
+        content_hash=chash,
+        sink_type=sink_type,
+        sink_surface=sink_surface,
+        sink_audience=sink_audience,
+        turn=turn,
+        session_id=session_id,
+        source_flow_ids=source_flow_ids or [],
+    )
+    guard = TokenFlowGuard()
+    dec = guard.audit_flow(flow)
+    return dec.to_dict()
