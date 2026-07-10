@@ -626,6 +626,7 @@ Respond ONLY with a JSON object (no markdown, no explanation):
 # than gating on llm_threshold. Direct/trusted surfaces keep the efficiency threshold.
 INDIRECT_INJECTION_SURFACES = frozenset({
     "tool-return",
+    "tool-output",   # alias used elsewhere in the codebase/tests for tool returns
     "web-content",
     "web-page",
     "email",
@@ -703,7 +704,9 @@ class InboundGuard(JataayuEngine):
         # override trigger — they score ~0 and would otherwise pass as clean. Escalate to the
         # LLM triage regardless of the low fast-path score. Other surfaces keep the threshold.
         effective_threshold = (
-            0.0 if surface in INDIRECT_INJECTION_SURFACES else self.llm_threshold
+            0.0
+            if (surface or "").strip().lower() in INDIRECT_INJECTION_SURFACES
+            else self.llm_threshold
         )
         if self.use_llm and fast_result.risk_score >= effective_threshold:
             return self._slow_path(text, surface, fast_result)
