@@ -175,3 +175,32 @@ class TestSurfaceProfiles:
     def test_direct_message_is_high_trust(self):
         from jataayu.surfaces.profiles import SURFACE_PROFILES
         assert SURFACE_PROFILES["direct-message"]["trust_level"] == "high"
+
+
+class TestInternalContextDenylist:
+    """Internal/operational-context leaks ported from privacy_guard.py (Jataayu = sole guard)."""
+
+    def test_repo_path_blocked(self, guard):
+        r = guard.check("See docs/outreach/plan.md for details.", surface="group-chat")
+        assert r.blocked
+
+    def test_absolute_path_blocked(self, guard):
+        r = guard.check("Wrote it to /home2/srallaba/projects/x/notes.txt", surface="github-comment")
+        assert r.blocked
+
+    def test_agent_scaffolding_blocked(self, guard):
+        for leak in ("queue item 29", "Wake timestamp 2026-07-10", "HEARTBEAT_OK"):
+            assert guard.check(leak, surface="group-chat").blocked, leak
+
+    def test_internal_strategy_codename_blocked_everywhere(self, guard):
+        assert guard.check("Advancing Project Medallion this week.", surface="group-chat").blocked
+        assert guard.check("Advancing Project Medallion this week.", surface="github-comment").blocked
+
+    def test_product_codename_surface_aware(self, guard):
+        text = "SentinelForge added a design-partner candidate."
+        assert guard.check(text, surface="group-chat").blocked          # social -> held
+        assert not guard.check(text, surface="github-comment").blocked  # GTM -> allowed
+
+    def test_clean_business_update_not_blocked(self, guard):
+        r = guard.check("OpenAI shipped a platform update; here is why it matters.", surface="group-chat")
+        assert not r.blocked
