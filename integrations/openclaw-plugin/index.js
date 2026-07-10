@@ -28,12 +28,12 @@ module.exports = {
     const jataayuPath = config.jataayuPath || "";
     const jpins = jataayuPath ? `sys.path.insert(0, ${JSON.stringify(jataayuPath)})` : "";
     const protectedNames = Array.isArray(config.protectedNames) ? config.protectedNames : [];
-    const trustedSenders = config.trustedSenders || ["+15550000001", "SaiKrishna", "openclaw-control-ui"];
+    const trustedSenders = config.trustedSenders || [];  // from plugin config — no personal ids hard-coded in the repo
     const blockOnInboundHigh = config.blockOnInboundHigh !== false;
 
     // Phrases that must NEVER be blocked — orchestrator mode for owner
     const OWNER_DELEGATION_SAFE = /(sub\s*agents?|delegate\s+tasks?|orchestrator|available\s+to\s+me\s+via\s+chat|I want you to be available)/i;
-    const OWNER_IDENTIFIERS = ["+15550000001", "SaiKrishna", "Sai", "15550000001"];
+    const OWNER_IDENTIFIERS = config.ownerIdentifiers || config.trustedSenders || [];  // config-driven, not hard-coded
 
     // --- Quarantine sink -------------------------------------------------
     // Append every HIGH inbound decision (block + owner allow-through) to a
@@ -55,7 +55,7 @@ module.exports = {
     const CAPTURE_PATH = config.capturePath ||
       path.join(os.homedir(), ".openclaw", "workspace", "tools", "jataayu_inbound_capture.jsonl");
     const CAPTURE_MAX = Number.isFinite(config.captureMaxChars) ? config.captureMaxChars : 24000;
-    const captureFull = config.captureFullContent !== false; // default: keep everything
+    const captureFull = config.captureFullContent === true; // default: only the scanned tail (avoid persisting full PII/secrets to disk)
     const capture = (rec) => {
       try {
         const line = JSON.stringify(Object.assign({ ts: new Date().toISOString() }, rec)) + "\n";
@@ -103,7 +103,7 @@ module.exports = {
 import json
 ${jpins}
 from jataayu import InboundGuard
-r = InboundGuard().check(${safe}, surface="direct")
+r = InboundGuard().check(${safe}, surface="direct-message")
 lvl = r.threat_level.value if hasattr(r.threat_level,'value') else str(r.threat_level)
 risk = 'HIGH' if lvl in ('blocked','high') else ('MEDIUM' if lvl=='medium' else 'LOW')
 print(json.dumps({"risk": risk, "lvl": lvl, "reason": r.explanation[:160], "patterns": r.matched_patterns[:3]}))
@@ -114,12 +114,12 @@ print(json.dumps({"risk": risk, "lvl": lvl, "reason": r.explanation[:160], "patt
                 console.error(`[jataayu-gate] owner msg risk=${rr.risk} reason=${rr.reason} - ALLOWED`);
                 const isHigh = rr.risk === "HIGH" || rr.risk === "blocked" || rr.risk === "high";
                 capture({ decision: "owner-allow", blocked: false, risk: rr.risk, lvl: rr.lvl, reason: rr.reason,
-                  patterns: rr.patterns || [], surface: "direct", sender: senderFields.slice(0, 120),
+                  patterns: rr.patterns || [], surface: "direct-message", sender: senderFields.slice(0, 120),
                   scanned_slice: String(slice).slice(0, 4000), slice_len: slice.length,
                   content: captureFull ? rawContent.slice(-CAPTURE_MAX) : undefined, content_len: rawContent.length });
                 if (isHigh) {
                   quarantine({ decision: "owner-allow", blocked: false, risk: rr.risk, reason: rr.reason,
-                    patterns: rr.patterns || [], surface: "direct", sender: senderFields.slice(0, 120),
+                    patterns: rr.patterns || [], surface: "direct-message", sender: senderFields.slice(0, 120),
                     content_slice: String(slice).slice(0, 4000), slice_len: slice.length });
                 }
               }
@@ -222,8 +222,9 @@ print(json.dumps({"verdict": verdict, "level": level, "safe": not result.blocked
     // error so a guard hiccup can never silence all comms; a real BLOCK verdict is still enforced.
     if (typeof api.on === "function") {
       const enforceOutbound = config.enforceOutbound !== false; // default ON
-      const ownerRecipients = (config.ownerRecipients || [])
-        .concat(["+15550000001", "15550000001", "100000000000000001", "SaiKrishna"]);
+      // Config-driven (no personal ids hard-coded in the repo); normalized for case-insensitive match.
+      const ownerRecipients = (config.ownerRecipients || config.trustedSenders || [])
+        .map((s) => String(s).toLowerCase());
       const isGroupSurface = (to) => /@g\.us|@broadcast|:group:|group-chat|:channel:|discord-channel/i.test(to);
       api.on("message_sending", async (event) => {
         if (!enforceOutbound) return;
@@ -232,8 +233,9 @@ print(json.dumps({"verdict": verdict, "level": level, "safe": not result.blocked
           const content = (event && event.content) || "";
           if (!content || !content.trim()) return;
           const group = isGroupSurface(to);
+          const toLc = to.toLowerCase();
           // Owner DM (WhatsApp or Discord) and NOT a group -> private, never screened.
-          if (!group && ownerRecipients.some((id) => to.includes(id))) return;
+          if (!group && ownerRecipients.some((id) => id && toLc.includes(id))) return;
           let surface = "group-chat";
           if (/@g\.us/i.test(to)) surface = "whatsapp-group";
           else if (/discord/i.test(to)) surface = "discord-channel";
