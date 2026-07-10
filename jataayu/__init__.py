@@ -39,6 +39,7 @@ from jataayu.guards.effect_boundary import (
     EffectBoundary, Value, Provenance, EffectClass, Decision, CommitRejected,
 )
 from jataayu.core.audit import SessionTrace, AuditResult, AuditFinding, AuditRisk, TraceEvent
+from jataayu.guards.token_flow import TokenFlowGuard, TokenFlow, FlowDecision, FlowRisk
 from jataayu.api import jataayu_authorize_action
 from jataayu.convenience import check_inbound, check_outbound
 
@@ -76,6 +77,11 @@ __all__ = [
     "AuditFinding",
     "AuditRisk",
     "TraceEvent",
+    # Token-Flow Firewall borrow (Ep21) — flow-level source->sink auditing
+    "TokenFlowGuard",
+    "TokenFlow",
+    "FlowDecision",
+    "FlowRisk",
     # Short aliases (tuple return format)
     "check_inbound",
     "check_outbound",
