@@ -1,7 +1,7 @@
 /**
  * Jataayu Security Plugin for gateway — patched 2026-07-09 v2
  * Fixes:
- * - Owner +15550000001 never blocked (chat availability critical)
+ * - Owner messages never blocked (chat availability critical)
  * - Delegation/orchestrator phrases (sub agents, delegate tasks, available via chat) never trigger block
  * - Scans only last user message slice, not full 8k prompt with tool docs that falsely trigger PI-017
  * - Fail-open + detailed logging
@@ -70,12 +70,21 @@ module.exports = {
           if (!rawContent || !rawContent.trim()) return { outcome: "pass" };
           const lower = rawContent.toLowerCase();
 
+          const senderFields = [
+            event.sender, event.senderId, event.from, event.e164, event.userId,
+            event.chatId, event.sender_id, event.phone, event.label,
+            event.from_id, event.peerId
+          ].filter(Boolean).map(String).join(" ");
+          const senderFieldsLower = senderFields.toLowerCase();
+          const isOwnerSender = OWNER_IDENTIFIERS.some(id => senderFieldsLower.includes(String(id).toLowerCase())) ||
+            trustedSenders.some(t => senderFieldsLower.includes(String(t).toLowerCase()));
+
           // 1) Instant allowlist for owner delegation intent — fixes "Use sub agents..."
           if (OWNER_DELEGATION_SAFE.test(rawContent)) {
-            // If owner identifiers present OR delegation phrase + chat availability, allow
-            const hasOwnerId = OWNER_IDENTIFIERS.some(id => rawContent.includes(id));
+            // Owner id in sender fields always allow; delegation phrases only allow for owner senders.
+            const hasOwnerId = OWNER_IDENTIFIERS.some(id => senderFieldsLower.includes(String(id).toLowerCase()));
             const isDelegation = lower.includes("sub agent") || lower.includes("delegate") || lower.includes("available to me via chat");
-            if (hasOwnerId || isDelegation) {
+            if (hasOwnerId || (isDelegation && isOwnerSender)) {
               try { console.error(`[jataayu-gate] ALLOWLIST: owner delegation phrase bypass - ownerId=${hasOwnerId} delegation=${isDelegation}`); } catch (_) {}
               capture({ decision: "allowlist-bypass", blocked: false, risk: "SKIPPED", scanned: false,
                 surface: "unknown", sender: "", content: rawContent.slice(-CAPTURE_MAX), content_len: rawContent.length });
@@ -84,11 +93,6 @@ module.exports = {
           }
 
           // 2) Owner bypass: check all possible sender fields + content for owner
-          const senderFields = [
-            event.sender, event.senderId, event.from, event.e164, event.userId,
-            event.chatId, event.sender_id, event.phone, event.label,
-            event.from_id, event.peerId
-          ].filter(Boolean).map(String).join(" ");
           const combinedForOwnerCheck = (senderFields + " " + rawContent.slice(-3000)).toLowerCase();
           const isOwner = OWNER_IDENTIFIERS.some(id => combinedForOwnerCheck.includes(id.toLowerCase())) || trustedSenders.some(t => combinedForOwnerCheck.includes(t.toLowerCase()));
 
