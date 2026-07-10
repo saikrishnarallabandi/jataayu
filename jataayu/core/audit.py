@@ -67,6 +67,10 @@ class TraceEvent:
     is_memory_read: bool = False
     is_memory_write: bool = False
     summary: str = ""
+    # TokenFlow borrow (Ep21): flow lineage for sleeper detection
+    flow_id: str = ""
+    source_flow_ids: list[str] = field(default_factory=list)
+    token_flow_audit: Optional[dict] = None
 
     @property
     def untrusted(self) -> bool:
@@ -79,6 +83,9 @@ class TraceEvent:
             "inbound_flagged": self.inbound_flagged,
             "is_memory_read": self.is_memory_read, "is_memory_write": self.is_memory_write,
             "summary": self.summary,
+            "flow_id": self.flow_id,
+            "source_flow_ids": self.source_flow_ids,
+            "token_flow_audit": self.token_flow_audit,
         }
 
 
@@ -150,6 +157,9 @@ class SessionTrace:
         inbound_flagged: bool = False,
         turn: Optional[int] = None,
         summary: str = "",
+        flow_id: str = "",
+        source_flow_ids: list[str] = None,
+        token_flow_audit: Optional[dict] = None,
     ) -> TraceEvent:
         """
         Append a tool call to the trajectory.
@@ -185,6 +195,9 @@ class SessionTrace:
             is_memory_read=t in _MEMORY_READ_TOOLS,
             is_memory_write=effect_class is EffectClass.MEMORY_WRITE,
             summary=summary,
+            flow_id=flow_id or "",
+            source_flow_ids=source_flow_ids or [],
+            token_flow_audit=token_flow_audit,
         )
         self.events.append(event)
         return event
@@ -202,6 +215,7 @@ class SessionTrace:
         findings: list[AuditFinding] = []
         findings.extend(self._detect_cross_turn_exfil())
         findings.extend(self._detect_sleeper_memory())
+        findings.extend(self._detect_sleeper_memory_flow_lineage())
         findings.extend(self._detect_untrusted_critical())
         findings.extend(self._detect_escalation())
 
@@ -272,6 +286,30 @@ class SessionTrace:
                         event_indices=[fw.index, rd.index, dz.index],
                     ))
                     break  # one finding per poisoned write is enough
+        return findings
+
+    def _detect_sleeper_memory_flow_lineage(self) -> list[AuditFinding]:
+        """TokenFlow lineage upgrade: memory write flow_id -> later read -> dangerous effect via source_flow_ids."""
+        findings: list[AuditFinding] = []
+        # Build map flow_id -> event index for quick lookup
+        flow_to_event = {e.flow_id: e for e in self.events if e.flow_id}
+        for e in self.events:
+            if e.is_memory_write and e.source_flow_ids:
+                # If this memory write was built from untrusted flows, track its flow_id
+                # Later events that reference it via source_flow_ids are tainted lineage
+                for later in self.events:
+                    if later.turn > e.turn and e.flow_id in later.source_flow_ids:
+                        if later.effect_class in _DANGEROUS_EFFECTS:
+                            findings.append(AuditFinding(
+                                pattern="sleeper_memory_flow_lineage",
+                                risk=AuditRisk.HIGH,
+                                explanation=(
+                                    f"memory write flow {e.flow_id} (turn {e.turn}, {e.tool_name}) with lineage {e.source_flow_ids} "
+                                    f"is tainted and recalled as flow {later.flow_id} {later.tool_name} (turn {later.turn}) "
+                                    f"leading to {later.effect_class.value} effect — causal flow lineage across turns"
+                                ),
+                                event_indices=[e.index, later.index],
+                            ))
         return findings
 
     def _detect_untrusted_critical(self) -> list[AuditFinding]:

@@ -100,6 +100,7 @@ _APPROVAL_EFFECTS = frozenset({EffectClass.NETWORK, EffectClass.FILE_WRITE, Effe
 
 _CODE_EVAL_TOOLS = frozenset({"eval", "exec", "python_eval", "js_eval", "run_code", "code_interpreter"})
 _MEMORY_WRITE_TOOLS = frozenset({"memory_write", "save_memory", "remember", "store_memory", "kv_set"})
+_SKILL_WRITE_TOOLS = frozenset({"skill_write", "save_skill", "create_skill", "automation_write", "write_skill"})
 
 
 class Decision(Enum):
@@ -191,17 +192,21 @@ class EffectBoundary:
     # -- effect classification -------------------------------------------------
     def classify(self, tool_name: str) -> EffectClass:
         t = tool_name.strip().lower()
-        if t in _CODE_EVAL_TOOLS:
+        # normalize common agentdo/tool naming: file.write -> file_write, file-write -> file_write
+        t_norm = t.replace(".","_").replace("-","_")
+        if t in _CODE_EVAL_TOOLS or t_norm in _CODE_EVAL_TOOLS:
             return EffectClass.CODE_EVAL
-        if t in _SHELL_SINK_TOOLS:
+        if t in _SHELL_SINK_TOOLS or t_norm in _SHELL_SINK_TOOLS:
             return EffectClass.SHELL
-        if t in _SECRET_TOOLS:
+        if t in _SECRET_TOOLS or t_norm in _SECRET_TOOLS:
             return EffectClass.SECRET_READ
-        if t in _MEMORY_WRITE_TOOLS:
+        if t in _MEMORY_WRITE_TOOLS or t_norm in _MEMORY_WRITE_TOOLS:
             return EffectClass.MEMORY_WRITE
-        if t in _FILE_WRITE_TOOLS:
+        if t in _SKILL_WRITE_TOOLS or t_norm in _SKILL_WRITE_TOOLS:
             return EffectClass.FILE_WRITE
-        if t in _NETWORK_TOOLS:
+        if t in _FILE_WRITE_TOOLS or t_norm in _FILE_WRITE_TOOLS or t_norm in {"file_write","file_write","skill_write","automation_write"} or "_write" in t_norm:
+            return EffectClass.FILE_WRITE
+        if t in _NETWORK_TOOLS or t_norm in _NETWORK_TOOLS:
             return EffectClass.NETWORK
         return EffectClass.READ
 
