@@ -407,6 +407,48 @@ def _shannon_entropy(s: str) -> float:
         for c in counts.values()
     )
 
+# ---------------------------------------------------------------------------
+# Internal / operational context denylist (ported from privacy_guard.py, 2026-07-10, so Jataayu
+# is the sole outbound guard). These are HARD leaks — internal agent scaffolding, repo paths, and
+# internal codenames that must never reach a shared surface. Scored 0.95 (>= block_threshold) and
+# applied surface-INDEPENDENTLY (a repo path is a leak on github as much as on a group chat).
+# Format: (pattern, ThreatType, base_risk_score, description)
+_INTERNAL_CONTEXT_PATTERNS: list[tuple[str, ThreatType, float, str]] = [
+    (r"\bqueue item\s*#?\d+\b", ThreatType.PRIVACY_VIOLATION, 0.95, "Internal queue-item bookkeeping"),
+    (r"\bwake timestamp\b", ThreatType.PRIVACY_VIOLATION, 0.95, "Agent wake-timestamp scaffolding"),
+    (r"\bnext action for\b.*\bwake\b", ThreatType.PRIVACY_VIOLATION, 0.95, "Agent next-action scaffolding"),
+    (r"\bdeliverables_today\b", ThreatType.PRIVACY_VIOLATION, 0.95, "Agent bookkeeping token"),
+    (r"\bHEARTBEAT_OK\b", ThreatType.PRIVACY_VIOLATION, 0.95, "Heartbeat bookkeeping token"),
+    (r"\bdocs/[\w./-]+\.(?:md|py|json)\b", ThreatType.PRIVACY_VIOLATION, 0.95, "Internal repo doc path"),
+    (r"/home2?/[\w./-]+", ThreatType.PRIVACY_VIOLATION, 0.95, "Absolute local filesystem path"),
+]
+# Internal strategy codenames — never on any shared surface.
+_INTERNAL_STRATEGY_CODENAMES = ["Cassandra", "Kailash", "Prahaar", "Delphi Gamma", "Project Medallion", "NSE Whales"]
+# To-market PRODUCT codenames — fine on an explicit GTM surface (github/public, e.g. the product's own
+# tracking issue), but must not be broadcast to a social group. Held on every non-GTM surface.
+_GTM_PRODUCT_CODENAMES = ["SentinelForge"]
+
+_COMPILED_INTERNAL = (
+    [(re.compile(p, re.IGNORECASE), tt, s, d) for (p, tt, s, d) in _INTERNAL_CONTEXT_PATTERNS]
+    + [(re.compile(r"\b" + re.escape(c) + r"\b", re.IGNORECASE),
+        ThreatType.PRIVACY_VIOLATION, 0.95, f"Internal strategy codename: {c}")
+       for c in _INTERNAL_STRATEGY_CODENAMES]
+)
+_COMPILED_SOCIAL_ONLY = [
+    (re.compile(r"\b" + re.escape(c) + r"\b", re.IGNORECASE),
+     ThreatType.PRIVACY_VIOLATION, 0.95, f"To-market product codename on a social surface: {c}")
+    for c in _GTM_PRODUCT_CODENAMES
+]
+
+
+def _is_gtm_surface(surface: str) -> bool:
+    """True for explicit go-to-market surfaces (github/public) where a to-market product name is
+    expected. Everything else — group/whatsapp/discord and the default/unknown — is treated as
+    social (strict), so a product codename is held there."""
+    s = (surface or "").lower()
+    return ("github" in s) or ("public" in s)
+
+
 # Surface-specific outbound risk multipliers
 OUTBOUND_SURFACE_MULTIPLIERS: dict[str, float] = {
     "public": 1.3,
@@ -617,6 +659,18 @@ class OutboundGuard(JataayuEngine):
             matched.extend(cred_matched)
             threat_types.update(cred_types)
             max_score = max(max_score, cred_score)
+
+        # Check internal/operational-context denylist (agent scaffolding, repo paths, internal
+        # codenames). Surface-INDEPENDENT hard leak — score used as-is (no multiplier) so it always
+        # blocks. To-market product codenames are added only on non-GTM (social/unknown) surfaces.
+        internal_patterns = list(_COMPILED_INTERNAL)
+        if not _is_gtm_surface(surface):
+            internal_patterns += _COMPILED_SOCIAL_ONLY
+        for pattern, threat_type, base_score, desc in internal_patterns:
+            if pattern.search(text):
+                matched.append(desc)
+                threat_types.add(threat_type)
+                max_score = max(max_score, base_score)
 
         # Check egress channels (auto-fetched images / data-carrying URLs).
         # Surface-independent by design: the channel is the threat wherever it
