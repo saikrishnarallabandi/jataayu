@@ -56,6 +56,7 @@ from jataayu.core.audit import (
     TraceEvent,
     set_decision_sink,
 )
+from jataayu.guards.token_flow import TokenFlowGuard, TokenFlow, FlowDecision, FlowRisk
 from jataayu.api import jataayu_authorize_action
 
 # Deprecated tuple-returning shims. Importable from the package root because that is
@@ -108,6 +109,11 @@ __all__ = [
     "SecurityError",
     # Raised by the policy loader when an `agent=` name is not defined
     "UnknownAgentError",
+    # Token-Flow Firewall borrow (Ep21) — flow-level source->sink auditing
+    "TokenFlowGuard",
+    "TokenFlow",
+    "FlowDecision",
+    "FlowRisk",
     # Core classes (for advanced usage)
     "ThreatResult",
     "ThreatLevel",
