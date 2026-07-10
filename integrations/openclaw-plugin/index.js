@@ -19,12 +19,35 @@ function runPython(python, script, timeoutMs = 10000) {
     });
   });
 }
+// One-shot inference via the OpenClaw CLI (reuses gateway-managed provider auth,
+// so the rewrite runs on the SAME model that generated the reply, e.g. gpt-5.5).
+function runInfer(bin, model, prompt, timeoutMs = 45000) {
+  return new Promise((resolve, reject) => {
+    execFile(bin, ["infer", "model", "run", "--gateway", "--json", "--model", model, "--prompt", prompt],
+      { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+        if (err) return reject(new Error(stderr || err.message));
+        try {
+          const d = JSON.parse(stdout);
+          const text = d && d.ok && Array.isArray(d.outputs) && d.outputs[0] && d.outputs[0].text;
+          if (text && String(text).trim()) resolve(String(text).trim());
+          else reject(new Error("infer: empty output"));
+        } catch (e) { reject(new Error("infer: bad json: " + e.message)); }
+      });
+  });
+}
 module.exports = {
   id: 'jataayu',
   name: 'Jataayu Security',
   activate(api) {
     const config = api.pluginConfig || {};
     const python = config.python || DEFAULT_PYTHON;
+    // For the group-surface path-leak REWRITE path (redact-not-block): call the same
+    // model that generates replies. Defaults to the sai agent's primary (gpt-5.5).
+    const openclawBin = config.openclawBin || "/home/srallaba/.nvm/versions/node/v24.2.0/bin/openclaw";
+    const rewriteModel = config.rewriteModel || "openai-codex/gpt-5.5";
+    const rewriteGroupPathLeaks = config.rewriteGroupPathLeaks !== false; // default ON
+    // Findings for which a group send is REWRITTEN (paths stripped) rather than hard-blocked.
+    const PATH_ONLY_FINDINGS = new Set(["Absolute local filesystem path", "Internal repo doc path"]);
     const jataayuPath = config.jataayuPath || "";
     const jpins = jataayuPath ? `sys.path.insert(0, ${JSON.stringify(jataayuPath)})` : "";
     const protectedNames = Array.isArray(config.protectedNames) ? config.protectedNames : [];
@@ -244,7 +267,7 @@ print(json.dumps({"verdict": verdict, "level": level, "safe": not result.blocked
           if (/@g\.us/i.test(to)) surface = "whatsapp-group";
           else if (/discord/i.test(to)) surface = "discord-channel";
           else if (/github/i.test(to)) surface = "github-comment";
-          const script = `
+          const buildScript = (text) => `
 import json, sys
 ${jpins}
 from jataayu import OutboundGuard
@@ -252,11 +275,40 @@ from jataayu.guards.outbound import PrivacyConfig
 PROTECTED = ${JSON.stringify(protectedNames)}
 cfg = PrivacyConfig(protected_names=PROTECTED, use_llm=False)
 guard = OutboundGuard(config=cfg)
-result = guard.check(${JSON.stringify(content)}, surface=${JSON.stringify(surface)})
+result = guard.check(${JSON.stringify(text)}, surface=${JSON.stringify(surface)})
 print(json.dumps({"blocked": result.blocked, "reason": result.explanation, "findings": result.matched_patterns}))
 `;
-          const r = JSON.parse(await runPython(python, script));
+          const screen = async (text) => JSON.parse(await runPython(python, buildScript(text)));
+          const r = await screen(content);
           if (r.blocked) {
+            const findings = Array.isArray(r.findings) ? r.findings : [];
+            // Redact-not-block: if a GROUP send is blocked ONLY by absolute/repo path leaks,
+            // rewrite it with the SAME model that writes replies (gpt-5.5) to strip the paths,
+            // re-screen, and deliver the cleaned text instead of dropping the whole message.
+            // Any other finding class (credentials, PII, egress) still hard-blocks.
+            if (rewriteGroupPathLeaks && group && findings.length > 0 &&
+                findings.every((f) => PATH_ONLY_FINDINGS.has(f))) {
+              try {
+                const prompt =
+                  "Rewrite the following group-chat message so it contains NO absolute filesystem " +
+                  "paths (e.g. /home..., /home2...) and NO internal repo doc paths. Replace each path " +
+                  "with just the bare file name (e.g. 'outbound.py'). Keep everything else — wording, " +
+                  "facts, formatting, emoji — identical. Output ONLY the rewritten message.\n\nMESSAGE:\n" +
+                  String(content);
+                const rewritten = await runInfer(openclawBin, rewriteModel, prompt);
+                const r2 = await screen(rewritten);
+                if (rewritten && rewritten !== content && !r2.blocked) {
+                  try { console.error(`[jataayu-outbound] REWROTE (path leak stripped via ${rewriteModel}) group send to=${to.slice(0, 48)} surface=${surface}`); } catch (_) {}
+                  quarantine({ direction: "outbound", decision: "rewrite", to, surface, reason: r.reason,
+                    findings, model: rewriteModel, content: String(content).slice(0, 4000), rewritten: String(rewritten).slice(0, 4000) });
+                  return { content: rewritten };
+                }
+                // rewrite did not clear the block -> fall through to hard block
+              } catch (e) {
+                // never fail-open on a known leak: fall through to hard block
+                try { console.error(`[jataayu-outbound] rewrite failed, hard-blocking: ${e.message}`); } catch (_) {}
+              }
+            }
             try { console.error(`[jataayu-outbound] BLOCKED send to=${to.slice(0, 48)} surface=${surface}: ${r.reason}`); } catch (_) {}
             quarantine({ direction: "outbound", decision: "block", to, surface, reason: r.reason,
               findings: r.findings, content: String(content).slice(0, 4000) });
