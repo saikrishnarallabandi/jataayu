@@ -1,0 +1,14 @@
+{
+  "schema_version": "relai.mock_manifest.v1",
+  "items": [
+    {
+      "id": "jataayu_scan",
+      "target": "jataayu_guard_agent.agent:jataayu_scan",
+      "kind": "tool",
+      "final_policy": "do_not_mock",
+      "reason": "The agent's only direct tool is a local deterministic Jataayu scan. Keep it live for end-to-end guard behavior, or mock it when a scenario needs a fixed scan verdict to isolate the LLM triage policy.",
+      "source": "jataayu_guard_agent/agent.py",
+      "cannot_mock_reason": null
+    }
+  ]
+}

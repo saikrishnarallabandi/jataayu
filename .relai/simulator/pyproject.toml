@@ -1,0 +1,26 @@
+[project]
+name = "relai-simulator"
+version = "0.1.0"
+description = "Local RELAI simulator harness."
+requires-python = ">=3.11"
+dependencies = [
+    "relai==0.1.20",
+]
+
+[project.scripts]
+relai-simulator-runner = "relai_simulator.runner:main"
+
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv.sources]
+relai = { index = "relai" }
+
+[[tool.uv.index]]
+name = "relai"
+url = "https://api.relai.ai/sdk/simple/"
+explicit = true

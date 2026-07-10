@@ -1,0 +1,30 @@
+{
+  "schema_version": "relai.learning_env_context.v1",
+  "agent": {
+    "entrypoint": "jataayu_guard_agent.agent:create_guard_agent",
+    "runner_summary": "Runs the Jataayu injection-triage agent through a thin OpenAI Agents SDK simulator adapter that accepts one raw string per turn."
+  },
+  "components": [
+    {
+      "id": "jataayu_scan",
+      "import_path": "jataayu_guard_agent.agent:jataayu_scan",
+      "when_to_use": "Use component environments when you want to isolate the direct guard-tool verdict instead of evaluating the full LLM triage response.",
+      "live_mock_targets": [],
+      "required_mock_targets": [],
+      "input_guidance": "Pass JSON kwargs matching the tool schema: required `content` string and optional `surface` string such as `tool-return` or `github-issue`.",
+      "output_guidance": "Expect a JSON string containing `status`, `score`, and `findings`; evaluate whether the guard classified the supplied content as expected."
+    }
+  ],
+  "log_notes": [
+    "Agent environments should provide FixedTurn content as a raw string, not a JSON wrapper object.",
+    "Successful full-agent outputs are intended to be a single line beginning with `BLOCK:` or `ALLOW:` because that is the agent instruction contract.",
+    "Transcript mock-call entries appear only when a learning environment mocks `jataayu_guard_agent.agent:jataayu_scan`."
+  ],
+  "learning_env_guidance": [
+    "For agent environments, set each FixedTurn content value to the exact untrusted text snippet the agent should triage.",
+    "Prefer short standalone snippets from surfaces like retrieved content, email, issue text, or tool returns; the adapter wraps the string into a single user message internally.",
+    "Use `jataayu_guard_agent.agent:jataayu_scan` as the component target for direct tool tests, with named kwargs instead of positional args.",
+    "Leave `jataayu_guard_agent.agent:jataayu_scan` live by default for end-to-end guard behavior, but mock it when a scenario specifically needs a fixed tool verdict.",
+    "Prefer OpenAI when `OPENAI_API_KEY` is available; otherwise set `ANTHROPIC_API_KEY` and expect the agent to run through LiteLLM with the configured Anthropic default model."
+  ]
+}

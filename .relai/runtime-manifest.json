@@ -1,0 +1,18 @@
+{
+  "schema_version": "relai.runtime_manifest.v1",
+  "env": [
+    {
+      "name": "OPENAI_API_KEY",
+      "required": false,
+      "sensitive": true,
+      "reason": "Preferred provider key for running the Jataayu OpenAI Agents SDK triage agent; set this or ANTHROPIC_API_KEY."
+    },
+    {
+      "name": "ANTHROPIC_API_KEY",
+      "required": false,
+      "sensitive": true,
+      "reason": "Alternative provider key used when OpenAI is unavailable; set this or OPENAI_API_KEY so the simulator can choose a model provider."
+    }
+  ],
+  "files": []
+}
