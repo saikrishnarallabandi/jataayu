@@ -39,6 +39,20 @@ module.exports = {
   id: 'jataayu',
   name: 'Jataayu Security',
   activate(api) {
+    // ---- dm-guard (2026-07-11) -------------------------------------------------------------
+    // Anti-repetition for Sai's DMs: same-turn double-sends, and proactive DMs that re-open a
+    // decision he already closed. It lives in its own module (plugins/dm-guard/index.js) and is
+    // tested standalone; it is activated from HERE because the gateway would not pick it up as a
+    // separate plugin (registers hooks only, no tools -- it never appeared in the loaded set).
+    // Piggy-backing on Jataayu is coherent: this IS the outbound guard, and it already owns the
+    // message_sending hook. Wrapped so a fault in it can never take Jataayu -- or comms -- down.
+    try {
+      require('../dm-guard/index.js').activate(api);
+      console.error('[jataayu] dm-guard hooks activated');
+    } catch (e) {
+      try { console.error(`[jataayu] dm-guard failed to activate (continuing): ${e.message}`); } catch (_) {}
+    }
+    // ---------------------------------------------------------------------------------------
 
     const config = api.pluginConfig || {};
     const python = config.python || DEFAULT_PYTHON;
