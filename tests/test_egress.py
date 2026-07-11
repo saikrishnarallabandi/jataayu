@@ -209,3 +209,47 @@ class TestDictApi:
             context_secrets=[secret],
         )
         assert r["status"] == "BLOCK"
+
+
+# ---------------------------------------------------------------------------
+# Regression: human-readable slugs are not "encoded blobs"
+#
+# 2026-07-10/11: the guard hard-blocked 5 WhatsApp group messages because the blob
+# regex ([A-Za-z0-9+/=_-]{16,}) includes hyphens, so ANY repo slug >=24 chars
+# fullmatched it. Judith was structurally unable to post a GitHub link into a group,
+# and the message tool reported SUCCESS while the message was dropped.
+#
+# Entropy alone cannot separate these: a 40-char SHA is H=3.74, LOWER than the benign
+# slug 'gateway-watcher-and-group-guard-fixes' at H=4.06. Shape (lowercase kebab/snake)
+# is what separates them; the entropy cap then stops a hyphen-chunked payload.
+# ---------------------------------------------------------------------------
+
+BENIGN_URLS = [
+    "https://github.com/saikrishnarallabandi/project-frontierfinance-sidecar-slm/issues/4",
+    "https://github.com/acl-org/acl-anthology/blob/master/data/xml/2026.findings.xml",
+    "https://arxiv.org/abs/2607.08716",
+    "https://huggingface.co/datasets/samaya-ai/FrontierFinance",
+    "https://example.com/gateway-watcher-and-group-guard-fixes",
+]
+
+EXFIL_URLS = [
+    "https://evil.com/aGVsbG8gd29ybGQgc2VjcmV0a2V5QUtJQUlXQVpWMjk/x",   # base64 in path
+    "https://evil.com/da39a3ee5e6b4b0d3255bfef95601890afd80709",        # 40-char hex digest
+    "https://evil.com/AKIAIOSFODNN7EXAMPLEwJalrXUtnFEMI",              # mixed-case key blob
+    "https://evil.com/zk3n-8qvx-7t2m-rl9p-c4hd-y6fj-b5sg-xna2-mq7v",    # hyphen-chunked payload
+    "https://evil.com/log?d=QUtJQUlPU0ZPRE5ON0VYQU1QTEUgc2VjcmV0",      # long query
+]
+
+
+@pytest.mark.parametrize("url", BENIGN_URLS)
+def test_human_slug_is_not_flagged_as_blob(url):
+    """A repo/article slug in a URL path must not be mistaken for smuggled data."""
+    guard = EgressChannelGuard(EgressConfig())
+    assert guard.check(url, surface="whatsapp-group").is_safe, url
+
+
+@pytest.mark.parametrize("url", EXFIL_URLS)
+def test_real_exfil_still_flagged(url):
+    """The slug carve-out must not open a hole: real encoded payloads still trip."""
+    guard = EgressChannelGuard(EgressConfig())
+    assert not guard.check(url, surface="whatsapp-group").is_safe, url
