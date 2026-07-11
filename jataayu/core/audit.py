@@ -291,8 +291,6 @@ class SessionTrace:
     def _detect_sleeper_memory_flow_lineage(self) -> list[AuditFinding]:
         """TokenFlow lineage upgrade: memory write flow_id -> later read -> dangerous effect via source_flow_ids."""
         findings: list[AuditFinding] = []
-        # Build map flow_id -> event index for quick lookup
-        flow_to_event = {e.flow_id: e for e in self.events if e.flow_id}
         for e in self.events:
             if e.is_memory_write and e.source_flow_ids:
                 # If this memory write was built from untrusted flows, track its flow_id

@@ -32,10 +32,10 @@ Usage:
     if decision.decision == Decision.DENY: block
 """
 from __future__ import annotations
-import hashlib, uuid, json
+import hashlib
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 from jataayu.guards.effect_boundary import Provenance, EffectClass, Decision, EffectBoundary
 
 # Reuse classifier from EffectBoundary for effect severity mapping
@@ -159,7 +159,6 @@ class TokenFlowGuard:
         effect = effect_map.get(flow.sink_type, EffectClass.MEMORY_WRITE)
 
         is_untrusted = flow.source_provenance is Provenance.UNTRUSTED
-        cross_surface = flow.source_surface != flow.sink_surface
         audience_drift = flow.source_audience != flow.sink_audience and flow.source_audience in ("private","dm","direct") and flow.sink_audience in ("group","public","shared")
 
         audit = flow.to_dict()
