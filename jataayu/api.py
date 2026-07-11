@@ -495,8 +495,8 @@ def jataayu_audit_flow(
     sink_audience: str = "self",
     turn: int = 0,
     session_id: str = "session",
-    source_flow_ids: list[str] = None,
-    content: str = None,
+    source_flow_ids: Optional[list[str]] = None,
+    content: Optional[str] = None,
 ) -> dict:
     """
     Audit a token flow (source->sink) before it becomes a tool argument/memory write.

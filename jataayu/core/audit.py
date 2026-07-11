@@ -23,6 +23,7 @@ boundary so severity ordering and capability tags stay consistent.
 """
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
@@ -35,6 +36,12 @@ _CLASSIFIER = EffectBoundary()
 # Memory-read tool names (the recall side; the write side lives in effect_boundary).
 _MEMORY_READ_TOOLS = frozenset({
     "memory_read", "recall", "load_memory", "get_memory", "kv_get", "search_memory",
+    "memory.read", "memory.get", "memory.search",
+})
+
+_MEMORY_WRITE_TOOLS_AUDIT = frozenset({
+    "memory_write", "save_memory", "remember", "store_memory", "kv_set",
+    "memory_write", "memory.append", "memory_append", "memory.set", "memory.save",
 })
 
 # Effects that terminate a kill chain — where exfiltrated/poisoned data does harm.
@@ -158,7 +165,7 @@ class SessionTrace:
         turn: Optional[int] = None,
         summary: str = "",
         flow_id: str = "",
-        source_flow_ids: list[str] = None,
+        source_flow_ids: Optional[list[str]] = None,
         token_flow_audit: Optional[dict] = None,
     ) -> TraceEvent:
         """
@@ -185,6 +192,8 @@ class SessionTrace:
             self._auto_turn = max(self._auto_turn, turn)
 
         t = tool_name.strip().lower()
+        # Generate flow_id if not supplied (needed for TokenFlow lineage chaining)
+        resolved_flow_id = flow_id or uuid.uuid4().hex[:12]
         event = TraceEvent(
             index=len(self.events),
             turn=turn,
@@ -195,7 +204,7 @@ class SessionTrace:
             is_memory_read=t in _MEMORY_READ_TOOLS,
             is_memory_write=effect_class is EffectClass.MEMORY_WRITE,
             summary=summary,
-            flow_id=flow_id or "",
+            flow_id=resolved_flow_id,
             source_flow_ids=source_flow_ids or [],
             token_flow_audit=token_flow_audit,
         )
@@ -292,12 +301,14 @@ class SessionTrace:
         """TokenFlow lineage upgrade: memory write flow_id -> later read -> dangerous effect via source_flow_ids."""
         findings: list[AuditFinding] = []
         for e in self.events:
-            if e.is_memory_write and e.source_flow_ids:
-                # If this memory write was built from untrusted flows, track its flow_id
-                # Later events that reference it via source_flow_ids are tainted lineage
-                for later in self.events:
-                    if later.turn > e.turn and e.flow_id in later.source_flow_ids:
-                        if later.effect_class in _DANGEROUS_EFFECTS:
+            # Must be a memory write that (a) has lineage and (b) was itself untrusted / inbound-flagged —
+            # otherwise trusted memory carrying flow_ids would spuriously create HIGH findings (copilot comment).
+            if not (e.is_memory_write and e.source_flow_ids and (e.untrusted or e.inbound_flagged)):
+                continue
+            # Track its flow_id via later events referencing it
+            for later in self.events:
+                if later.turn > e.turn and e.flow_id in later.source_flow_ids:
+                    if later.effect_class in _DANGEROUS_EFFECTS:
                             findings.append(AuditFinding(
                                 pattern="sleeper_memory_flow_lineage",
                                 risk=AuditRisk.HIGH,

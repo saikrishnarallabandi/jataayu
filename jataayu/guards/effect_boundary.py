@@ -99,7 +99,7 @@ _CRITICAL_EFFECTS = frozenset({EffectClass.SHELL, EffectClass.CODE_EVAL, EffectC
 _APPROVAL_EFFECTS = frozenset({EffectClass.NETWORK, EffectClass.FILE_WRITE, EffectClass.MEMORY_WRITE})
 
 _CODE_EVAL_TOOLS = frozenset({"eval", "exec", "python_eval", "js_eval", "run_code", "code_interpreter"})
-_MEMORY_WRITE_TOOLS = frozenset({"memory_write", "save_memory", "remember", "store_memory", "kv_set"})
+_MEMORY_WRITE_TOOLS = frozenset({"memory_write", "save_memory", "remember", "store_memory", "kv_set", "memory.append", "memory_append", "memory.append", "memory.set", "memory.save"})
 _SKILL_WRITE_TOOLS = frozenset({"skill_write", "save_skill", "create_skill", "automation_write", "write_skill"})
 
 
@@ -204,9 +204,15 @@ class EffectBoundary:
             return EffectClass.MEMORY_WRITE
         if t in _SKILL_WRITE_TOOLS or t_norm in _SKILL_WRITE_TOOLS:
             return EffectClass.FILE_WRITE
-        if t in _FILE_WRITE_TOOLS or t_norm in _FILE_WRITE_TOOLS or t_norm in {"file_write","file_write","skill_write","automation_write"} or "_write" in t_norm:
+        # Explicit filesystem / persistence sinks only — no broad "_write" in t_norm heuristic
+        # (would misclassify e.g. "network_write" -> FILE_WRITE). Network write-like tools are
+        # covered by the NETWORK check below, and filesystem write aliases (file_write,
+        # skill_write, automation_write) are explicit.
+        if t in _FILE_WRITE_TOOLS or t_norm in _FILE_WRITE_TOOLS or t_norm in {"file_write", "skill_write", "automation_write"}:
             return EffectClass.FILE_WRITE
-        if t in _NETWORK_TOOLS or t_norm in _NETWORK_TOOLS:
+        # Network-effective tools: include common *_write aliases that were previously caught by the
+        # broad "_write" substring but should be NETWORK, not FILE_WRITE.
+        if t in _NETWORK_TOOLS or t_norm in _NETWORK_TOOLS or t_norm in {"network_write", "web_write"}:
             return EffectClass.NETWORK
         return EffectClass.READ
 

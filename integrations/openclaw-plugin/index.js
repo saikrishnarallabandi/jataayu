@@ -43,9 +43,11 @@ module.exports = {
     const python = config.python || DEFAULT_PYTHON;
     // For the group-surface path-leak REWRITE path (redact-not-block): call the same
     // model that generates replies. Defaults to the sai agent's primary (gpt-5.5).
-    const openclawBin = config.openclawBin || "/home/srallaba/.nvm/versions/node/v24.2.0/bin/openclaw";
+    // Portable default: use "openclaw" from PATH; machine-specific absolute path is config-only.
+    // Opt-in for rewrite per copilot data-exposure note (default OFF — explicit enable in pluginConfig).
+    const openclawBin = config.openclawBin || "openclaw";
     const rewriteModel = config.rewriteModel || "openai-codex/gpt-5.5";
-    const rewriteGroupPathLeaks = config.rewriteGroupPathLeaks !== false; // default ON
+    const rewriteGroupPathLeaks = config.rewriteGroupPathLeaks === true; // default OFF, explicit opt-in
     // Findings for which a group send is REWRITTEN (paths stripped) rather than hard-blocked.
     const PATH_ONLY_FINDINGS = new Set(["Absolute local filesystem path", "Internal repo doc path"]);
     const jataayuPath = config.jataayuPath || "";

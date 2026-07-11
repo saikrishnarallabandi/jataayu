@@ -36,10 +36,9 @@ import hashlib
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from jataayu.guards.effect_boundary import Provenance, EffectClass, Decision, EffectBoundary
+from jataayu.guards.effect_boundary import Provenance, EffectClass, Decision
 
-# Reuse classifier from EffectBoundary for effect severity mapping
-_CLASSIFIER = EffectBoundary()
+# Note: EffectBoundary imported only for EffectClass/Decision/Provenance vocab. No runtime _CLASSIFIER instance needed in Slice 1 (keeps guard minimal / auditable).
 
 class FlowRisk(Enum):
     LOW = "low"

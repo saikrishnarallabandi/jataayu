@@ -152,15 +152,9 @@ INJECTION_PATTERNS: list[tuple[str, ThreatType, float, str]] = [
     # ===========================================================================
     # PROMPT INJECTION — Delimiter injection (PROMPT_INJECTION_006)
     # ===========================================================================
-    # PI-006 was the P0 false-positive on AgentDojo workspace no-attack (2026-07-10):
-    # Benign email concatenation uses "---" separators + "ignore this email" (standard
-    # password-reset / security-code disclaimer). The prior pattern flagged that as
-    # delimiter injection (score 0.88) → BLOCKED → utility 47.5%→25% for gpt-5.4-mini
-    # even with no attack. Fix: require the trigger verb to be followed by an
-    # instruction-object (ignore [all previous] instructions/rules/context/etc),
-    # not a bare "ignore this email/message/notification". Benign boilerplate like
-    # "ignore this email if you didn't request..." should never fire this pattern.
-    # The more specific object constraint mirrors the fix already in _MARKDOWN_INJECTION_KEYWORDS.
+    # PI-006 false-positive on AgentDojo workspace no-attack (2026-07-10): benign email concat uses
+    # "---" separators + "ignore this email" boilerplate → BLOCKED 47.5%->25% tax gpt-5.4-mini.
+    # Tightened to require instruction-object, not bare "ignore this email/message".
     (
         r"(---+|===+|<<<|>>>|<<<END|ENDOFTEXT|<\|endoftext\|>|END_OF_CONVERSATION)\s*\n.*?"
         r"(ignore|forget|override|bypass|discard)\s+"
