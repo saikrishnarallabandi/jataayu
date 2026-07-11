@@ -48,7 +48,9 @@ Returns a standard ``ThreatResult`` so it composes with the OutboundGuard.
 from __future__ import annotations
 
 import re
+import math
 import urllib.parse
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -114,6 +116,10 @@ class EgressConfig:
     flag_external_links: bool = False
     min_query_len: int = 24
     min_blob_len: int = 16
+    # A kebab/snake-case path segment below this entropy is treated as a human-readable
+    # slug (repo name, article slug), not smuggled data. See _is_human_slug -- entropy
+    # alone cannot separate these, so shape is checked first and this is the safety cap.
+    max_slug_entropy: float = 4.2
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +136,47 @@ _HTML_IMG = re.compile(r"<img\b[^>]*?\bsrc\s*=\s*['\"]([^'\"]+)['\"]", re.IGNORE
 _BARE_URL = re.compile(r"(?<![\(\"'=])\bhttps?://[^\s\)\]\"'<>]+")
 
 _SCHEME_ALLOWED = ("http://", "https://")
+
+
+_KEBAB_SLUG = re.compile(r"^[a-z0-9]+([-_][a-z0-9]+)+$")
+
+
+def _shannon(s: str) -> float:
+    """Bits of entropy per character."""
+    n = len(s)
+    if n <= 1:
+        return 0.0
+    counts = Counter(s)
+    return -sum((c / n) * math.log2(c / n) for c in counts.values())
+
+
+def _is_human_slug(seg: str, max_entropy: float) -> bool:
+    """Is this path segment a human-readable slug rather than smuggled data?
+
+    The blob regex is ``[A-Za-z0-9+/=_-]{16,}``, and hyphens are in that charset, so
+    ANY repo/article slug of 24+ chars fullmatches it. That made the guard flag a plain
+    ``github.com/<user>/project-frontierfinance-sidecar-slm/issues/4`` as "an encoded blob
+    in the URL path" and hard-block the message. Judith was structurally unable to post a
+    GitHub link into a group chat; 5 group messages were silently dropped on 2026-07-10/11.
+
+    Entropy alone CANNOT separate these -- measured on real samples:
+
+        project-frontierfinance-sidecar-slm      H=3.84   (benign)
+        openclaw-watcher-and-group-guard-fixes   H=4.06   (benign)
+        da39a3ee5e6b4b0d3255bfef95601890afd80709 H=3.74   (a 40-char SHA -- LOWER than the slugs)
+
+    A threshold that clears the slugs would also clear a hex SHA. What does separate them
+    cleanly is *shape*: a human slug is lowercase kebab/snake case, while base64, hex digests
+    and key-like blobs are not (mixed case, or no separators at all). So we require BOTH --
+    kebab/snake shape AND entropy below a ceiling, so a deliberately hyphen-chunked
+    high-entropy payload (``zk3n-8qvx-7t2m-rl9p``) still trips the guard.
+
+    This narrows a false positive; it does not open a hole. Query strings, percent-encoded
+    payloads, blobs in query values, protected names and known secrets are all still checked.
+    """
+    if not _KEBAB_SLUG.match(seg):
+        return False
+    return _shannon(seg) < max_entropy
 
 
 def _clean_url(raw: str) -> str:
@@ -352,8 +399,13 @@ class EgressChannelGuard:
             return True, "a percent-encoded payload in the query"
         # encoded blob smuggled in the path
         for seg in path.split("/"):
-            if self._blob.fullmatch(seg) and len(seg) >= max(self.config.min_blob_len, 24):
-                return True, "an encoded blob in the URL path"
+            if not self._blob.fullmatch(seg):
+                continue
+            if len(seg) < max(self.config.min_blob_len, 24):
+                continue
+            if _is_human_slug(seg, self.config.max_slug_entropy):
+                continue
+            return True, "an encoded blob in the URL path"
         return False, ""
 
     @staticmethod
