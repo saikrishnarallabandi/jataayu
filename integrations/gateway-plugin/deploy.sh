@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy the Jataayu gateway plugin -- index.js, the manifest, AND modules/.
+# Deploy the Jataayu gateway plugin -- index.js, the manifest, tests, package metadata, AND modules/.
 # Use THIS -- never a bare `cp` in one direction.
 #
 # WHY THE WHOLE DIRECTORY:
@@ -58,10 +58,12 @@ mkdir -p "$DST"
 [[ -f "$DST/index.js" ]] && cp "$DST/index.js" "$DST/index.js.bak-$(date -u +%Y%m%dT%H%M%SZ)"
 cp "$SRC/index.js" "$DST/index.js"
 [[ -f "$SRC/gateway.plugin.json" ]] && cp "$SRC/gateway.plugin.json" "$DST/gateway.plugin.json"
+[[ -f "$SRC/package.json" ]] && cp "$SRC/package.json" "$DST/package.json"
+[[ -f "$SRC/outbound-scrub.test.js" ]] && cp "$SRC/outbound-scrub.test.js" "$DST/outbound-scrub.test.js"
 rm -rf "$DST/modules"
 cp -r "$SRC/modules" "$DST/modules"
 
-echo "deployed -> $DST (index.js + manifest + $(ls "$DST/modules" | wc -l) modules)"
+echo "deployed -> $DST (index.js + manifest + package/test + $(ls "$DST/modules" | wc -l) modules)"
 echo
 echo "now:  gateway gateway restart"
 echo "then confirm all four hooks are live:"
