@@ -46,8 +46,32 @@ module.exports = {
     // separate plugin (registers hooks only, no tools -- it never appeared in the loaded set).
     // Piggy-backing on Jataayu is coherent: this IS the outbound guard, and it already owns the
     // message_sending hook. Wrapped so a fault in it can never take Jataayu -- or comms -- down.
+    // ---- group-capture (2026-07-11) --------------------------------------------------
+    // The WhatsApp group shadow-log, moved OFF the hand-patched monitor-*.js bundle onto
+    // the supported `message_received` hook (opt-in via channels.whatsapp.pluginHooks).
+    // The 2026.6.11 upgrade finally wiped that patch -- the bundle changed shape, so the
+    // saved hunks no longer even apply. With this, ZERO hand-patched bundles remain.
     try {
-      require('../dm-guard/index.js').activate(api);
+      require('./modules/group-capture/index.js').activate(api);
+    } catch (e) {
+      try { console.error(`[jataayu] group-capture activate failed (comms unaffected): ${e.message}`); } catch (_) {}
+    }
+
+    // ---- group-guard (2026-07-11) ----------------------------------------------------
+    // The group-pin gate, moved OFF the hand-patched whatsapp dist bundle onto the
+    // supported `before_dispatch` hook. The dist patch is deleted by any gateway update
+    // (re-unpacked from its tarball) and it fails OPEN -- every groupAllowFrom number would
+    // silently gain access to every group. Activated from here for the same reason as
+    // dm-guard: a hooks-only plugin registers no tools, so the gateway never loads it
+    // standalone. Wrapped so a fault in it can never take Jataayu -- or comms -- down.
+    try {
+      require('./modules/group-guard/index.js').activate(api);
+    } catch (e) {
+      try { console.error(`[jataayu] group-guard activate failed (comms unaffected): ${e.message}`); } catch (_) {}
+    }
+
+    try {
+      require('./modules/dm-guard/index.js').activate(api);
       console.error('[jataayu] dm-guard hooks activated');
     } catch (e) {
       try { console.error(`[jataayu] dm-guard failed to activate (continuing): ${e.message}`); } catch (_) {}
