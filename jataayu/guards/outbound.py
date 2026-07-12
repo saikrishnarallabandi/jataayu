@@ -1029,9 +1029,22 @@ class OutboundGuard(JataayuEngine):
         for name_pattern in self._compiled_names:
             redacted = name_pattern.sub("[REDACTED]", redacted)
 
-        # Redact obvious PII patterns (high-confidence only)
+        # Redact PII patterns: the high-confidence ones unconditionally, PLUS anything that actually
+        # fired on this text.
+        #
+        # The score >= 0.75 filter alone was a hole of the same shape as the one below: a finding
+        # that is DETECTED but not REMOVABLE. An email and a phone number score under 0.75, so they
+        # would raise the risk out of CLEAN — blocking the send — and then survive the redaction that
+        # was supposed to rescue it, so re-screening failed and the message was withheld. Nothing
+        # that can stop a message may be beyond the reach of the thing that repairs it.
+        #
+        # Keyed on matched_patterns rather than on score, so we only strip what genuinely fired
+        # rather than carpet-redacting every low-confidence pattern in the library.
+        fired = set(fast_result.matched_patterns or [])
         for pattern, _, score, desc, cats in _COMPILED_PII:
-            if score >= 0.75 and set(cats).intersection(self.config.check_categories):
+            if not set(cats).intersection(self.config.check_categories):
+                continue
+            if score >= 0.75 or desc in fired:
                 redacted = pattern.sub("[REDACTED]", redacted)
 
         # Redact credential patterns (always, when credentials are enabled)
