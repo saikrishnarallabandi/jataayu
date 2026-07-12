@@ -114,7 +114,12 @@ const DEFAULTS = {
   burstDropSameTurn: false,
   burstWindowSec: 150,
 
-  ownerRecipients: ["+15550000001", "100000000000000001"],
+  // Owner DM addresses. NO DEFAULT ON PURPOSE — this is a public repo and these are personal
+  // contact details (they were hardcoded here until 2026-07-11). Supply them in gateway.json
+  // under plugins.entries.jataayu.config.dmGuard.ownerRecipients. With none configured, the
+  // owner-DM rules simply do not match, which fails OPEN (nothing is suppressed) — consistent
+  // with design rule 1.
+  ownerRecipients: [],
   keepSent: 500,
   keepInbound: 200,
 };
@@ -438,7 +443,7 @@ module.exports = {
         const c = String(r.convo || "");
         if (!c) continue;
         // Loose match: an id is formatted differently inbound vs outbound
-        // (e.g. "15550000001@s.whatsapp.net" vs "+15550000001").
+        // (e.g. "15551234567@s.whatsapp.net" vs "+15551234567").
         if (c === toKey || toKey.includes(c) || c.includes(toKey)) {
           if (r.ts > best) best = r.ts;
         }

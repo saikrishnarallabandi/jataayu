@@ -13,7 +13,7 @@ const assert = require("assert");
 const plugin = require("./index.js");
 
 const GROUP = "100000000000000001@g.us";
-const SAI_DM = "+15550000001";
+const SAI_DM = "+15551234567";                 // fictional — never a real number in a public repo
 
 let pass = 0, fail = 0;
 const ok = (name) => { pass++; console.log(`  PASS  ${name}`); };
@@ -36,7 +36,7 @@ function makeGuard(overrides, memDirIn) {
       // allowReactivate: the plugin refuses a second activate() in one process (that would
       // double-register the hook); the suite deliberately activates many isolated instances.
       dmGuard: Object.assign(
-        { memDir, ownerRecipients: [SAI_DM, "100000000000000001"], allowReactivate: true },
+        { memDir, ownerRecipients: [SAI_DM, "100000000000000000"], allowReactivate: true },
         overrides || {}),
     },
     on: (name, handler) => { (hooks[name] = hooks[name] || []).push(handler); },
