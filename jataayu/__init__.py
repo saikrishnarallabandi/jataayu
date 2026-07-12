@@ -21,10 +21,11 @@ __version__ = "0.3.0"
 
 from jataayu.core.threat import ThreatResult, ThreatLevel, ThreatType
 from jataayu.guards.inbound import InboundGuard
-from jataayu.guards.outbound import OutboundGuard, PrivacyConfig
+from jataayu.guards.outbound import OutboundGuard, PrivacyConfig, RecoveryResult
 from jataayu.api import (
     jataayu_check_inbound,
     jataayu_check_outbound,
+    jataayu_recover_outbound,
     jataayu_check_tool_return,
     jataayu_check_memory_write,
     jataayu_check_memory_read,
@@ -46,6 +47,9 @@ __all__ = [
     # Public convenience API (dict return format)
     "jataayu_check_inbound",
     "jataayu_check_outbound",
+    # Send-site recovery: rewrite-to-send instead of refuse-to-send
+    "jataayu_recover_outbound",
+    "RecoveryResult",
     # Execution-context surfaces (tool returns + persistent memory)
     "jataayu_check_tool_return",
     "jataayu_check_memory_write",
