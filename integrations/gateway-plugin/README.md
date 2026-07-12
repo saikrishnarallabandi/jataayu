@@ -3,7 +3,8 @@
 Wires Jataayu into the gateway agent gateway (the "Judith pipeline") as an **enforced**
 security layer — not an advisory tool the model can skip.
 
-Deployed at `~/.gateway/plugins/jataayu/`; this is the version-controlled copy.
+Source of truth lives here in the Jataayu repo. Deployed copies at
+`~/.gateway/plugins/jataayu/` should be regenerated from this directory via `./deploy.sh`.
 
 ## What it does
 1. **Enforced inbound gate** (`registerHook("before_agent_run", ...)`): runs Jataayu's inbound

@@ -1,0 +1,9 @@
+{
+  "name": "gateway-plugin-jataayu",
+  "version": "0.1.0",
+  "description": "Jataayu security guard plugin for gateway",
+  "main": "index.js",
+  "scripts": {
+    "test": "node outbound-scrub.test.js"
+  }
+}
