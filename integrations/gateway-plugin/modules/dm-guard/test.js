@@ -12,7 +12,7 @@ const assert = require("assert");
 
 const plugin = require("./index.js");
 
-const GROUP = "100000000000000001@g.us";
+const GROUP = "100000000000000001@g.us";   // fictional — never a real group id in a public repo
 const SAI_DM = "+15551234567";                 // fictional — never a real number in a public repo
 
 let pass = 0, fail = 0;
