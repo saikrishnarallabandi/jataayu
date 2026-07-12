@@ -20,10 +20,45 @@
 # the deployed copy drifted AHEAD of this repo three separate times on 2026-07-11
 # (decline-on-block, the dm-guard wiring, the group-guard/group-capture wiring). Each time it
 # was one careless `cp` away from being reverted with no error and no log line.
+#
+# ./deploy.sh --verify  -- check only: is the live plugin the plugin this repo says it is?
+# A copy nobody checks is a copy that lies. project_ascent/plugins/verify.sh deliberately does NOT
+# cover jataayu (it lives here, and duplicating it would create the second source of truth that
+# script exists to prevent) -- it says "verify it there", and until now there was no there. This is
+# it. project_ascent/scripts/health.py calls this every 30 min, so drift has a 30-minute lifetime.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
 DST="$HOME/.openclaw/plugins/jataayu"
+
+if [[ "${1:-}" == "--verify" ]]; then
+  drift=0
+  if [[ ! -d "$DST" ]]; then
+    echo "MISSING LIVE  jataayu -- not deployed to $DST"
+    exit 1
+  fi
+  check() {  # repo file -> live file
+    local rel="$1"
+    if [[ ! -f "$DST/$rel" ]]; then echo "MISSING LIVE  jataayu/$rel"; drift=1; return; fi
+    if ! diff -q "$SRC/$rel" "$DST/$rel" >/dev/null 2>&1; then
+      echo "DRIFT         jataayu/$rel -- live differs from repo"; drift=1
+    fi
+  }
+  check index.js
+  [[ -f "$SRC/openclaw.plugin.json" ]] && check openclaw.plugin.json
+  [[ -f "$SRC/package.json" ]] && check package.json
+  for f in "$SRC"/modules/*/index.js; do
+    check "modules/$(basename "$(dirname "$f")")/index.js"
+  done
+  if [[ "$drift" -eq 0 ]]; then
+    echo "clean -- the live jataayu plugin matches this repo."
+    exit 0
+  fi
+  echo
+  echo "JATAAYU PLUGIN DRIFT. The live guard is not what this repo says it is."
+  echo "  repo -> live:  $SRC/deploy.sh"
+  exit 1
+fi
 
 if [[ -f "$DST/index.js" ]] && ! diff -q "$SRC/index.js" "$DST/index.js" >/dev/null 2>&1; then
   if [[ "$DST/index.js" -nt "$SRC/index.js" ]]; then
