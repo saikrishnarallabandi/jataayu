@@ -4,6 +4,6 @@
   "description": "Jataayu security guard plugin for OpenClaw",
   "main": "index.js",
   "scripts": {
-    "test": "node outbound-scrub.test.js"
+    "test": "node outbound-recover.test.js"
   }
 }

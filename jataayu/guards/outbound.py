@@ -89,7 +89,10 @@ class PrivacyConfig:
     # Whether to run high-entropy string detection (may have false positives)
     check_high_entropy: bool = False
 
-    # LLM backend (OpenAI-compatible API URL)
+    # LLM backend. `llm_backend` selects the transport (ollama | openai | anthropic | openclaw);
+    # "openclaw" talks straight to the local gateway over HTTP and reuses its provider auth, so the
+    # rewrite runs on the same model that wrote the reply.
+    llm_backend: Optional[str] = None
     llm_url: Optional[str] = None
     llm_token: Optional[str] = None
     llm_model: str = "gpt-4o-mini"
@@ -495,6 +498,80 @@ OUTPUT RULES:
 4. Never add explanation, preamble, or commentary. Output ONLY the cleaned text or BLOCKED.
 """
 
+# Rewrite-to-send prompt (2026-07-12). Distinct from _LLM_SYSTEM_PROMPT above, which is a
+# CHECK/redact prompt and is allowed to answer "BLOCKED". This one is never allowed to refuse:
+# its only job is to return a SENDABLE version of the message. Refusing is the failure mode we
+# are here to remove — a recipient who asked a question is owed an answer, not an apology.
+_RECOVER_SYSTEM_PROMPT = """You are Jataayu's outbound privacy rewriter.
+
+A message is about to be sent to a shared surface (a group chat, a public channel). A privacy
+scanner flagged parts of it. Your job is to REWRITE the message so it is safe to send — NOT to
+refuse, and NOT to explain yourself.
+
+Rewrite these away:
+- Absolute filesystem paths (/home/..., /home2/..., /Users/...) → the bare filename only
+  (e.g. "/home2/x/projects/jataayu/guards/outbound.py" → "outbound.py")
+- Internal repo doc paths (docs/foo/bar.md) → the bare filename ("bar.md")
+- Internal codenames, project scaffolding, agent bookkeeping → a plain generic description
+- Protected/personal names → a role ("a family member") or drop them
+- Personal data: home address, phone, email, financial or health details → remove or generalize
+- Private/internal URLs, localhost and LAN addresses → drop them
+
+Keep EVERYTHING else exactly as it was: every fact, the tone, the formatting, the emoji, the
+answer itself. The reader should get a real answer that simply does not name private things.
+
+HARD RULES:
+- NEVER refuse. NEVER say you cannot help, cannot share, or are withholding something.
+- NEVER mention the privacy scanner, the guard, or that anything was removed.
+- Do NOT add a preamble, an apology, or commentary.
+- Output ONLY the rewritten message text.
+"""
+
+
+def _basename_only(match: re.Match) -> str:
+    """Collapse a leaked path to its bare filename.
+
+    "/home2/srallaba/projects/jataayu/guards/outbound.py" → "outbound.py"
+
+    A path is redacted to its LAST segment rather than to "[REDACTED]" on purpose: it keeps the
+    sentence useful ("the guard lives in outbound.py") instead of gutting it. The private part of
+    a path is the directory tree — the filename alone reveals nothing about the machine.
+    """
+    tail = match.group(0).rstrip("/").rsplit("/", 1)[-1]
+    return tail or "[local path]"
+
+
+# How each internal-context finding is neutralised when redacting instead of blocking.
+# Anything not listed here collapses to a generic marker.
+_INTERNAL_REDACTORS = {
+    "Absolute local filesystem path": _basename_only,
+    "Internal repo doc path": _basename_only,
+}
+_INTERNAL_DEFAULT_REDACTION = "[internal]"
+
+
+@dataclass
+class RecoveryResult:
+    """Outcome of `OutboundGuard.recover()` — what to actually put on the wire.
+
+    `action` is the whole contract:
+      "send"     → put `text` on the wire (it has been re-screened and is clean)
+      "withhold" → send nothing; `withheld_category` says why
+    """
+
+    text: str
+    action: str  # "send" | "withhold"
+    changed: bool
+    findings: list[str] = field(default_factory=list)
+    reason: str = ""
+    stages: list[str] = field(default_factory=list)
+    llm_used: bool = False
+    withheld_category: Optional[str] = None  # "credential" | "unrecoverable"
+
+    @property
+    def safe(self) -> bool:
+        return self.action == "send"
+
 
 class OutboundGuard(JataayuEngine):
     """
@@ -525,6 +602,15 @@ class OutboundGuard(JataayuEngine):
         llm_backend: Optional[LLMBackend] = None,
     ):
         cfg = config or PrivacyConfig()
+        # Honour the llm_* fields on PrivacyConfig. They existed but were never read — the config
+        # object advertised a knob that did nothing, so every caller silently got the env default.
+        if llm_backend is None and (cfg.llm_backend or cfg.llm_url or cfg.llm_token):
+            llm_backend = LLMBackend(
+                backend=cfg.llm_backend,
+                model=cfg.llm_model,
+                base_url=cfg.llm_url,
+                api_key=cfg.llm_token,
+            )
         super().__init__(
             llm_backend=llm_backend,
             use_llm=cfg.use_llm,
@@ -586,45 +672,147 @@ class OutboundGuard(JataayuEngine):
 
         return fast_result
 
+    def recover(
+        self,
+        text: str,
+        surface: str = "public",
+        *,
+        max_attempts: int = 2,
+    ) -> RecoveryResult:
+        """
+        Make outbound text SENDABLE rather than refusing to send it.
+
+        This is the method the wire should call. `check()` answers "is this safe?" and, for a
+        hard leak, the answer is simply "no" — which historically left the caller with nothing to
+        say. Silence is its own failure: the agent believes it replied and the recipient is left
+        staring at nothing, or at a canned apology that answers no question at all.
+
+        `recover()` answers the more useful question: "what CAN I send?" The LLM decides what is
+        sensitive and rephrases it away; the rewrite is then re-screened, and only text that
+        passes a fresh `check()` is ever returned for sending.
+
+        The ladder:
+          1. Already clean            → send as-is.
+          2. Credential leak          → WITHHOLD. Hard floor, never rephrased (see below).
+          3. LLM rephrase             → re-screen; residue is fed back and retried.
+          4. Deterministic redaction  → safety net for when the LLM is unreachable or its rewrite
+                                        still leaks. Not an optimisation — a floor.
+          5. Nothing came back clean  → WITHHOLD, honestly.
+
+        The credential floor is deliberate and is the one thing that does not get rephrased. A
+        leaked path is embarrassing and reversible; a leaked API key is neither. We would rather
+        withhold the message and tell the operator than hand a live secret to an LLM and hope.
+
+        Args:
+            text: The draft the agent wants to send.
+            surface: Target surface (drives strictness).
+            max_attempts: How many LLM rewrite rounds before falling back to redaction.
+
+        Returns:
+            RecoveryResult. Send `.text` iff `.safe`.
+        """
+        result = self.check(text, surface)
+        if result.is_safe:
+            return RecoveryResult(text=text, action="send", changed=False, reason="already clean")
+
+        findings = list(result.matched_patterns)
+
+        if ThreatType.CREDENTIAL_LEAK in result.threat_types:
+            return RecoveryResult(
+                text="",
+                action="withhold",
+                changed=False,
+                findings=findings,
+                reason="credential leak — withheld rather than rephrased",
+                withheld_category="credential",
+            )
+
+        stages: list[str] = []
+        llm_used = False
+
+        if self.use_llm:
+            candidate = text
+            for _ in range(max_attempts):
+                rewritten = self._llm_recover(candidate, surface, findings)
+                if not rewritten or rewritten == "[LLM_UNAVAILABLE]":
+                    stages.append("llm-unavailable")
+                    break
+
+                llm_used = True
+                stages.append("llm-rephrase")
+                recheck = self.check(rewritten, surface)
+
+                if recheck.is_safe:
+                    return RecoveryResult(
+                        text=rewritten,
+                        action="send",
+                        changed=True,
+                        findings=findings,
+                        reason="rephrased by the LLM and re-screened clean",
+                        stages=stages,
+                        llm_used=True,
+                    )
+
+                # A rewrite that invents a credential is not a rewrite we retry.
+                if ThreatType.CREDENTIAL_LEAK in recheck.threat_types:
+                    return RecoveryResult(
+                        text="",
+                        action="withhold",
+                        changed=True,
+                        findings=list(recheck.matched_patterns),
+                        reason="rewrite still carried a credential — withheld",
+                        stages=stages,
+                        llm_used=True,
+                        withheld_category="credential",
+                    )
+
+                # Feed the residue back so the next round targets what actually survived.
+                candidate = rewritten
+                findings = list(recheck.matched_patterns)
+
+        # Safety net. The LLM is the primary path, but it is a network call to a model that can be
+        # slow, down, or simply wrong — and a guard that only works when the model cooperates is
+        # not a guard. Deterministic redaction removes everything the patterns can see.
+        redacted = self._regex_redact(text, result)
+        stages.append("redact")
+        recheck = self.check(redacted, surface)
+        if recheck.is_safe:
+            return RecoveryResult(
+                text=redacted,
+                action="send",
+                changed=True,
+                findings=findings,
+                reason="deterministic redaction (LLM unavailable or its rewrite still leaked)",
+                stages=stages,
+                llm_used=llm_used,
+            )
+
+        return RecoveryResult(
+            text="",
+            action="withhold",
+            changed=True,
+            findings=list(recheck.matched_patterns),
+            reason=f"still leaking after {' → '.join(stages)}: {recheck.explanation}",
+            stages=stages,
+            llm_used=llm_used,
+            withheld_category="unrecoverable",
+        )
+
     def sanitize(self, text: str, surface: str = "public") -> str:
         """
         Sanitize outbound text, removing or redacting privacy violations.
 
-        Args:
-            text: Text to sanitize.
-            surface: Target surface.
+        Thin wrapper over `recover()`. Prefer `recover()` at a real send site — it tells you WHY
+        something was withheld, which is the difference between alerting the operator about a
+        leaked credential and silently dropping a message.
 
         Returns:
-            Sanitized text string. Returns "[BLOCKED]" if content was fully blocked.
-
-        Raises:
-            RuntimeError: If LLM is unavailable and manual redaction fails.
+            Sanitized text, or a "[BLOCKED — …]" marker if nothing could be salvaged.
         """
-        result = self.check(text, surface)
-
-        if result.is_safe:
-            return text
-
-        if result.blocked and not self.use_llm:
-            # In no-LLM mode, attempt regex redaction before fully blocking
-            redacted = self._regex_redact(text, result)
-            if redacted != text:
-                return redacted
-            return "[BLOCKED — content contained only sensitive private information]"
-
-        if result.blocked:
-            return "[BLOCKED — content contained only sensitive private information]"
-
-        # Need sanitization — try LLM first
-        if self.use_llm:
-            sanitized = self._llm_sanitize(text, surface)
-            if sanitized and sanitized != "[LLM_UNAVAILABLE]":
-                if sanitized == "BLOCKED":
-                    return "[BLOCKED — content contained only sensitive private information]"
-                return sanitized
-
-        # Fallback: regex-based redaction
-        return self._regex_redact(text, result)
+        outcome = self.recover(text, surface)
+        if outcome.safe:
+            return outcome.text
+        return "[BLOCKED — content contained only sensitive private information]"
 
     def _fast_path(self, text: str, surface: str) -> ThreatResult:
         """Pattern-based privacy and credential scan."""
@@ -797,6 +985,29 @@ class OutboundGuard(JataayuEngine):
             llm_used=True,
         )
 
+    def _llm_recover(self, text: str, surface: str, findings: list[str]) -> str:
+        """Ask the LLM to rewrite the text into something SENDABLE. Never returns 'BLOCKED'.
+
+        Returns the rewrite, or "[LLM_UNAVAILABLE]" if the backend could not be reached.
+        """
+        flagged = "; ".join(findings[:8]) if findings else "unspecified private information"
+        user_msg = (
+            f"Surface: {surface}\n"
+            f"The scanner flagged: {flagged}\n"
+            f"Names that must never appear: {', '.join(self.config.protected_names) or 'none'}\n\n"
+            f"Rewrite this message so it is safe to send:\n---\n{text[:4000]}\n---"
+        )
+        result = self._call_llm(_RECOVER_SYSTEM_PROMPT, user_msg)
+        if result.startswith("[LLM unavailable"):
+            return "[LLM_UNAVAILABLE]"
+
+        rewritten = result.strip()
+        # The rewriter is told never to refuse, but it is still a model. If it refuses anyway, treat
+        # that as no answer at all rather than sending an apology we did not ask for.
+        if not rewritten or rewritten.upper().startswith("BLOCKED"):
+            return "[LLM_UNAVAILABLE]"
+        return rewritten
+
     def _llm_sanitize(self, text: str, surface: str) -> str:
         """Ask the LLM to rewrite/redact the text. Returns sanitized text or 'BLOCKED'."""
         user_msg = (
@@ -829,6 +1040,21 @@ class OutboundGuard(JataayuEngine):
             for pattern, _, score, desc, rule_id in _COMPILED_CRED:
                 if rule_id not in disabled:
                     redacted = pattern.sub("<REDACTED>", redacted)
+
+        # Redact the internal-context denylist — paths, codenames, agent scaffolding.
+        #
+        # These were MISSING here until 2026-07-12, and their absence was the whole bug: they are
+        # scored 0.95, so they are exactly the findings that make check() return BLOCKED, and yet
+        # the redactor that was supposed to rescue a blocked message could not touch them. The
+        # "sanitized" text came back still carrying the path, failed re-screening, and every
+        # caller was left with nothing to send. Redaction that cannot remove the thing that
+        # blocked you is not redaction.
+        internal_patterns = list(_COMPILED_INTERNAL)
+        if not _is_gtm_surface(fast_result.surface):
+            internal_patterns += _COMPILED_SOCIAL_ONLY
+        for pattern, _tt, _score, desc in internal_patterns:
+            replacement = _INTERNAL_REDACTORS.get(desc, _INTERNAL_DEFAULT_REDACTION)
+            redacted = pattern.sub(replacement, redacted)
 
         # Neutralize exfiltration-channel URLs (keep text, drop the channel)
         if self._egress_guard is not None:

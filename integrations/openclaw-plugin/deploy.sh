@@ -44,9 +44,9 @@ for m in group-guard dm-guard; do
       || { echo "FAILED -- not deploying"; exit 1; }
   fi
 done
-if [[ -f "$SRC/outbound-scrub.test.js" ]]; then
-  printf 'testing %-14s' "outbound-scrub"
-  (cd "$SRC" && node outbound-scrub.test.js >/dev/null 2>&1) \
+if [[ -f "$SRC/outbound-recover.test.js" ]]; then
+  printf 'testing %-14s' "outbound-recover"
+  (cd "$SRC" && node outbound-recover.test.js >/dev/null 2>&1) \
     && echo "ok" \
     || { echo "FAILED -- not deploying"; exit 1; }
 fi
@@ -59,7 +59,7 @@ mkdir -p "$DST"
 cp "$SRC/index.js" "$DST/index.js"
 [[ -f "$SRC/openclaw.plugin.json" ]] && cp "$SRC/openclaw.plugin.json" "$DST/openclaw.plugin.json"
 [[ -f "$SRC/package.json" ]] && cp "$SRC/package.json" "$DST/package.json"
-[[ -f "$SRC/outbound-scrub.test.js" ]] && cp "$SRC/outbound-scrub.test.js" "$DST/outbound-scrub.test.js"
+[[ -f "$SRC/outbound-recover.test.js" ]] && cp "$SRC/outbound-recover.test.js" "$DST/outbound-recover.test.js"
 rm -rf "$DST/modules"
 cp -r "$SRC/modules" "$DST/modules"
 

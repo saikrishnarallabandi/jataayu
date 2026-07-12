@@ -19,69 +19,30 @@ function runPython(python, script, timeoutMs = 10000) {
     });
   });
 }
-// One-shot inference via the OpenClaw CLI (reuses gateway-managed provider auth,
-// so the rewrite runs on the SAME model that generated the reply, e.g. gpt-5.5).
-function runInfer(bin, model, prompt, timeoutMs = 45000) {
-  return new Promise((resolve, reject) => {
-    execFile(bin, ["infer", "model", "run", "--gateway", "--json", "--model", model, "--prompt", prompt],
-      { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
-        if (err) return reject(new Error(stderr || err.message));
-        try {
-          const d = JSON.parse(stdout);
-          const text = d && d.ok && Array.isArray(d.outputs) && d.outputs[0] && d.outputs[0].text;
-          if (text && String(text).trim()) resolve(String(text).trim());
-          else reject(new Error("infer: empty output"));
-        } catch (e) { reject(new Error("infer: bad json: " + e.message)); }
-      });
-  });
+// Fire-and-forget operator alert. Used only when a send is WITHHELD for a credential leak — the
+// one finding class the guard refuses to rewrite. Detached and never awaited: an alert must not be
+// able to delay, block, or fail a message send.
+function alertOwner(bin, target, message) {
+  try {
+    const child = execFile(
+      bin,
+      ["message", "send", "--channel", "discord", "--target", target, "--message", message],
+      { timeout: 30000 },
+      () => {},
+    );
+    if (child && typeof child.unref === "function") child.unref();
+  } catch (_) {}
 }
 
-const scrubRegExp = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const replaceToken = (text, pattern, replacement, hits, label) =>
-  text.replace(pattern, (match) => {
-    hits.add(label);
-    const suffix = /[.,;:!?)]$/.test(match) ? match.slice(-1) : "";
-    return replacement + suffix;
-  });
-
-function scrubOutboundText(text, protectedNames = []) {
-  const hits = new Set();
-  let out = String(text || "");
-
-  out = replaceToken(out, /\b(?:https?:\/\/|git@)(?:localhost|127(?:\.\d{1,3}){3}|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|[^/\s'"`)]+\.local)(?::\d+)?[^\s'"`)]*/gi, "[internal url]", hits, "internal-url");
-  out = replaceToken(out, /\b(?:https?:\/\/github\.com\/saikrishnarallabandi\/judith_memories|git@github\.com:saikrishnarallabandi\/judith_memories)(?:[^\s'"`)]*)?/gi, "[internal repo]", hits, "internal-repo-url");
-  out = replaceToken(out, /\bfile:\/\/\/[^\s'"`)]*/gi, "[local path]", hits, "local-path");
-  out = replaceToken(out, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[email]", hits, "email");
-  out = replaceToken(out, /\+?\d[\d\s().-]{8,}\d\b/g, "[phone]", hits, "phone");
-  out = out.replace(/(^|[\s([{<`"'])\/(?:home|home2|Users|var|opt|srv|tmp|private|mnt|Volumes|workspace|[A-Za-z0-9._-]+)(?:\/[^\s'"`)\]}>,;:!?]+)+/g, (match, prefix) => {
-    hits.add("local-path");
-    const body = match.slice(prefix.length);
-    const suffix = /[.,]$/.test(body) ? body.slice(-1) : "";
-    return `${prefix}[local path]${suffix}`;
-  });
-  out = out.replace(/(^|[\s([{<`"'])(?:~\/|\.\.?\/)(?:[^\s'"`)\]}>,;:!?]+\/)+[^\s'"`)\]}>,;:!?]*/g, (match, prefix) => {
-    hits.add("relative-path");
-    const body = match.slice(prefix.length);
-    const suffix = /[.,]$/.test(body) ? body.slice(-1) : "";
-    return `${prefix}[relative path]${suffix}`;
-  });
-
-  for (const name of protectedNames || []) {
-    const trimmed = String(name || "").trim();
-    if (!trimmed) continue;
-    const re = new RegExp(`\\b${scrubRegExp(trimmed)}\\b`, "gi");
-    out = out.replace(re, () => {
-      hits.add("protected-name");
-      return "[person]";
-    });
-  }
-
-  return { text: out, changed: out !== String(text || ""), hits: Array.from(hits).sort() };
-}
+// NOTE (2026-07-12): a ~40-line JS reimplementation of outbound scrubbing used to live here —
+// its own regexes for paths, emails, phones, protected names. It is gone. Jataayu already owned
+// that logic in Python, and two independently-maintained redaction engines cannot agree forever:
+// the JS scrub would clear a message the Python guard still blocked, and the send died between
+// them. One implementation, in the library, tested there. The plugin is now a wire adapter and
+// nothing more — it decides WHO gets screened, never WHAT counts as a leak.
 module.exports = {
   id: 'jataayu',
   name: 'Jataayu Security',
-  _test: { scrubOutboundText },
   activate(api) {
     // ---- dm-guard (2026-07-11) -------------------------------------------------------------
     // Anti-repetition for Sai's DMs: same-turn double-sends, and proactive DMs that re-open a
@@ -124,21 +85,34 @@ module.exports = {
 
     const config = api.pluginConfig || {};
     const python = config.python || DEFAULT_PYTHON;
-    // LLM rewrite/refusal fallback only. Deterministic scrubbing below is the primary path.
     const openclawBin = config.openclawBin || "/home/srallaba/.nvm/versions/node/v24.2.0/bin/openclaw";
-    const rewriteModel = config.rewriteModel || "openclaw/sai";
-    const rewriteGroupPathLeaks = config.rewriteGroupPathLeaks !== false; // default ON
-    // Sai 2026-07-11: a blocked send must NEVER become silence. When the guard hard-blocks, the same
-    // model that writes replies phrases a short in-voice refusal ("I'm not going to share that…"),
-    // that refusal is itself screened, and it goes out in place of the dropped message. The old
-    // behaviour (cancel + say nothing) left the agent believing it had answered while the recipient
-    // saw nothing — Ojas waited ~2h in Publishable Research for a reply that was eaten twice.
-    const declineOnBlock = config.declineOnBlock !== false; // default ON
-    const DECLINE_FALLBACK =
-      "I drafted a reply to that, but it would have exposed private details from Sai's setup, " +
-      "so I'm not sending it. Ask me something more specific and I'll answer what I safely can.";
-    // Findings for which a group send is REWRITTEN (paths stripped) rather than hard-blocked.
-    const PATH_ONLY_FINDINGS = new Set(["Absolute local filesystem path", "Internal repo doc path"]);
+
+    // Sai 2026-07-12: REWRITE, don't refuse. A flagged reply is not a reason to say nothing — it
+    // is a reason to say the same thing without the private parts. OutboundGuard.recover() has the
+    // LLM strip the leak, re-screens the rewrite, and hands back text that is safe to send. The
+    // agent answers the question; the group never learns where anything lives on disk.
+    //
+    // The predecessor of this comment described a guard that scrubbed in JS, hard-blocked anything
+    // that was not a bare path leak, and otherwise emitted a canned apology. Every one of the five
+    // declines it ever produced was an absolute filesystem path — a thing trivially rewritable. It
+    // apologised instead of answering, five times, for a problem it could have simply fixed.
+    const llmBackend = config.llmBackend || "openclaw";      // talks to the local gateway over HTTP
+    const llmModel = config.llmModel || "openclaw/sai";      // → the same model that wrote the reply
+    const recoverUseLlm = config.recoverUseLlm !== false;    // default ON
+    const recoverAttempts = Number.isFinite(config.recoverAttempts) ? config.recoverAttempts : 2;
+    // Must cover N LLM round-trips plus a re-screen each. The LLM is a network call to a model that
+    // can stall; when this expires the send fails OPEN via the catch below rather than hanging.
+    const recoverTimeoutMs = Number.isFinite(config.recoverTimeoutMs) ? config.recoverTimeoutMs : 90000;
+    const alertTarget = config.alertDiscordTarget || "";     // where a withheld-credential alert goes
+
+    // Last-resort lines. These are now genuinely last-resort: reached only when the guard cannot
+    // produce ANY sendable text, which after an LLM rewrite and a deterministic redaction means
+    // something is broken. They are deliberately not apologies for having a private life.
+    const DECLINE_UNRECOVERABLE =
+      "I can't give you a useful answer to that one without getting into internals I shouldn't " +
+      "share here. Ask me something narrower and I'll take a proper run at it.";
+    const DECLINE_CREDENTIAL =
+      "Not answering that here — the reply would have carried a live credential. I've flagged it to Sai.";
     const jataayuPath = config.jataayuPath || "";
     const jpins = jataayuPath ? `sys.path.insert(0, ${JSON.stringify(jataayuPath)})` : "";
     const protectedNames = Array.isArray(config.protectedNames) ? config.protectedNames : [];
@@ -333,11 +307,14 @@ print(json.dumps({"verdict": verdict, "level": level, "safe": not result.blocked
       },
     });
 
-    // --- Enforced OUTBOUND gate (2026-07-10): Jataayu is the sole outbound guard, enforced at the
-    // wire. Every message being SENT to a non-owner shared surface (WhatsApp group, Discord channel,
-    // GitHub) is screened by OutboundGuard; a BLOCK cancels the send. Private DMs to the owner are
-    // never screened — they legitimately carry family/internal context. Fail-OPEN on subprocess
-    // error so a guard hiccup can never silence all comms; a real BLOCK verdict is still enforced.
+    // --- Enforced OUTBOUND gate. Jataayu is the sole outbound guard, enforced at the wire. Every
+    // message SENT to a non-owner shared surface (WhatsApp group, Discord channel, GitHub) goes
+    // through OutboundGuard.recover(): flagged content is REWRITTEN by the LLM and re-screened, not
+    // dropped. Private DMs to the owner are never screened — they legitimately carry family and
+    // internal context. Fail-OPEN on subprocess error, so a guard hiccup can never silence comms.
+    //
+    // The gate's only judgement call is WHO gets screened. What counts as a leak, what a rewrite
+    // must remove, and whether a rewrite is clean enough to send are all the library's to decide.
     if (typeof api.on === "function") {
       const enforceOutbound = config.enforceOutbound !== false; // default ON
       // Config-driven (no personal ids hard-coded in the repo); normalized for case-insensitive match.
@@ -358,118 +335,54 @@ print(json.dumps({"verdict": verdict, "level": level, "safe": not result.blocked
           if (/@g\.us/i.test(to)) surface = "whatsapp-group";
           else if (/discord/i.test(to)) surface = "discord-channel";
           else if (/github/i.test(to)) surface = "github-comment";
-          const buildScript = (text) => `
+          // ONE call into the library. It screens, has the LLM rewrite the private parts away,
+          // re-screens the rewrite, and hands back text that is safe to put on the wire — or tells
+          // us it could not, and why. The plugin does not decide what a leak is; Jataayu does.
+          const recoverScript = `
 import json, sys
 ${jpins}
-from jataayu import OutboundGuard
-from jataayu.guards.outbound import PrivacyConfig
-PROTECTED = ${JSON.stringify(protectedNames)}
-cfg = PrivacyConfig(protected_names=PROTECTED, use_llm=False)
-guard = OutboundGuard(config=cfg)
-result = guard.check(${JSON.stringify(text)}, surface=${JSON.stringify(surface)})
-print(json.dumps({"blocked": result.blocked, "reason": result.explanation, "findings": result.matched_patterns}))
+from jataayu import jataayu_recover_outbound
+print(json.dumps(jataayu_recover_outbound(
+    ${JSON.stringify(content)},
+    surface=${JSON.stringify(surface)},
+    protected_names=${JSON.stringify(protectedNames)},
+    llm_backend=${JSON.stringify(llmBackend)},
+    llm_model=${JSON.stringify(llmModel)},
+    use_llm=${recoverUseLlm ? "True" : "False"},
+    max_attempts=${recoverAttempts},
+)))
 `;
-          const screen = async (text) => JSON.parse(await runPython(python, buildScript(text)));
-          const scrubbed = scrubOutboundText(content, protectedNames);
-          let r;
-          if (scrubbed.changed) {
-            const rScrubbed = await screen(scrubbed.text);
-            if (!rScrubbed.blocked) {
-              try { console.error(`[jataayu-outbound] SCRUBBED group/public send to=${to.slice(0, 48)} surface=${surface} hits=${scrubbed.hits.join(",")}`); } catch (_) {}
-              quarantine({ direction: "outbound", decision: "scrub", to, surface, reason: "deterministic scrub cleared outbound guard",
-                findings: scrubbed.hits, content: String(content).slice(0, 4000), rewritten: String(scrubbed.text).slice(0, 4000) });
-              return { content: scrubbed.text };
-            }
-            try { console.error(`[jataayu-outbound] scrubbed text still blocked to=${to.slice(0, 48)} surface=${surface}: ${rScrubbed.reason}`); } catch (_) {}
-            const findings = Array.isArray(rScrubbed.findings) ? rScrubbed.findings : [];
-            quarantine({ direction: "outbound", decision: "scrub-block", to, surface, reason: rScrubbed.reason,
-              findings, scrubbedFindings: scrubbed.hits, content: String(content).slice(0, 4000),
-              rewritten: String(scrubbed.text).slice(0, 4000) });
-            if (!declineOnBlock) {
-              return { cancel: true, cancelReason: `Jataayu outbound guard blocked this message after scrubbing: ${rScrubbed.reason}` };
-            }
-            // Fall through to the existing screened-refusal path using the sanitized verdict.
-            rScrubbed.findings = findings.length ? findings : scrubbed.hits;
-            r = rScrubbed;
-          } else {
-            r = await screen(content);
+          const r = JSON.parse(await runPython(python, recoverScript, recoverTimeoutMs));
+
+          if (r.action === "send") {
+            if (!r.changed) return;  // clean as drafted — most messages land here
+            try { console.error(`[jataayu-outbound] REWROTE send to=${to.slice(0, 48)} surface=${surface} stages=${(r.stages || []).join("→")} findings=${(r.findings || []).join(",")}`); } catch (_) {}
+            quarantine({ direction: "outbound", decision: "recover", to, surface, reason: r.reason,
+              findings: r.findings, stages: r.stages, llmUsed: r.llm_used, model: r.llm_used ? llmModel : null,
+              content: String(content).slice(0, 4000), rewritten: String(r.text).slice(0, 4000) });
+            return { content: r.text };
           }
-          if (r.blocked) {
-            const findings = Array.isArray(r.findings) ? r.findings : [];
-            // Redact-not-block: if a GROUP send is blocked ONLY by absolute/repo path leaks,
-            // rewrite it with the configured OpenClaw model to strip the paths,
-            // re-screen, and deliver the cleaned text instead of dropping the whole message.
-            // Any other finding class (credentials, PII, egress) still hard-blocks.
-            if (!scrubbed.changed && rewriteGroupPathLeaks && group && findings.length > 0 &&
-                findings.every((f) => PATH_ONLY_FINDINGS.has(f))) {
-              try {
-                const prompt =
-                  "Rewrite the following group-chat message so it contains NO absolute filesystem " +
-                  "paths (e.g. /home..., /home2...) and NO internal repo doc paths. Replace each path " +
-                  "with just the bare file name (e.g. 'outbound.py'). Keep everything else — wording, " +
-                  "facts, formatting, emoji — identical. Output ONLY the rewritten message.\n\nMESSAGE:\n" +
-                  String(content);
-                const rewritten = await runInfer(openclawBin, rewriteModel, prompt);
-                const r2 = await screen(rewritten);
-                if (rewritten && rewritten !== content && !r2.blocked) {
-                  try { console.error(`[jataayu-outbound] REWROTE (path leak stripped via ${rewriteModel}) group send to=${to.slice(0, 48)} surface=${surface}`); } catch (_) {}
-                  quarantine({ direction: "outbound", decision: "rewrite", to, surface, reason: r.reason,
-                    findings, model: rewriteModel, content: String(content).slice(0, 4000), rewritten: String(rewritten).slice(0, 4000) });
-                  return { content: rewritten };
-                }
-                // rewrite did not clear the block -> fall through to hard block
-              } catch (e) {
-                // never fail-open on a known leak: fall through to hard block
-                try { console.error(`[jataayu-outbound] rewrite failed, hard-blocking: ${e.message}`); } catch (_) {}
-              }
-            }
-            // DECLINE, don't vanish. The content is unsafe — but saying NOTHING is its own failure:
-            // the agent believes it replied, and the recipient is left hanging. Have the same model
-            // phrase a refusal that carries none of the offending content, screen THAT, and send it.
-            if (declineOnBlock) {
-              // Only the finding CATEGORIES are passed to the model — never the blocked text itself,
-              // so the refusal cannot echo back what the guard just stopped.
-              const categories = (Array.isArray(r.findings) && r.findings.length
-                ? r.findings : ["private information"]).join("; ");
-              let decline = "";
-              try {
-                const prompt =
-                  "You are an assistant replying in a shared chat. The reply you just wrote was blocked " +
-                  "by a privacy guard because it would have leaked private information about your owner's " +
-                  "systems.\n\nIt was blocked for: " + categories + "\n\n" +
-                  "Write a SHORT replacement message (1-3 sentences, first person, plain and friendly) that:\n" +
-                  "- declines to share that particular information\n" +
-                  "- says in general terms what you won't share (e.g. internal paths, repo internals, private links)\n" +
-                  "- offers what you CAN help with instead\n\n" +
-                  "Hard rules: do NOT restate or hint at the blocked content. Include NO file path, URL, repo " +
-                  "name, credential, or personal data. Output ONLY the message text.";
-                decline = await runInfer(openclawBin, rewriteModel, prompt);
-              } catch (e) {
-                try { console.error(`[jataayu-outbound] decline generation failed: ${e.message}`); } catch (_) {}
-              }
-              // The refusal is not trusted either — screen it. If the model leaked, fall back to a
-              // fixed line that cannot. Either way the recipient hears something.
-              for (const candidate of [decline, DECLINE_FALLBACK]) {
-                if (!candidate || !String(candidate).trim()) continue;
-                let clean = false;
-                try { clean = !(await screen(candidate)).blocked; } catch (_) { clean = false; }
-                if (!clean) continue;
-                const via = candidate === decline ? rewriteModel : "static-fallback";
-                try { console.error(`[jataayu-outbound] BLOCKED send to=${to.slice(0, 48)} surface=${surface}: ${r.reason} -> replaced with decline (${via})`); } catch (_) {}
-                quarantine({ direction: "outbound", decision: "decline", to, surface, reason: r.reason,
-                  findings: r.findings, model: via, content: String(content).slice(0, 4000),
-                  rewritten: String(candidate).slice(0, 4000) });
-                return { content: String(candidate).trim() };
-              }
-            }
-            // Last resort only: even the fixed refusal could not be screened clean (guard subprocess
-            // is broken). Drop the message rather than risk sending unscreened text.
-            try { console.error(`[jataayu-outbound] BLOCKED send to=${to.slice(0, 48)} surface=${surface}: ${r.reason}`); } catch (_) {}
-            quarantine({ direction: "outbound", decision: "block", to, surface, reason: r.reason,
-              findings: r.findings, content: String(content).slice(0, 4000) });
-            return { cancel: true, cancelReason: `Jataayu outbound guard blocked this message: ${r.reason}` };
+
+          // WITHHELD. The draft cannot be salvaged. Two cases, and they are not the same:
+          //
+          //   credential    — deliberate. A live secret is the one thing we will not hand to an LLM
+          //                   and hope it paraphrases away. Withhold, and tell Sai out-of-band.
+          //   unrecoverable — a failure. The LLM rewrite AND the deterministic redaction both left
+          //                   a leak behind. Rare enough that it means something is wrong.
+          //
+          // Either way the group still hears something. A recipient who asked a question and gets
+          // silence has been failed twice: once by the guard, once by the agent that thinks it replied.
+          const credential = r.withheld_category === "credential";
+          try { console.error(`[jataayu-outbound] WITHHELD send to=${to.slice(0, 48)} surface=${surface} category=${r.withheld_category} reason=${r.reason}`); } catch (_) {}
+          quarantine({ direction: "outbound", decision: "withhold", category: r.withheld_category, to, surface,
+            reason: r.reason, findings: r.findings, stages: r.stages, content: String(content).slice(0, 4000) });
+
+          if (credential && alertTarget && openclawBin) {
+            alertOwner(openclawBin, alertTarget,
+              `[jataayu] WITHHELD a ${surface} reply: it carried a live credential (${(r.findings || []).join("; ")}). ` +
+              `Nothing was sent. The draft is in jataayu_quarantine.jsonl.`);
           }
-          return;
+          return { content: credential ? DECLINE_CREDENTIAL : DECLINE_UNRECOVERABLE };
         } catch (e) {
           try { console.error(`[jataayu-outbound] error fail-open: ${e.message}`); } catch (_) {}
           return; // fail-open: never break all comms on a guard subprocess error
