@@ -39,15 +39,62 @@ module.exports = {
   id: 'jataayu',
   name: 'Jataayu Security',
   activate(api) {
+    // ---- dm-guard (2026-07-11) -------------------------------------------------------------
+    // Anti-repetition for Sai's DMs: same-turn double-sends, and proactive DMs that re-open a
+    // decision he already closed. It lives in its own module (plugins/dm-guard/index.js) and is
+    // tested standalone; it is activated from HERE because the gateway would not pick it up as a
+    // separate plugin (registers hooks only, no tools -- it never appeared in the loaded set).
+    // Piggy-backing on Jataayu is coherent: this IS the outbound guard, and it already owns the
+    // message_sending hook. Wrapped so a fault in it can never take Jataayu -- or comms -- down.
+    // ---- group-capture (2026-07-11) --------------------------------------------------
+    // The WhatsApp group shadow-log, moved OFF the hand-patched monitor-*.js bundle onto
+    // the supported `message_received` hook (opt-in via channels.whatsapp.pluginHooks).
+    // The 2026.6.11 upgrade finally wiped that patch -- the bundle changed shape, so the
+    // saved hunks no longer even apply. With this, ZERO hand-patched bundles remain.
+    try {
+      require('./modules/group-capture/index.js').activate(api);
+    } catch (e) {
+      try { console.error(`[jataayu] group-capture activate failed (comms unaffected): ${e.message}`); } catch (_) {}
+    }
+
+    // ---- group-guard (2026-07-11) ----------------------------------------------------
+    // The group-pin gate, moved OFF the hand-patched whatsapp dist bundle onto the
+    // supported `before_dispatch` hook. The dist patch is deleted by any openclaw update
+    // (re-unpacked from its tarball) and it fails OPEN -- every groupAllowFrom number would
+    // silently gain access to every group. Activated from here for the same reason as
+    // dm-guard: a hooks-only plugin registers no tools, so the gateway never loads it
+    // standalone. Wrapped so a fault in it can never take Jataayu -- or comms -- down.
+    try {
+      require('./modules/group-guard/index.js').activate(api);
+    } catch (e) {
+      try { console.error(`[jataayu] group-guard activate failed (comms unaffected): ${e.message}`); } catch (_) {}
+    }
+
+    try {
+      require('./modules/dm-guard/index.js').activate(api);
+      console.error('[jataayu] dm-guard hooks activated');
+    } catch (e) {
+      try { console.error(`[jataayu] dm-guard failed to activate (continuing): ${e.message}`); } catch (_) {}
+    }
+    // ---------------------------------------------------------------------------------------
+
     const config = api.pluginConfig || {};
     const python = config.python || DEFAULT_PYTHON;
     // For the group-surface path-leak REWRITE path (redact-not-block): call the same
     // model that generates replies. Defaults to the sai agent's primary (gpt-5.5).
     // Portable default: use "openclaw" from PATH; machine-specific absolute path is config-only.
-    // Opt-in for rewrite per copilot data-exposure note (default OFF — explicit enable in pluginConfig).
     const openclawBin = config.openclawBin || "openclaw";
     const rewriteModel = config.rewriteModel || "openai-codex/gpt-5.5";
-    const rewriteGroupPathLeaks = config.rewriteGroupPathLeaks === true; // default OFF, explicit opt-in
+    const rewriteGroupPathLeaks = config.rewriteGroupPathLeaks !== false; // default ON
+    // Sai 2026-07-11: a blocked send must NEVER become silence. When the guard hard-blocks, the same
+    // model that writes replies phrases a short in-voice refusal ("I'm not going to share that…"),
+    // that refusal is itself screened, and it goes out in place of the dropped message. The old
+    // behaviour (cancel + say nothing) left the agent believing it had answered while the recipient
+    // saw nothing — Ojas waited ~2h in Publishable Research for a reply that was eaten twice.
+    const declineOnBlock = config.declineOnBlock !== false; // default ON
+    const DECLINE_FALLBACK =
+      "I drafted a reply to that, but it would have exposed private details from Sai's setup, " +
+      "so I'm not sending it. Ask me something more specific and I'll answer what I safely can.";
     // Findings for which a group send is REWRITTEN (paths stripped) rather than hard-blocked.
     const PATH_ONLY_FINDINGS = new Set(["Absolute local filesystem path", "Internal repo doc path"]);
     const jataayuPath = config.jataayuPath || "";
@@ -311,6 +358,47 @@ print(json.dumps({"blocked": result.blocked, "reason": result.explanation, "find
                 try { console.error(`[jataayu-outbound] rewrite failed, hard-blocking: ${e.message}`); } catch (_) {}
               }
             }
+            // DECLINE, don't vanish. The content is unsafe — but saying NOTHING is its own failure:
+            // the agent believes it replied, and the recipient is left hanging. Have the same model
+            // phrase a refusal that carries none of the offending content, screen THAT, and send it.
+            if (declineOnBlock) {
+              // Only the finding CATEGORIES are passed to the model — never the blocked text itself,
+              // so the refusal cannot echo back what the guard just stopped.
+              const categories = (Array.isArray(r.findings) && r.findings.length
+                ? r.findings : ["private information"]).join("; ");
+              let decline = "";
+              try {
+                const prompt =
+                  "You are an assistant replying in a shared chat. The reply you just wrote was blocked " +
+                  "by a privacy guard because it would have leaked private information about your owner's " +
+                  "systems.\n\nIt was blocked for: " + categories + "\n\n" +
+                  "Write a SHORT replacement message (1-3 sentences, first person, plain and friendly) that:\n" +
+                  "- declines to share that particular information\n" +
+                  "- says in general terms what you won't share (e.g. internal paths, repo internals, private links)\n" +
+                  "- offers what you CAN help with instead\n\n" +
+                  "Hard rules: do NOT restate or hint at the blocked content. Include NO file path, URL, repo " +
+                  "name, credential, or personal data. Output ONLY the message text.";
+                decline = await runInfer(openclawBin, rewriteModel, prompt);
+              } catch (e) {
+                try { console.error(`[jataayu-outbound] decline generation failed: ${e.message}`); } catch (_) {}
+              }
+              // The refusal is not trusted either — screen it. If the model leaked, fall back to a
+              // fixed line that cannot. Either way the recipient hears something.
+              for (const candidate of [decline, DECLINE_FALLBACK]) {
+                if (!candidate || !String(candidate).trim()) continue;
+                let clean = false;
+                try { clean = !(await screen(candidate)).blocked; } catch (_) { clean = false; }
+                if (!clean) continue;
+                const via = candidate === decline ? rewriteModel : "static-fallback";
+                try { console.error(`[jataayu-outbound] BLOCKED send to=${to.slice(0, 48)} surface=${surface}: ${r.reason} -> replaced with decline (${via})`); } catch (_) {}
+                quarantine({ direction: "outbound", decision: "decline", to, surface, reason: r.reason,
+                  findings: r.findings, model: via, content: String(content).slice(0, 4000),
+                  rewritten: String(candidate).slice(0, 4000) });
+                return { content: String(candidate).trim() };
+              }
+            }
+            // Last resort only: even the fixed refusal could not be screened clean (guard subprocess
+            // is broken). Drop the message rather than risk sending unscreened text.
             try { console.error(`[jataayu-outbound] BLOCKED send to=${to.slice(0, 48)} surface=${surface}: ${r.reason}`); } catch (_) {}
             quarantine({ direction: "outbound", decision: "block", to, surface, reason: r.reason,
               findings: r.findings, content: String(content).slice(0, 4000) });
