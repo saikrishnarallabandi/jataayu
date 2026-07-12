@@ -107,6 +107,30 @@ def test_internal_codename_is_neutralised():
     assert "Cassandra" not in r.text
 
 
+def test_mixed_pii_and_path_is_still_sendable():
+    """Findings from several classes at once — the common case, and the one that used to decline.
+
+    Raised in review on PR #17. It caught a hole of exactly the shape this file exists to close:
+    _regex_redact() only stripped PII patterns scoring >= 0.75, but an email and a phone number
+    score UNDER that. So they were DETECTED (raising risk out of CLEAN, blocking the send) and then
+    survived the redaction meant to rescue it — re-screening failed and the message was withheld.
+
+    Nothing that can stop a message may be beyond the reach of the thing that repairs it.
+    """
+    r = guard(use_llm=False, names=["Veda"]).recover(
+        "Ping sai@example.com or +1 555 123 4567 — the scoring lives in docs/design/scoring.md "
+        "and Veda has the notes.",
+        surface=GROUP,
+    )
+
+    assert r.action == "send", f"multi-class findings must still be sendable: {r.reason}"
+    assert "sai@example.com" not in r.text
+    assert "555 123 4567" not in r.text
+    assert "Veda" not in r.text
+    assert "docs/design" not in r.text
+    assert "scoring.md" in r.text, "the answer must survive the redaction"
+
+
 # ---------------------------------------------------------------------------
 # The credential floor — the one thing that is never rephrased
 # ---------------------------------------------------------------------------
