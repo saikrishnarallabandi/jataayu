@@ -418,6 +418,75 @@ def jataayu_check_outbound(
     }
 
 
+def jataayu_recover_outbound(
+    content: str,
+    surface: str = "unknown",
+    *,
+    protected_names: Optional[list[str]] = None,
+    llm_backend: Optional[str] = None,
+    llm_model: Optional[str] = None,
+    llm_url: Optional[str] = None,
+    llm_token: Optional[str] = None,
+    use_llm: bool = True,
+    max_attempts: int = 2,
+) -> dict:
+    """
+    Make outbound content SENDABLE — the send-site counterpart to `jataayu_check_outbound`.
+
+    `jataayu_check_outbound` answers "is this safe?", and for a hard leak the answer is "no",
+    which leaves the caller with nothing to say. This answers "what CAN I send?": an LLM rewrites
+    the private parts away, the rewrite is re-screened, and only text that passes a fresh check is
+    returned. A message is withheld only when it truly cannot be salvaged — or when it carries a
+    credential, which is never rephrased.
+
+    Args:
+        content: The draft the agent wants to send.
+        surface: Target surface (drives strictness).
+        protected_names: Names that must never appear in outbound content.
+        llm_backend: Transport — ollama | openai | anthropic | openclaw.
+        llm_model, llm_url, llm_token: Backend config.
+        use_llm: Set False to use deterministic redaction only.
+        max_attempts: LLM rewrite rounds before falling back to redaction.
+
+    Returns:
+        dict with keys:
+            action (str): 'send' | 'withhold' — send `text` iff 'send'.
+            text (str): The text to put on the wire. Empty when withheld.
+            changed (bool): Whether it differs from `content`.
+            withheld_category (str | None): 'credential' | 'unrecoverable'.
+            findings (list[str]), reason (str), stages (list[str]), llm_used (bool)
+
+    Example::
+
+        r = jataayu_recover_outbound(
+            "Done — scaffolding is in /home2/sai/projects/foo",
+            surface="whatsapp-group",
+        )
+        # {'action': 'send', 'text': 'Done — scaffolding is in foo', ...}
+    """
+    config = PrivacyConfig(
+        protected_names=protected_names or [],
+        use_llm=use_llm,
+        llm_backend=llm_backend,
+        llm_model=llm_model or PrivacyConfig.llm_model,
+        llm_url=llm_url,
+        llm_token=llm_token,
+    )
+    outcome = OutboundGuard(config).recover(
+        content, surface=surface, max_attempts=max_attempts
+    )
+    return {
+        "action": outcome.action,
+        "text": outcome.text,
+        "changed": outcome.changed,
+        "withheld_category": outcome.withheld_category,
+        "findings": outcome.findings,
+        "reason": outcome.reason,
+        "stages": outcome.stages,
+        "llm_used": outcome.llm_used,
+    }
+
+
 def jataayu_check_egress(
     content: str,
     surface: str = "unknown",
