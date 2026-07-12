@@ -35,9 +35,53 @@ function runInfer(bin, model, prompt, timeoutMs = 45000) {
       });
   });
 }
+
+const scrubRegExp = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const replaceToken = (text, pattern, replacement, hits, label) =>
+  text.replace(pattern, (match) => {
+    hits.add(label);
+    const suffix = /[.,;:!?)]$/.test(match) ? match.slice(-1) : "";
+    return replacement + suffix;
+  });
+
+function scrubOutboundText(text, protectedNames = []) {
+  const hits = new Set();
+  let out = String(text || "");
+
+  out = replaceToken(out, /\b(?:https?:\/\/|git@)(?:localhost|127(?:\.\d{1,3}){3}|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|[^/\s'"`)]+\.local)(?::\d+)?[^\s'"`)]*/gi, "[internal url]", hits, "internal-url");
+  out = replaceToken(out, /\b(?:https?:\/\/github\.com\/saikrishnarallabandi\/judith_memories|git@github\.com:saikrishnarallabandi\/judith_memories)(?:[^\s'"`)]*)?/gi, "[internal repo]", hits, "internal-repo-url");
+  out = replaceToken(out, /\bfile:\/\/\/[^\s'"`)]*/gi, "[local path]", hits, "local-path");
+  out = replaceToken(out, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[email]", hits, "email");
+  out = replaceToken(out, /\+?\d[\d\s().-]{8,}\d\b/g, "[phone]", hits, "phone");
+  out = out.replace(/(^|[\s([{<`"'])\/(?:home|home2|Users|var|opt|srv|tmp|private|mnt|Volumes|workspace|[A-Za-z0-9._-]+)(?:\/[^\s'"`)\]}>,;:!?]+)+/g, (match, prefix) => {
+    hits.add("local-path");
+    const body = match.slice(prefix.length);
+    const suffix = /[.,]$/.test(body) ? body.slice(-1) : "";
+    return `${prefix}[local path]${suffix}`;
+  });
+  out = out.replace(/(^|[\s([{<`"'])(?:~\/|\.\.?\/)(?:[^\s'"`)\]}>,;:!?]+\/)+[^\s'"`)\]}>,;:!?]*/g, (match, prefix) => {
+    hits.add("relative-path");
+    const body = match.slice(prefix.length);
+    const suffix = /[.,]$/.test(body) ? body.slice(-1) : "";
+    return `${prefix}[relative path]${suffix}`;
+  });
+
+  for (const name of protectedNames || []) {
+    const trimmed = String(name || "").trim();
+    if (!trimmed) continue;
+    const re = new RegExp(`\\b${scrubRegExp(trimmed)}\\b`, "gi");
+    out = out.replace(re, () => {
+      hits.add("protected-name");
+      return "[person]";
+    });
+  }
+
+  return { text: out, changed: out !== String(text || ""), hits: Array.from(hits).sort() };
+}
 module.exports = {
   id: 'jataayu',
   name: 'Jataayu Security',
+  _test: { scrubOutboundText },
   activate(api) {
     // ---- dm-guard (2026-07-11) -------------------------------------------------------------
     // Anti-repetition for Sai's DMs: same-turn double-sends, and proactive DMs that re-open a
@@ -80,10 +124,9 @@ module.exports = {
 
     const config = api.pluginConfig || {};
     const python = config.python || DEFAULT_PYTHON;
-    // For the group-surface path-leak REWRITE path (redact-not-block): call the same
-    // model that generates replies. Defaults to the sai agent's primary (gpt-5.5).
+    // LLM rewrite/refusal fallback only. Deterministic scrubbing below is the primary path.
     const gatewayBin = config.gatewayBin || "/home/srallaba/.nvm/versions/node/v24.2.0/bin/gateway";
-    const rewriteModel = config.rewriteModel || "openai-codex/gpt-5.5";
+    const rewriteModel = config.rewriteModel || "gateway/sai";
     const rewriteGroupPathLeaks = config.rewriteGroupPathLeaks !== false; // default ON
     // Sai 2026-07-11: a blocked send must NEVER become silence. When the guard hard-blocks, the same
     // model that writes replies phrases a short in-voice refusal ("I'm not going to share that…"),
@@ -327,14 +370,37 @@ result = guard.check(${JSON.stringify(text)}, surface=${JSON.stringify(surface)}
 print(json.dumps({"blocked": result.blocked, "reason": result.explanation, "findings": result.matched_patterns}))
 `;
           const screen = async (text) => JSON.parse(await runPython(python, buildScript(text)));
-          const r = await screen(content);
+          const scrubbed = scrubOutboundText(content, protectedNames);
+          let r;
+          if (scrubbed.changed) {
+            const rScrubbed = await screen(scrubbed.text);
+            if (!rScrubbed.blocked) {
+              try { console.error(`[jataayu-outbound] SCRUBBED group/public send to=${to.slice(0, 48)} surface=${surface} hits=${scrubbed.hits.join(",")}`); } catch (_) {}
+              quarantine({ direction: "outbound", decision: "scrub", to, surface, reason: "deterministic scrub cleared outbound guard",
+                findings: scrubbed.hits, content: String(content).slice(0, 4000), rewritten: String(scrubbed.text).slice(0, 4000) });
+              return { content: scrubbed.text };
+            }
+            try { console.error(`[jataayu-outbound] scrubbed text still blocked to=${to.slice(0, 48)} surface=${surface}: ${rScrubbed.reason}`); } catch (_) {}
+            const findings = Array.isArray(rScrubbed.findings) ? rScrubbed.findings : [];
+            quarantine({ direction: "outbound", decision: "scrub-block", to, surface, reason: rScrubbed.reason,
+              findings, scrubbedFindings: scrubbed.hits, content: String(content).slice(0, 4000),
+              rewritten: String(scrubbed.text).slice(0, 4000) });
+            if (!declineOnBlock) {
+              return { cancel: true, cancelReason: `Jataayu outbound guard blocked this message after scrubbing: ${rScrubbed.reason}` };
+            }
+            // Fall through to the existing screened-refusal path using the sanitized verdict.
+            rScrubbed.findings = findings.length ? findings : scrubbed.hits;
+            r = rScrubbed;
+          } else {
+            r = await screen(content);
+          }
           if (r.blocked) {
             const findings = Array.isArray(r.findings) ? r.findings : [];
             // Redact-not-block: if a GROUP send is blocked ONLY by absolute/repo path leaks,
-            // rewrite it with the SAME model that writes replies (gpt-5.5) to strip the paths,
+            // rewrite it with the configured gateway model to strip the paths,
             // re-screen, and deliver the cleaned text instead of dropping the whole message.
             // Any other finding class (credentials, PII, egress) still hard-blocks.
-            if (rewriteGroupPathLeaks && group && findings.length > 0 &&
+            if (!scrubbed.changed && rewriteGroupPathLeaks && group && findings.length > 0 &&
                 findings.every((f) => PATH_ONLY_FINDINGS.has(f))) {
               try {
                 const prompt =

@@ -44,6 +44,12 @@ for m in group-guard dm-guard; do
       || { echo "FAILED -- not deploying"; exit 1; }
   fi
 done
+if [[ -f "$SRC/outbound-scrub.test.js" ]]; then
+  printf 'testing %-14s' "outbound-scrub"
+  (cd "$SRC" && node outbound-scrub.test.js >/dev/null 2>&1) \
+    && echo "ok" \
+    || { echo "FAILED -- not deploying"; exit 1; }
+fi
 node --check "$SRC/index.js"
 for f in "$SRC"/modules/*/index.js; do node --check "$f"; done
 echo "syntax ok"
