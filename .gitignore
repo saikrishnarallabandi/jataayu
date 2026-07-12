@@ -71,3 +71,7 @@ training/**/checkpoints/
 .relai/optimizer-scope.json
 .relai/simulator.env
 .relai/tag-records/
+
+# RELAI run artifacts + benchmark exports — 239MB / 17k files in the working tree.
+# Regenerable; purged from history 2026-07-11. Blanket-ignored (the entries above were partial).
+.relai/
