@@ -8,7 +8,7 @@ activate(api);
 
 const PUB = "100000000000000001@g.us";     // Publishable Research
 const OTHER = "100000000000000002@g.us";   // Humanoid Alpha
-const SAI = "+15550000001";                // exempt
+const SAI = "+15551234567";                // exempt (fictional)
 const PARAG = "+15550000002";              // pinned to PUB only
 const STRANGER = "+19999999999";           // in groupAllowFrom? irrelevant — not in the pin map
 
