@@ -79,12 +79,16 @@ for m in group-guard dm-guard; do
       || { echo "FAILED -- not deploying"; exit 1; }
   fi
 done
-if [[ -f "$SRC/outbound-recover.test.js" ]]; then
-  printf 'testing %-14s' "outbound-recover"
-  (cd "$SRC" && node outbound-recover.test.js >/dev/null 2>&1) \
+# EVERY *.test.js gates the deploy -- not a hardcoded list. This used to name
+# outbound-recover.test.js explicitly, so tools-contract.test.js was added and simply never ran:
+# a regression tripwire nobody wired up is decoration. Drop a test file in, it gates the deploy.
+for t in "$SRC"/*.test.js; do
+  [[ -f "$t" ]] || continue
+  printf 'testing %-18s' "$(basename "$t" .test.js)"
+  (cd "$SRC" && node "$(basename "$t")" >/dev/null 2>&1) \
     && echo "ok" \
     || { echo "FAILED -- not deploying"; exit 1; }
-fi
+done
 node --check "$SRC/index.js"
 for f in "$SRC"/modules/*/index.js; do node --check "$f"; done
 echo "syntax ok"
@@ -94,7 +98,7 @@ mkdir -p "$DST"
 cp "$SRC/index.js" "$DST/index.js"
 [[ -f "$SRC/openclaw.plugin.json" ]] && cp "$SRC/openclaw.plugin.json" "$DST/openclaw.plugin.json"
 [[ -f "$SRC/package.json" ]] && cp "$SRC/package.json" "$DST/package.json"
-[[ -f "$SRC/outbound-recover.test.js" ]] && cp "$SRC/outbound-recover.test.js" "$DST/outbound-recover.test.js"
+for t in "$SRC"/*.test.js; do [[ -f "$t" ]] && cp "$t" "$DST/$(basename "$t")"; done
 rm -rf "$DST/modules"
 cp -r "$SRC/modules" "$DST/modules"
 
