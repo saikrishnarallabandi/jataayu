@@ -4,6 +4,6 @@
   "description": "Jataayu security guard plugin for gateway",
   "main": "index.js",
   "scripts": {
-    "test": "node outbound-recover.test.js"
+    "test": "node outbound-recover.test.js && node tools-contract.test.js"
   }
 }
