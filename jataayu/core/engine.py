@@ -8,10 +8,8 @@ Provides:
 """
 from __future__ import annotations
 
-import json
 import os
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import Optional
 
 from jataayu.core.threat import ThreatResult
@@ -39,7 +37,7 @@ class LLMBackend:
     ):
         self.backend = backend or os.environ.get("JATAAYU_LLM_BACKEND", "ollama")
         self.model = model or os.environ.get("JATAAYU_LLM_MODEL", self._default_model())
-        self.base_url = base_url or os.environ.get("JATAAYU_LLM_BASE_URL", self._default_url())
+        self.base_url = base_url or os.environ.get("JATAAYU_LLM_BASE_URL") or self._default_url()
         self.api_key = api_key or os.environ.get("JATAAYU_LLM_API_KEY", "")
 
     def _default_model(self) -> str:
@@ -52,32 +50,32 @@ class LLMBackend:
         return defaults.get(self.backend, "llama3")
 
     def _default_url(self) -> str:
+        if self.backend == "gateway":
+            return self._gateway_url()
         defaults = {
             "ollama": "http://localhost:11434",
             # base URL is the host root; _call_openai_compat appends /v1/chat/completions.
             # (Must NOT include /v1 here or the request path doubles to /v1/v1/… → 404.)
             "openai": "https://api.openai.com",
             "anthropic": "https://api.anthropic.com",
-            "gateway": self._gateway_url(),
         }
         return defaults.get(self.backend, "http://localhost:11434")
 
     def _gateway_url(self) -> str:
-        config_path = Path.home() / ".gateway" / "gateway.json"
-        try:
-            config = json.loads(config_path.read_text())
-            port = config.get("gateway", {}).get("port", 18789)
-            return f"https://localhost:{port}"
-        except Exception:
-            return "https://localhost:18789"
+        url = os.environ.get("JATAAYU_GATEWAY_BASE_URL", "")
+        if not url:
+            raise RuntimeError(
+                "gateway backend selected but JATAAYU_GATEWAY_BASE_URL is not set"
+            )
+        return url
 
     def _gateway_token(self) -> str:
-        config_path = Path.home() / ".gateway" / "gateway.json"
-        try:
-            config = json.loads(config_path.read_text())
-            return config.get("gateway", {}).get("auth", {}).get("token", "")
-        except Exception:
-            return ""
+        token = os.environ.get("JATAAYU_GATEWAY_TOKEN", "")
+        if not token:
+            raise RuntimeError(
+                "gateway backend selected but JATAAYU_GATEWAY_TOKEN is not set"
+            )
+        return token
 
     def call(self, system_prompt: str, user_message: str, max_tokens: int = 1024) -> str:
         """
