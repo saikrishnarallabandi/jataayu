@@ -302,8 +302,12 @@ export JATAAYU_LLM_API_KEY=sk-ant-...
 export JATAAYU_LLM_MODEL=claude-haiku-4-5-20251001
 
 export JATAAYU_LLM_BACKEND=gateway     # assistant gateway (OpenAI-compatible)
-export JATAAYU_GATEWAY_BASE_URL=https://localhost:18789
+export JATAAYU_GATEWAY_BASE_URL=https://localhost:18789   # host root; the library appends
+                                                          # /v1/chat/completions. A trailing /v1
+                                                          # is accepted and normalized away.
 export JATAAYU_GATEWAY_TOKEN=...
+# TLS is verified by default. For a self-signed localhost gateway only, opt out explicitly:
+# export JATAAYU_GATEWAY_INSECURE=true
 ```
 
 Pattern-only mode needs no LLM and no API key — pass `use_llm=False` (or `--no-llm` on the CLI).

@@ -90,8 +90,8 @@ class PrivacyConfig:
     check_high_entropy: bool = False
 
     # LLM backend. `llm_backend` selects the transport (ollama | openai | anthropic | gateway);
-    # "gateway" talks straight to the local assistant gateway over HTTP and reuses its provider auth, so the
-    # rewrite runs on the same model that wrote the reply.
+    # "gateway" talks to an OpenAI-compatible gateway over HTTP(S), authenticating with a dedicated
+    # gateway bearer token (JATAAYU_GATEWAY_TOKEN, or an explicitly passed api_key).
     llm_backend: Optional[str] = None
     llm_url: Optional[str] = None
     llm_token: Optional[str] = None
