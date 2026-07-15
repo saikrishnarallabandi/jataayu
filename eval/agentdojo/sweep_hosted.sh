@@ -17,7 +17,8 @@ DISCORD_TARGET="user:100000000000000001"
 MODELS="${MODELS:-openai:gpt-5.4-mini:gpt54mini anthropic:claude-sonnet-5:claudesonnet5}"
 
 cd "$REPO" || exit 1
-notify() { gateway message send --channel discord --target "$DISCORD_TARGET" --message "$1" 2>/dev/null || true; }
+NOTIFY_CLI="${NOTIFY_CLI:-}"   # message-gateway CLI on PATH (optional); empty = skip notifications
+notify() { [ -n "$NOTIFY_CLI" ] || return 0; "$NOTIFY_CLI" message send --channel discord --target "$DISCORD_TARGET" --message "$1" 2>/dev/null || true; }
 
 notify "[jataayu] Phase B HOSTED sweep started (min-status $MIN_STATUS): models = $MODELS, suites = $SUITES, paired baseline+jataayu."
 

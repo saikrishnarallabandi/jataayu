@@ -44,7 +44,7 @@ AI agents face two categories of threats:
 ```
                     ┌──────────────────────────────────────────┐
                     │              AI Agent                     │
-                    │  (gateway / Claude Code / MCP Client)    │
+                    │  (Gateway / Claude Code / MCP Client)     │
                     └──────────┬──────────────┬────────────────┘
                                │              │
                     ┌──────────▼──────┐  ┌────▼───────────────┐
@@ -176,7 +176,7 @@ Invoked when fast path gives a medium-confidence score (configurable threshold):
 - **Inbound**: LLM evaluates text for nuanced injection attempts that escape regex
 - **Outbound**: LLM rewrites/redacts text to remove privacy violations while preserving meaning
 
-Supports multiple backends: Ollama (local), OpenAI, Anthropic, gateway gateway.
+Supports multiple backends: Ollama (local), OpenAI, Anthropic, assistant gateway.
 
 ## Surface Awareness
 
@@ -192,7 +192,7 @@ See `jataayu/surfaces/profiles.py` for the full surface catalog.
 
 ## Integration Points
 
-### 1. gateway Agent (SOUL.md integration)
+### 1. Agent gateway integration
 
 ```python
 # In agent's processing loop:

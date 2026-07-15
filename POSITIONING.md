@@ -1,6 +1,6 @@
 # Jataayu — Positioning & Path to Canonical Reference
 
-Grounded in the actual repo state (v0.3.0, 399 passing tests, ~7,100 LOC) and the saved
+Grounded in the actual repo state (v0.3.1, 435 passing tests, ~7,100 LOC) and the saved
 `eval/` results. Written to be honest first — every claim below is backed by code or an eval
 JSON in this repo, because "people cite this" only works if the claims survive scrutiny.
 

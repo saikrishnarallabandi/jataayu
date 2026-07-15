@@ -54,7 +54,7 @@ instruction-layer threats (prompt injection, memory poisoning). An LLM-as-Judge 
 multi-dimension risk score (SARS) caught 78/78 malicious skills with zero false negatives.
 
 **Gap in Jataayu:** it guards *runtime content*; it has no notion of vetting a *skill* at
-install time. (`skills/` today only holds `gateway/SKILL.md`, i.e. Jataayu-as-a-skill — not
+install time. (`skills/` today only holds the gateway's `SKILL.md`, i.e. Jataayu-as-a-skill — not
 a vetting target.)
 
 **Upgrade (P0):** add `guards/skill_vet.py` + `jataayu vet-skill <path>` CLI.
@@ -93,7 +93,7 @@ the host model's disposition. Fix: install-time compositional checks + capabilit
 - Wire capability allowlists into `config/policy.py` (per-agent capability isolation), so a
   composition that unlocks a forbidden capability is blocked at install, not at runtime.
 
-### 4. arXiv:2606.18356 — measure harm in stages, not just text · arXiv:2606.18356
+### 4. arXiv:2606.18356 — measure harm in stages, not just text
 **Finding:** separating *semantic acceptance* vs *audit-evidence* vs *sandbox-observed* harm
 matters: **291 of 347** real sandbox harms occurred in cases that **passed the semantic
 check**. Text-level grading badly undercounts real harm.
@@ -108,7 +108,7 @@ check**. Text-level grading badly undercounts real harm.
 - Add an effect-observation layer in `core/audit.py`: after `before_tool_call`, record audit
   evidence (+ optional sandbox state-delta) so Jataayu can report harm at the *effect* level.
 
-### 5. arXiv:2606.09549 — dual-boundary: confine reads, authorize effects · arXiv:2606.09549
+### 5. arXiv:2606.09549 — dual-boundary: confine reads, authorize effects
 **Finding:** a two-wall architecture hit **0% ASR on ASB** while keeping utility — (a) secrets
 swapped for **opaque handles** at the *read* boundary (the runtime plans over references, never
 dereferences plaintext), and (b) external writes follow **PREVIEW→COMMIT**, where only a trusted
@@ -157,7 +157,7 @@ Then evaluate trajectory-level, not just final reply.
   — shipped: `SkillVetGuard` (pattern pre-filter → LLM-as-Judge), the `skill-metadata`
   surface, `jataayu vet-skill <path>` CLI, and `jataayu_vet_skill()` API. Scores the 5-dim
   Skill-Risk vector → SAFE/REVIEW/MALICIOUS, and tags **capabilities** (exec, reads_secrets,
-  network_write, …) which feed P1 composition. Positioned as a complement to gateway's static
+  network_write, …) which feed P1 composition. Positioned as a complement to the gateway's static
   scanner: it reasons about the *instruction layer* (markdown prose), where command patterns are
   treated as soft (could be documentation) vs. code/manifests where they hard-block. 14 tests.
 
