@@ -21,7 +21,7 @@ overstating, every claim below is tagged:
 - **[SOLID]** — established, independently corroborated, or a tracked CVE / named vendor incident.
 - **[DIRECTIONAL]** — a single recent preprint or vendor benchmark; plausible, not yet replicated.
 - **[UNVERIFIED]** — could not be independently anchored past our knowledge cutoff; several sit in
-  a *Vendor*-named 2026 family that overlaps our own internal notes. Treat numbers as illustrative.
+  a same-ecosystem 2026 family that overlaps our own internal notes. Treat numbers as illustrative.
 
 **One honest caveat:** several of the most Jataayu-aligned 2026 papers (arXiv:2606.18356, arXiv:2606.09549,
 SkillVetBench, RSA) are the same IDs cited in our own `docs/` — i.e. our prior passes and this
@@ -207,7 +207,7 @@ This is where the frontier is richest and most validating.
   campaigns (marketplace poisoning) and a claimed first agentic-system CVE. Code-layer scanners miss
   **89–100%** of *instruction-layer* (prompt-injection / memory-poisoning) skills.
 - **[DIRECTIONAL]** **Compositional risk quantified** (SCR-Bench / "SkillReact",
-  arXiv:2606.00448): individually-safe skills compose into unsafe sets. On 1,520 skill-registry skills,
+  arXiv:2606.00448): individually-safe skills compose into unsafe sets. On 1,520 skills from the referenced skill registry,
   651 pass individual inspection and form 211,575 pairs; **22.25%** flag as structural candidates,
   of which a two-rater human-adjudicated audit validates **18.2%** as real compositional risk (the
   paper's headline) — ≈14K genuine risk memberships that per-skill scanning misses by construction.
@@ -355,4 +355,4 @@ Initiative / CAISI; CSA MAESTRO.
 **Directional / unverified (cite as indicative):** arXiv:2606.18356, arXiv:2606.09549, SkillVetBench, CapSeal,
 OAP, SCR-Bench, "Benchmarks Lie" LODO numbers, sleeper memory poisoning, egress reference monitor,
 registry-scale skill studies, PromptArmor <1% figures — single recent preprints or vendor benchmarks,
-several in a *Vendor*-named family overlapping our own internal notes.
+several in a same-ecosystem family overlapping our own internal notes.
