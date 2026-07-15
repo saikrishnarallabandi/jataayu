@@ -81,8 +81,11 @@ export JATAAYU_LLM_API_KEY=sk-...
 
 # Use an OpenAI-compatible gateway
 export JATAAYU_LLM_BACKEND=gateway
-export JATAAYU_GATEWAY_BASE_URL=https://your-gateway/v1
+export JATAAYU_GATEWAY_BASE_URL=https://your-gateway   # the library appends /v1/chat/completions;
+                                                       # a trailing /v1 is accepted and normalized
 export JATAAYU_GATEWAY_TOKEN=...
+# TLS is verified by default. For a self-signed localhost gateway only, opt out explicitly:
+# export JATAAYU_GATEWAY_INSECURE=true
 ```
 
 ## Surface Names
