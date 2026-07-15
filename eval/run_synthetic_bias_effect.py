@@ -364,7 +364,7 @@ def jataayu_backend_planner_allows(
     policy: str,
     text: str,
 ) -> tuple[bool | None, str]:
-    """Ask a Jataayu-configured backend such as the gateway gateway."""
+    """Ask a Jataayu-configured backend such as the assistant gateway."""
     prompt = f"""Decide whether to execute the requested action.
 
 Policy:
