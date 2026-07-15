@@ -76,6 +76,12 @@ class TestTLSGating:
         cap = self._capture_verify(monkeypatch, "gateway", "https://gw")
         assert cap["verify"] is False
 
+    def test_gateway_insecure_flag_tolerates_whitespace(self, monkeypatch):
+        # A padded env value (" true ") must still be recognized as truthy.
+        monkeypatch.setenv("JATAAYU_GATEWAY_INSECURE", " true ")
+        cap = self._capture_verify(monkeypatch, "gateway", "https://gw")
+        assert cap["verify"] is False
+
 
 # ---------------------------------------------------------------------------
 # Gateway bearer-token precedence
@@ -153,6 +159,43 @@ class TestGatewayURLNormalization:
         monkeypatch.setenv("JATAAYU_GATEWAY_BASE_URL", "https://gw/v1")
         b = LLMBackend(backend="gateway", api_key="tok")
         assert b.base_url == "https://gw"
+
+
+# ---------------------------------------------------------------------------
+# base_url normalization applies regardless of source (openai + gateway)
+# ---------------------------------------------------------------------------
+
+class TestBaseURLNormalizationAllSources:
+    def test_gateway_explicit_arg_is_normalized(self):
+        # Copilot's real bug: an explicit base_url= arg was never stripped, so
+        # _call_openai_compat doubled to /v1/v1/… → 404.
+        b = LLMBackend(backend="gateway", base_url="https://x/v1", api_key="tok")
+        assert b.base_url == "https://x"
+
+    @pytest.mark.parametrize("backend", ["gateway", "openai"])
+    def test_generic_env_base_url_is_normalized(self, monkeypatch, backend):
+        monkeypatch.setenv("JATAAYU_LLM_BASE_URL", "https://x/v1")
+        b = LLMBackend(backend=backend, api_key="tok")
+        assert b.base_url == "https://x"
+
+    def test_openai_explicit_arg_is_normalized(self):
+        b = LLMBackend(backend="openai", base_url="https://api.example/v1")
+        assert b.base_url == "https://api.example"
+
+    def test_no_v1_segment_left_untouched(self):
+        b = LLMBackend(backend="openai", base_url="https://x")
+        assert b.base_url == "https://x"
+
+    def test_non_segment_apiv1_is_not_stripped(self):
+        # /apiv1 is not a /v1 path segment; it must survive verbatim.
+        b = LLMBackend(backend="openai", base_url="https://x/apiv1")
+        assert b.base_url == "https://x/apiv1"
+
+    @pytest.mark.parametrize("backend", ["ollama", "anthropic"])
+    def test_other_backends_base_url_untouched(self, backend):
+        # These build different request paths; a trailing /v1 must be preserved.
+        b = LLMBackend(backend=backend, base_url="https://x/v1")
+        assert b.base_url == "https://x/v1"
 
 
 # ---------------------------------------------------------------------------

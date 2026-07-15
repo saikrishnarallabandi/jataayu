@@ -16,6 +16,21 @@ from jataayu.core.threat import ThreatResult
 from jataayu.surfaces.profiles import SURFACE_PROFILES
 
 
+def _normalize_openai_compat_base_url(url: str) -> str:
+    """Reduce an OpenAI-compatible base URL to the host root.
+
+    _call_openai_compat appends /v1/chat/completions, so the base must NOT already
+    carry /v1 — users commonly set …/v1 (the endpoint they see), which would double
+    the path to /v1/v1/… → 404. Strip any trailing slashes and a single trailing
+    case-insensitive /v1 segment; both https://gw and https://gw/v1 collapse to the
+    same base. Idempotent, so it is safe to apply more than once.
+    """
+    url = url.rstrip("/")
+    if url.lower().endswith("/v1"):
+        url = url[: -len("/v1")].rstrip("/")
+    return url
+
+
 class LLMBackend:
     """
     Configurable LLM backend for Jataayu guards.
@@ -38,6 +53,13 @@ class LLMBackend:
         self.backend = backend or os.environ.get("JATAAYU_LLM_BACKEND", "ollama")
         self.model = model or os.environ.get("JATAAYU_LLM_MODEL", self._default_model())
         self.base_url = base_url or os.environ.get("JATAAYU_LLM_BASE_URL") or self._default_url()
+        # Normalize regardless of source: base_url may arrive from the constructor arg, the
+        # generic JATAAYU_LLM_BASE_URL env, or a backend default. _call_openai_compat appends
+        # /v1/…, so any /v1 the caller included must be stripped here — not just on the gateway
+        # env path. Only the OpenAI-compatible transports build that path; ollama/anthropic use
+        # different suffixes and must keep their base URL verbatim.
+        if self.backend in ("openai", "gateway"):
+            self.base_url = _normalize_openai_compat_base_url(self.base_url)
         # Keep the raw constructor arg BEFORE the env fallback: the gateway token path must be able
         # to tell a programmatically-passed key from one sourced from JATAAYU_LLM_API_KEY (which is
         # the upstream provider secret, NOT the gateway bearer). See _gateway_token.
@@ -71,14 +93,7 @@ class LLMBackend:
             raise RuntimeError(
                 "gateway backend selected but JATAAYU_GATEWAY_BASE_URL is not set"
             )
-        # _call_openai_compat appends /v1/chat/completions, so the base must be the host root.
-        # Users commonly set …/v1 (that's the OpenAI-compatible endpoint they see), which would
-        # double to /v1/v1/… → 404. Strip a single trailing /v1 (and any trailing slashes) so both
-        # https://gw and https://gw/v1 resolve to the same request path.
-        url = url.rstrip("/")
-        if url.lower().endswith("/v1"):
-            url = url[: -len("/v1")].rstrip("/")
-        return url
+        return _normalize_openai_compat_base_url(url)
 
     def _gateway_token(self) -> str:
         # Gateway bearer precedence:
@@ -143,7 +158,7 @@ class LLMBackend:
         verify = True
         if self.backend == "gateway" and os.environ.get(
             "JATAAYU_GATEWAY_INSECURE", ""
-        ).lower() in ("1", "true", "yes"):
+        ).strip().lower() in ("1", "true", "yes"):
             verify = False
             import urllib3
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
