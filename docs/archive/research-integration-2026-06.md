@@ -14,7 +14,7 @@ finding on our OWN gateway conversation data, with corpus sizes and a metric.*
 ## 0. Active status — is Jataayu actually intercepting?
 
 **Verdict: ENABLED but PASSIVE. Jataayu does not automatically intercept any inbound or outbound
-message in the live gateway gateway today.** It is installed, registered, and importable; the
+message in the live gateway today.** It is installed, registered, and importable; the
 guards work when called; but nothing in the live message path calls them automatically, and in
 the entire trajectory history the agent has never called them on its own.
 
@@ -22,16 +22,16 @@ Evidence:
 
 | Check | Finding |
 |---|---|
-| Plugin registered/enabled | `gateway.json → plugins.entries.jataayu = {"enabled": true}`; load path `~/.gateway/plugins/jataayu`. |
+| Plugin registered/enabled | the gateway config sets `plugins.entries.jataayu = {"enabled": true}`; loaded from the gateway's plugins directory. |
 | Integration shape | `plugins/jataayu/index.js` calls `api.registerTool()` **twice** — `jataayu_check_inbound`, `jataayu_check_outbound` — each `execFile`-ing the project's Python venv into the local jataayu repo and running `InboundGuard.check` / `OutboundGuard.check`. |
 | Is there an auto-hook? | **No.** The only `api.*` calls in the plugin are `api.pluginConfig` and two `registerTool`. No `onMessage` / `beforeSend` / `onInbound` / interceptor. Guards run only if the **model chooses** to call the tool (tool descriptions say "Always call this before acting…" — i.e. prompt compliance, not enforcement). |
 | Actual runtime invocations | **0 of 20,528 `tool.call` events** name a Jataayu tool. (225 lines match `jataayu_check`, but all are `bash` commands from dev work — `data.name == "bash"`, the string is in `arguments`.) |
 | Enforcement, even if called | `blockOnInboundHigh` defaults `false` **and is never read** in `index.js`. Outbound tool runs `use_llm=False` with a hardcoded protected list (family names + portfolio tickers). Result is advisory text returned to the model — nothing is blocked. |
-| MCP gateway enforcement path | `integrations/mcp_gateway.py`'s `before_tool_call` proxy is **not deployed** — no process running; port 8765 is gateway's own HTTPS gateway (returns "HTTP request to an HTTPS server"), not Jataayu's plain-HTTP gateway. |
-| gateway's own defenses (orthogonal) | gateway already wraps external content with a `SECURITY NOTICE: … EXTERNAL, UNTRUSTED source` preamble and gates shell via `exec-approvals.json`. These are gateway mechanisms, not Jataayu. |
+| MCP gateway enforcement path | `integrations/mcp_gateway.py`'s `before_tool_call` proxy is **not deployed** — no process running; port 8765 is the gateway's own HTTPS listener (returns "HTTP request to an HTTPS server"), not Jataayu's plain-HTTP gateway. |
+| The gateway's own defenses (orthogonal) | The gateway already wraps external content with a `SECURITY NOTICE: … EXTERNAL, UNTRUSTED source` preamble and gates shell via `exec-approvals.json`. These are gateway mechanisms, not Jataayu. |
 
 **Implication for this doc:** the *capability* exists and is sound (below), but to make any of the
-paper-driven upgrades matter, Jataayu first needs a real interception point — either an gateway
+paper-driven upgrades matter, Jataayu first needs a real interception point — either a gateway
 plugin **hook** (auto-run inbound on received messages / outbound on drafts) or the **MCP gateway**
 in front of tool calls. That wiring is itself the first deferred implementation item.
 
@@ -132,7 +132,7 @@ capability graph is real and demonstrable: `bash` (exec/fs_write) + `message`/`s
 poisoning vector. **Verdict: feasible as a small worked example on our real plugin set; not a
 14K-scale benchmark.**
 
-### P4 — arXiv:2606.18356 · arXiv:2606.18356 (talk paper)
+### P4 — arXiv:2606.18356 (talk paper)
 **Finding.** Separating *semantic acceptance* vs *audit-evidence* vs *sandbox-observed* harm
 matters: **291 of 347** real sandbox harms occurred in cases that **passed the semantic check**.
 Text-level grading badly undercounts real harm.
@@ -150,7 +150,7 @@ effect-level (did a risky tool actually run?) — and report the **gap**. **Cave
 ground-truth "harm" labels; quantifying *harmful* (not just *consequential*) effects needs a
 sampled hand-annotation or heuristic harm definition. **Effort: low–medium for the gap metric.**
 
-### P5 — arXiv:2606.09549 · arXiv:2606.09549 (docs file, not a talk paper)
+### P5 — arXiv:2606.09549 (docs file, not a talk paper)
 **Finding.** Two-wall architecture hit **0% ASR on ASB** while keeping utility: secrets swapped
 for **opaque handles** at the read boundary; external writes via **PREVIEW→COMMIT** where only a
 trusted executor commits the exact policy-authorized request.
@@ -161,7 +161,7 @@ declassification); extend `mcp_gateway` from block/allow to PREVIEW→COMMIT. Bi
 ceiling.
 **Replication on our data — NOT FEASIBLE offline.** This is a runtime architectural intervention;
 it cannot be A/B-tested against historical logs. It needs a live deployment with an attack suite.
-**Tie-in:** gateway already ships `exec-approvals.json` (a PREVIEW-style approval primitive) to
+**Tie-in:** the gateway already ships `exec-approvals.json` (a PREVIEW-style approval primitive) to
 build COMMIT on. **Verdict: defer to a live-deployment experiment; not part of the data study.**
 
 ### P6 — DeepTrap (Red-Teaming Agent Execution Contexts) · arXiv:2605.11047 (talk paper)
@@ -233,7 +233,7 @@ Paper-driven upgrades (from `docs/upgrades-from-arxiv-2026-06.md`, unchanged pri
       `mcp_gateway` + opaque-handle read-boundary vault (arXiv:2606.09549).
 
 Replication harness (this study, when greenlit): build experiments #1–#5 above as a read-only
-analysis over `~/.gateway/agents/**/sessions/*.trajectory.jsonl`, reconstructing
+analysis over the gateway session trajectories (`agents/**/sessions/*.trajectory.jsonl`), reconstructing
 turns via `threadId/turnId/toolCallId`; report FPR on benign inbound + tool-returns, the
 semantic-vs-effect gap, and offline SessionTrace risky-session recall.
 
