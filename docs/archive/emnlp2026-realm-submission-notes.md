@@ -20,7 +20,7 @@ scope rather than adjacent to it.
 
 ## Recommended framing (differs from the existing career packet)
 
-The current packet (`05ad37`) frames the REALM paper around OpenClaw operational evals / "what
+The current packet (`05ad37`) frames the REALM paper around gateway operational evals / "what
 breaks in long-running agents." **Stronger, more on-topic angle: lead with the effect boundary.**
 
 - **Core thesis:** authorize the tool _action_ from `effect-severity × input-provenance (taint) ×

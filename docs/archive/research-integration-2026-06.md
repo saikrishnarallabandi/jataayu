@@ -3,8 +3,8 @@
 *Author: research-integration pass, 2026-06-26. Analysis + planning only — no code in this
 pass. Companion to `docs/upgrades-from-arxiv-2026-06.md` (the per-paper gap → upgrade roadmap).
 This doc adds two things that file does not: (1) a measured **active-status** finding for the
-live OpenClaw deployment, and (2) a **replication assessment** — for each paper, can we test the
-finding on our OWN OpenClaw conversation data, with corpus sizes and a metric.*
+live gateway deployment, and (2) a **replication assessment** — for each paper, can we test the
+finding on our OWN gateway conversation data, with corpus sizes and a metric.*
 
 > Thesis carried over from the reel/notes: *"You can't secure an agent by checking its final
 > answer. You have to watch what it touches. Execution is the new attack surface."*
@@ -14,7 +14,7 @@ finding on our OWN OpenClaw conversation data, with corpus sizes and a metric.*
 ## 0. Active status — is Jataayu actually intercepting?
 
 **Verdict: ENABLED but PASSIVE. Jataayu does not automatically intercept any inbound or outbound
-message in the live OpenClaw gateway today.** It is installed, registered, and importable; the
+message in the live gateway today.** It is installed, registered, and importable; the
 guards work when called; but nothing in the live message path calls them automatically, and in
 the entire trajectory history the agent has never called them on its own.
 
@@ -22,16 +22,16 @@ Evidence:
 
 | Check | Finding |
 |---|---|
-| Plugin registered/enabled | `openclaw.json → plugins.entries.jataayu = {"enabled": true}`; load path `~/.openclaw/plugins/jataayu`. |
+| Plugin registered/enabled | the gateway config sets `plugins.entries.jataayu = {"enabled": true}`; loaded from the gateway's plugins directory. |
 | Integration shape | `plugins/jataayu/index.js` calls `api.registerTool()` **twice** — `jataayu_check_inbound`, `jataayu_check_outbound` — each `execFile`-ing the project's Python venv into the local jataayu repo and running `InboundGuard.check` / `OutboundGuard.check`. |
 | Is there an auto-hook? | **No.** The only `api.*` calls in the plugin are `api.pluginConfig` and two `registerTool`. No `onMessage` / `beforeSend` / `onInbound` / interceptor. Guards run only if the **model chooses** to call the tool (tool descriptions say "Always call this before acting…" — i.e. prompt compliance, not enforcement). |
 | Actual runtime invocations | **0 of 20,528 `tool.call` events** name a Jataayu tool. (225 lines match `jataayu_check`, but all are `bash` commands from dev work — `data.name == "bash"`, the string is in `arguments`.) |
 | Enforcement, even if called | `blockOnInboundHigh` defaults `false` **and is never read** in `index.js`. Outbound tool runs `use_llm=False` with a hardcoded protected list (family names + portfolio tickers). Result is advisory text returned to the model — nothing is blocked. |
-| MCP gateway enforcement path | `integrations/mcp_gateway.py`'s `before_tool_call` proxy is **not deployed** — no process running; port 8765 is OpenClaw's own HTTPS gateway (returns "HTTP request to an HTTPS server"), not Jataayu's plain-HTTP gateway. |
-| OpenClaw's own defenses (orthogonal) | OpenClaw already wraps external content with a `SECURITY NOTICE: … EXTERNAL, UNTRUSTED source` preamble and gates shell via `exec-approvals.json`. These are OpenClaw mechanisms, not Jataayu. |
+| MCP gateway enforcement path | `integrations/mcp_gateway.py`'s `before_tool_call` proxy is **not deployed** — no process running; port 8765 is the gateway's own HTTPS listener (returns "HTTP request to an HTTPS server"), not Jataayu's plain-HTTP gateway. |
+| The gateway's own defenses (orthogonal) | The gateway already wraps external content with a `SECURITY NOTICE: … EXTERNAL, UNTRUSTED source` preamble and gates shell via `exec-approvals.json`. These are gateway mechanisms, not Jataayu. |
 
 **Implication for this doc:** the *capability* exists and is sound (below), but to make any of the
-paper-driven upgrades matter, Jataayu first needs a real interception point — either an OpenClaw
+paper-driven upgrades matter, Jataayu first needs a real interception point — either a gateway
 plugin **hook** (auto-run inbound on received messages / outbound on drafts) or the **MCP gateway**
 in front of tool calls. That wiring is itself the first deferred implementation item.
 
@@ -54,7 +54,7 @@ Faithful summary of the current code, so the upgrades below are anchored to real
   list items / non-code paragraphs (code blocks excluded).
 - Surface multipliers (`SURFACE_MULTIPLIERS`) scale scores (github-issue ×1.2 … internal ×0.5).
 - Slow path: LLM-as-judge (`_slow_path` + `core/engine.py LLMBackend`, ollama/openai/anthropic/
-  openclaw). Invoked only when fast-path `risk ≥ llm_threshold` (0.35) and below the 0.90
+  gateway). Invoked only when fast-path `risk ≥ llm_threshold` (0.35) and below the 0.90
   short-circuit; returns a structured JSON verdict.
 - `_score_to_level`: clean/low/medium/high/blocked at 0.20/0.45/0.70/0.90.
 
@@ -84,7 +84,7 @@ Faithful summary of the current code, so the upgrades below are anchored to real
 
 For each paper: the core finding (from `docs/upgrades-from-arxiv-2026-06.md` + known summaries),
 how it touches Jataayu, the integration sketch (NOT to be implemented in this pass), and the
-replication experiment we could run on our own OpenClaw trajectories.
+replication experiment we could run on our own gateway trajectories.
 
 ### P1 — SkillVetBench · arXiv:2606.15899 (talk paper)
 **Finding.** Community skills are an unvetted install-time surface; static/code scanners miss
@@ -132,7 +132,7 @@ capability graph is real and demonstrable: `bash` (exec/fs_write) + `message`/`s
 poisoning vector. **Verdict: feasible as a small worked example on our real plugin set; not a
 14K-scale benchmark.**
 
-### P4 — SafeClawBench · arXiv:2606.18356 (talk paper)
+### P4 — arXiv:2606.18356 (talk paper)
 **Finding.** Separating *semantic acceptance* vs *audit-evidence* vs *sandbox-observed* harm
 matters: **291 of 347** real sandbox harms occurred in cases that **passed the semantic check**.
 Text-level grading badly undercounts real harm.
@@ -150,7 +150,7 @@ effect-level (did a risky tool actually run?) — and report the **gap**. **Cave
 ground-truth "harm" labels; quantifying *harmful* (not just *consequential*) effects needs a
 sampled hand-annotation or heuristic harm definition. **Effort: low–medium for the gap metric.**
 
-### P5 — SecureClaw · arXiv:2606.09549 (docs file, not a talk paper)
+### P5 — arXiv:2606.09549 (docs file, not a talk paper)
 **Finding.** Two-wall architecture hit **0% ASR on ASB** while keeping utility: secrets swapped
 for **opaque handles** at the read boundary; external writes via **PREVIEW→COMMIT** where only a
 trusted executor commits the exact policy-authorized request.
@@ -161,7 +161,7 @@ declassification); extend `mcp_gateway` from block/allow to PREVIEW→COMMIT. Bi
 ceiling.
 **Replication on our data — NOT FEASIBLE offline.** This is a runtime architectural intervention;
 it cannot be A/B-tested against historical logs. It needs a live deployment with an attack suite.
-**Tie-in:** OpenClaw already ships `exec-approvals.json` (a PREVIEW-style approval primitive) to
+**Tie-in:** the gateway already ships `exec-approvals.json` (a PREVIEW-style approval primitive) to
 build COMMIT on. **Verdict: defer to a live-deployment experiment; not part of the data study.**
 
 ### P6 — DeepTrap (Red-Teaming Agent Execution Contexts) · arXiv:2605.11047 (talk paper)
@@ -189,14 +189,14 @@ returns (corpus has ~0 real ones). **Effort: low.**
 
 | # | Experiment | Papers | Corpus (our data) | Metric | Value | Effort | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1 | **Semantic-vs-effect gap** — grade each turn text-only vs effect-level | SafeClawBench, DeepTrap | 17,906 risky tool calls / 2,602 sessions | gap (effects missed by text grader) | High | Low–Med | **Do first** |
+| 1 | **Semantic-vs-effect gap** — grade each turn text-only vs effect-level | arXiv:2606.18356, DeepTrap | 17,906 risky tool calls / 2,602 sessions | gap (effects missed by text grader) | High | Low–Med | **Do first** |
 | 2 | **Offline SessionTrace** — fs/net/exec/memory profile per session | RSA | 20,490 tool.call / 2,602 risky sessions | risky-session recall vs final-text baseline | High | Med | Do |
 | 3 | **Tool-return FPR sweep** — InboundGuard over tool.result outputs | DeepTrap | ~20k tool.result (2,133 web_search) | FPR; #flagged | Med–High | Low | Do |
-| 4 | **Outbound group-leak eval** — group surface from `@g.us`, protected names | (talk group examples), SecureClaw outbound | 609 group msgs; ~74 with protected names | leak precision/recall on real group msgs | Med | Low | Do (augment) |
-| 5 | **Inbound FPR baseline** — InboundGuard over real user messages | DeepTrap/SafeClaw (negatives) | 10,265 real user msgs (~0 attacks) | false-positive rate | Med | Low | Do (FPR only) |
+| 4 | **Outbound group-leak eval** — group surface from `@g.us`, protected names | (talk group examples), arXiv:2606.09549 outbound | 609 group msgs; ~74 with protected names | leak precision/recall on real group msgs | Med | Low | Do (augment) |
+| 5 | **Inbound FPR baseline** — InboundGuard over real user messages | DeepTrap/arXiv:2606.18356 (negatives) | 10,265 real user msgs (~0 attacks) | false-positive rate | Med | Low | Do (FPR only) |
 | 6 | **Skill-vet FPR** — LLM-judge our own installed skills | SkillVetBench | ~4 plugins + SKILL/SOUL files | FPR on benign skills | Low–Med | Low | Optional |
 | 7 | **Composition demo** — capability pairs on installed plugin set | Safe Skills Collide | ~4 plugins | qualitative dangerous-pair flags | Low | Low | Optional |
-| 8 | **Dual-boundary (read-handle + PREVIEW→COMMIT)** | SecureClaw | — (live only) | ASR on synthetic attack suite | High | High | **Not offline — defer to live** |
+| 8 | **Dual-boundary (read-handle + PREVIEW→COMMIT)** | arXiv:2606.09549 | — (live only) | ASR on synthetic attack suite | High | High | **Not offline — defer to live** |
 
 **Data caveats baked into the ranking.**
 - *Inbound recall is not measurable* — the corpus is essentially attack-free (~0 organic
@@ -216,7 +216,7 @@ returns (corpus has ~0 real ones). **Effort: low.**
 ## 4. Deferred to an implementation session (do NOT build in this pass)
 
 Wiring (prerequisite for any of the above to matter in production):
-- [ ] A real interception point: OpenClaw plugin **hook** (auto-run `jataayu_check_inbound` on
+- [ ] A real interception point: gateway plugin **hook** (auto-run `jataayu_check_inbound` on
       received external content and `jataayu_check_outbound` on drafts), and/or deploy the
       **`mcp_gateway` `before_tool_call`** proxy in front of tool calls. Today the plugin only
       registers model-invoked tools that are never called.
@@ -224,24 +224,24 @@ Wiring (prerequisite for any of the above to matter in production):
 
 Paper-driven upgrades (from `docs/upgrades-from-arxiv-2026-06.md`, unchanged priority):
 - [ ] P0: `tool-return` / `memory-read` / `memory-write` / `skill-metadata` surfaces in
-      `surfaces/profiles.py`, routed through `guards/inbound.py` (DeepTrap, SafeClawBench).
+      `surfaces/profiles.py`, routed through `guards/inbound.py` (DeepTrap, arXiv:2606.18356).
 - [ ] P0: `guards/skill_vet.py` + `jataayu vet-skill` LLM-judge Skill-Risk vector (SkillVetBench).
 - [ ] P1: `jataayu_check_skillset()` capability tags + dangerous-pair/chain detection; capability
       allowlists in `config/policy.py` (Safe Skills Collide).
 - [ ] P2: `core/audit.py` `SessionTrace` + `jataayu audit` (RSA); staged harm metrics
-      (semantic/audit/sandbox) in `tests/` (SafeClawBench); effect-sink **PREVIEW→COMMIT** in
-      `mcp_gateway` + opaque-handle read-boundary vault (SecureClaw).
+      (semantic/audit/sandbox) in `tests/` (arXiv:2606.18356); effect-sink **PREVIEW→COMMIT** in
+      `mcp_gateway` + opaque-handle read-boundary vault (arXiv:2606.09549).
 
 Replication harness (this study, when greenlit): build experiments #1–#5 above as a read-only
-analysis over `~/.openclaw/agents/**/sessions/*.trajectory.jsonl`, reconstructing
+analysis over the gateway session trajectories (`agents/**/sessions/*.trajectory.jsonl`), reconstructing
 turns via `threadId/turnId/toolCallId`; report FPR on benign inbound + tool-returns, the
 semantic-vs-effect gap, and offline SessionTrace risky-session recall.
 
 ## Sources
 - SkillVetBench — https://arxiv.org/abs/2606.15899
 - Runtime Skill Audit — https://arxiv.org/abs/2606.11671
-- SafeClawBench — https://arxiv.org/abs/2606.18356
+- arXiv:2606.18356 — https://arxiv.org/abs/2606.18356
 - Red-Teaming Agent Execution Contexts (DeepTrap) — https://arxiv.org/abs/2605.11047
 - When Safe Skills Collide — https://arxiv.org/abs/2606.00448
-- SecureClaw — https://arxiv.org/abs/2606.09549
+- arXiv:2606.09549 — https://arxiv.org/abs/2606.09549
 - Prior pass — `docs/upgrades-from-arxiv-2026-06.md`

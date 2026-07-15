@@ -13,7 +13,7 @@ All Jataayu numbers here are from real harness runs in `eval/results/`, not esti
 
 1. **The effect-boundary / IFC family that Jataayu belongs to is essentially absent from ICML 2026's
    main track.** It publishes to security venues: CaMeL → **IEEE SaTML 2026**, ControlValve →
-   **ICLR 2026**, FIDES/AgentArmor/AuthGraph/SecureClaw → **arXiv**. What ICML 2026 *does* have is the
+   **ICLR 2026**, FIDES/AgentArmor/AuthGraph/arXiv:2606.09549 → **arXiv**. What ICML 2026 *does* have is the
    *guardrail* family — SafeHarbor (poster 64556), CausalArmor, BARRED, EMBGUARD, SkillGuard — trained
    classifiers on a **different axis** (intent, not provenance). Positioning consequence: an
    effect-boundary paper at ICML would be nearly first-of-kind; the natural venue is SaTML/ICLR/S&P.
@@ -25,7 +25,7 @@ All Jataayu numbers here are from real harness runs in `eval/results/`, not esti
    top fix-it.
 
 3. **Two 2026 preprints are near-one-to-one collisions with Jataayu's mechanism and must be
-   addressed head-on:** **SecureClaw** (opaque-handle read confinement + PREVIEW→COMMIT) and
+   addressed head-on:** **arXiv:2606.09549** (opaque-handle read confinement + PREVIEW→COMMIT) and
    **AuthGraph** (provenance × authorization). Neither has our *three-factor severity-graded* gate,
    which is the defensible differentiator — but we can no longer claim the mechanism is novel.
 
@@ -43,7 +43,7 @@ all report AgentDojo. ASR = attack success rate (lower better); tax = utility lo
 | **CaMeL** (DeepMind/ETH) | **SaTML 2026** 2503.18813 | capability + control/data-flow separation (custom interpreter) | ~300→**0** successful | **77%** solved *w/ provable security* | **~7pp** |
 | **AgentArmor** (ByteDance) | arXiv 2508.01249 | CFG/DFG/PDG graph-IR + type system | **41→3%** | 72% vs 73% | **~1pp** |
 | **AuthGraph** ⚠ | arXiv 2605.26497 | dual-graph: provenance × intent-authorization, tool+param level | **40→1%** | 76% task completion | modest (AgentDojo) |
-| **SecureClaw** ⚠ | arXiv 2606.09549 | opaque handles (read) + PREVIEW→COMMIT (write) | ASB **0%**, AgentDojo **0.64%** | qualitative only | n/r |
+| **arXiv:2606.09549** ⚠ | arXiv 2606.09549 | opaque handles (read) + PREVIEW→COMMIT (write) | ASB **0%**, AgentDojo **0.64%** | qualitative only | n/r |
 | **ACP** | arXiv 2603.18829 | temporal/stateful admission control (TLA+, 4.3B states) | 500/500→**2/500 (0.4%)** valid-workload | n/r | 739ns p50 |
 | **— Jataayu** (this repo) | — | **severity × worst-provenance × capability**, 3-factor deterministic gate + PREVIEW→COMMIT + opaque handles | **workspace/qwen 2.9→0.0%**; slack/gpt5.4-mini 10→0% | qwen: **100% (0pp)**; gpt5.4-mini: ~20pp | 0–20pp (model-dependent) |
 | RTBAS *(probabilistic, for contrast)* | arXiv 2502.08966 | IFC + LM-judge + attention saliency | prevents all targeted | ~2% loss | lowest, not deterministic |
@@ -98,8 +98,8 @@ Not just the effect boundary. The 2026 preprint frontier has direct analogs for 
   **>96.5%**, AuthBlur risky-approval **+71.8%**. Our trust-transfer + capability-pair + fragmentation
   taxonomy maps almost 1:1 — this is the benchmark to run our composition guard against.
 - **When Safe Skills Collide** (2606.00448): 1,520 skills → 211,575 pairs, 18.2% validated risk.
-- ⚠ **Both use the OpenClaw/ClawHub ecosystem names** — verify they're independent third-party work
-  and not derivative of our own project before citing as external validation.
+- ⚠ **Both build on the same external assistant/registry ecosystem** — verify they're independent
+  third-party work and not derivative of our own project before citing as external validation.
 
 **SessionTrace cross-turn auditor** (sleeper memory: write→recall→effect):
 - *Attacks:* "Hidden in Memory" (2605.15338) — sleeper implant up to **99.8%** (GPT-5.5); MemMorph
@@ -120,7 +120,7 @@ Not just the effect boundary. The 2026 preprint frontier has direct analogs for 
 
 The mechanism we describe in `guards/effect_boundary.py` is no longer novel in isolation:
 
-- **SecureClaw (2606.09549)** independently proposes **opaque-handle read confinement + PREVIEW→COMMIT
+- **arXiv:2606.09549** independently proposes **opaque-handle read confinement + PREVIEW→COMMIT
   with a trusted executor committing the canonical policy-authorized request** — nearly verbatim our
   read/write boundary. Reports ASB 0% / AgentDojo 0.64% / AgentLeak 3.23%, no utility %. **Action: read
   it; differentiate on the three-factor severity-graded authorization and the deterministic single-gate
@@ -140,7 +140,7 @@ The mechanism we describe in `guards/effect_boundary.py` is no longer novel in i
   audit + egress channel + tool-return, sharing one `EffectClass`/`Provenance` vocabulary. The field
   has a *separate paper per module*; we have the integrated primitive.
 - **Deterministic + sub-ms + ~0 VRAM** — none of the trained guardrails publish ms/VRAM; the
-  deterministic cohort is comparable in spirit but SecureClaw/AuthGraph don't report latency. Our
+  deterministic cohort is comparable in spirit but arXiv:2606.09549/AuthGraph don't report latency. Our
   explicit cost table is a genuine differentiator.
 - **Stateful/temporal reasoning** (SessionTrace) — only ACP has anything like it in the effect cohort.
 
@@ -160,13 +160,13 @@ The mechanism we describe in `guards/effect_boundary.py` is no longer novel in i
 ## 6. Verification caveats
 - **Peer-reviewed confirmed:** CaMeL (SaTML 2026), ControlValve (ICLR 2026), SafeHarbor (ICML 2026
   poster 64556), ShieldAgent (ICML 2025), OS-Harm (NeurIPS 2025).
-- **arXiv-only (real IDs fetched, no venue):** FIDES, AgentArmor, AuthGraph, SecureClaw, ACP, PORTICO,
+- **arXiv-only (real IDs fetched, no venue):** FIDES, AgentArmor, AuthGraph, arXiv:2606.09549, ACP, PORTICO,
   ARGUS, TMA-NM, MemAudit, SCR-Bench, SkillVetBench, VISTA-Guard, the sleeper-memory attacks.
 - **Numbers flagged soft** (secondary-source or abstract-only, verify against PDF before citing in a
-  camera-ready): CausalArmor ICML-accept status; SecureClaw/AuthGraph/PORTICO exact utility baselines;
+  camera-ready): CausalArmor ICML-accept status; arXiv:2606.09549/AuthGraph/PORTICO exact utility baselines;
   ATBench baseline F1s; MELON 0.32%/68.72%.
-- ⚠ **Ecosystem-name flag:** several skill-composition/memory papers (2606.00448, 2606.00925, and the
-  *Claw*-named family) build on OpenClaw/ClawHub — the same names as our own stack. Confirm independence
+- ⚠ **Ecosystem flag:** several skill-composition/memory papers (2606.00448, 2606.00925, and others)
+  build on the same external assistant/registry ecosystem as our own stack. Confirm independence
   before citing as third-party validation; this recurs from lit-review §0's caveat.
 
 *Jataayu AgentDojo numbers: `eval/results/agentdojo_*.json`. AgentHarm: run

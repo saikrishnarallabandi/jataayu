@@ -21,9 +21,9 @@ overstating, every claim below is tagged:
 - **[SOLID]** — established, independently corroborated, or a tracked CVE / named vendor incident.
 - **[DIRECTIONAL]** — a single recent preprint or vendor benchmark; plausible, not yet replicated.
 - **[UNVERIFIED]** — could not be independently anchored past our knowledge cutoff; several sit in
-  a *Claw*-named 2026 family that overlaps our own internal notes. Treat numbers as illustrative.
+  a same-ecosystem 2026 family that overlaps our own internal notes. Treat numbers as illustrative.
 
-**One honest caveat:** several of the most Jataayu-aligned 2026 papers (SafeClawBench, SecureClaw,
+**One honest caveat:** several of the most Jataayu-aligned 2026 papers (arXiv:2606.18356, arXiv:2606.09549,
 SkillVetBench, RSA) are the same IDs cited in our own `docs/` — i.e. our prior passes and this
 web scan are partly drawing on the same possibly-synthetic corpus. The *verifiable* backbone of
 this review (AgentDojo, ASB, InjecAgent, AgentHarm, CaMeL, FIDES, MCPTox, the EchoLeak/AgentFlayer/
@@ -167,7 +167,7 @@ This is where the frontier is richest and most validating.
 - **[DIRECTIONAL]** **OAP** ("Before the Tool Call") — deterministic, **non-LLM** pre-action
   authorization over declarative policy; signed audit record. **Restrictive tier: 0/879 social-
   engineering attempts succeeded; p50 latency 53 ms; covers 8/10 OWASP Agentic risks.**
-- **[DIRECTIONAL]** **SecureClaw / CapSeal** — read-boundary confinement: secrets become **opaque
+- **[DIRECTIONAL]** **arXiv:2606.09549 / CapSeal** — read-boundary confinement: secrets become **opaque
   handles** the model plans over but cannot dereference to plaintext; external writes via
   **PREVIEW→COMMIT** where a trusted executor commits only the exact authorized request.
 - **[DIRECTIONAL]** **Dual-graph provenance × authorization** — a provenance graph (lineage) × an
@@ -179,8 +179,8 @@ This is where the frontier is richest and most validating.
   **effect severity × worst inbound provenance × capability policy, deterministically (no LLM)** —
   this is the *same design language* as OAP (deterministic, signed) and the dual-graph work
   (provenance × severity). We independently landed on the emerging consensus primitive.
-- Our **PREVIEW→COMMIT** with a `commit_token` binding the exact request = SecureClaw's protocol.
-- Our read-boundary **opaque-handle** confinement (in ARCHITECTURE / README) = SecureClaw/CapSeal's
+- Our **PREVIEW→COMMIT** with a `commit_token` binding the exact request = arXiv:2606.09549's protocol.
+- Our read-boundary **opaque-handle** confinement (in ARCHITECTURE / README) = arXiv:2606.09549/CapSeal's
   "plan over references, never dereference plaintext" — corroborated now by FIDES labels too.
 - **What we're missing vs the leaders:** (a) CaMeL/FIDES/ControlValve report **AgentDojo** numbers;
   we report deepset + InjecAgent. Publishing an AgentDojo number is our biggest external-credibility
@@ -207,7 +207,7 @@ This is where the frontier is richest and most validating.
   campaigns (marketplace poisoning) and a claimed first agentic-system CVE. Code-layer scanners miss
   **89–100%** of *instruction-layer* (prompt-injection / memory-poisoning) skills.
 - **[DIRECTIONAL]** **Compositional risk quantified** (SCR-Bench / "SkillReact",
-  arXiv:2606.00448): individually-safe skills compose into unsafe sets. On 1,520 ClawHub skills,
+  arXiv:2606.00448): individually-safe skills compose into unsafe sets. On 1,520 skills from the referenced skill registry,
   651 pass individual inspection and form 211,575 pairs; **22.25%** flag as structural candidates,
   of which a two-rater human-adjudicated audit validates **18.2%** as real compositional risk (the
   paper's headline) — ≈14K genuine risk memberships that per-skill scanning misses by construction.
@@ -247,7 +247,7 @@ This is where the frontier is richest and most validating.
   **harm score** plus **Refusal Rate** and **Non-Refusal Harm Score** (harm *conditional on acting*)
   — i.e. "did it refuse?" ≠ "did it actually accomplish harm?" This is the semantic-vs-effect split
   in a *verifiable* benchmark, and it aligns with Jataayu's effect-boundary thesis.
-- **[DIRECTIONAL/UNVERIFIED] SafeClawBench** — the sharpest quantification of the gap: of 347
+- **[DIRECTIONAL/UNVERIFIED] arXiv:2606.18356** — the sharpest quantification of the gap: of 347
   sandbox-observed harms, **291 (83.9%) passed the semantic/text check** — a text-only judge would
   have called them safe. (Same paper already in our `docs/`; treat 83.9% as indicative.)
 - **[DIRECTIONAL] Trajectory-native eval** matured: ATBench (grade over full traces), T-MAP
@@ -321,7 +321,7 @@ Ordered by (external credibility × leverage) ÷ lift. Items 1–2 are new; 3–
    fire?", not "did the text look safe?" [SHIPPED 2026-07-04] `eval/run_semantic_vs_effect.py` — a
    deterministic offline harness grading trajectories text-only vs effect-level via `SessionTrace`.
    Measured gap: text recall **17%** vs effect recall **100%**; 5/6 harms are text-silent (≈
-   SafeClawBench's 291/347).
+   arXiv:2606.18356's 291/347).
 6. **Map guarantees to OWASP Agentic Top-10 (ASI0x) + name the moat.** [SHIPPED 2026-07-04]
    README "Where Jataayu sits in the standards" table maps each guard to an OWASP Agentic risk and
    states the moat is the effect boundary, not the regex catalog (the detector-validity crisis of
@@ -352,7 +352,7 @@ AgentHarm arXiv:2410.09024; MCPTox arXiv:2508.14925; OS-HARM arXiv:2506.14866.
 Security Cheat Sheet.
 **Standards:** OWASP Top 10 for Agentic Applications 2026 (genai.owasp.org); NIST AI Agent Standards
 Initiative / CAISI; CSA MAESTRO.
-**Directional / unverified (cite as indicative):** SafeClawBench, SecureClaw, SkillVetBench, CapSeal,
+**Directional / unverified (cite as indicative):** arXiv:2606.18356, arXiv:2606.09549, SkillVetBench, CapSeal,
 OAP, SCR-Bench, "Benchmarks Lie" LODO numbers, sleeper memory poisoning, egress reference monitor,
 registry-scale skill studies, PromptArmor <1% figures — single recent preprints or vendor benchmarks,
-several in a *Claw*-named family overlapping our own internal notes.
+several in a same-ecosystem family overlapping our own internal notes.

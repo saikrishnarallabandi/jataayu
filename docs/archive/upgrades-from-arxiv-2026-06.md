@@ -5,7 +5,7 @@ security (pulled from the Sangraha arXiv feeds) plus the WorldShift explainer re
 from them. These are notes + a proposed roadmap, not committed work.*
 
 > **Companion video** (1:49, the same six papers, plain-language):
-> `project_worldshift/data/social_cache/six-papers-on-breaking-and-defending-ai-agents-soc-clawsec-arxiv.mp4`
+> `project_worldshift/data/social_cache/six-papers-on-breaking-and-defending-ai-agents-soc-sec-arxiv.mp4`
 > Thesis of the reel — and of these notes:
 > **"You can't secure an agent by checking its final answer. You have to watch what it
 > touches. Execution is the new attack surface."**
@@ -39,10 +39,10 @@ compositional and dual-boundary work.**
 | Strength | Module | Why it matters in the 2026 framing |
 |---|---|---|
 | Taint tracking, data→sink | `core/taint.py` | The execution-centric idea in embryo: track what tainted input *reaches*. |
-| `before_tool_call` hook | `integrations/mcp_gateway.py` | The natural insertion point for effect-sink authorization (SecureClaw) and trace audit (RSA). |
+| `before_tool_call` hook | `integrations/mcp_gateway.py` | The natural insertion point for effect-sink authorization (arXiv:2606.09549) and trace audit (RSA). |
 | Surface-aware trust | `surfaces/profiles.py` | The right abstraction to add `tool-return` / `memory-*` / `skill-metadata` surfaces. |
 | LLM slow-path judge | `core/engine.py`, `guards/*` | Already an LLM-as-judge — exactly what SkillVetBench needs for instruction-layer risk. |
-| Outbound privacy guard | `guards/outbound.py` | Rare; a head start on SecureClaw's read-boundary confinement (see P5). |
+| Outbound privacy guard | `guards/outbound.py` | Rare; a head start on arXiv:2606.09549's read-boundary confinement (see P5). |
 
 ---
 
@@ -54,7 +54,7 @@ instruction-layer threats (prompt injection, memory poisoning). An LLM-as-Judge 
 multi-dimension risk score (SARS) caught 78/78 malicious skills with zero false negatives.
 
 **Gap in Jataayu:** it guards *runtime content*; it has no notion of vetting a *skill* at
-install time. (`skills/` today only holds `openclaw/SKILL.md`, i.e. Jataayu-as-a-skill — not
+install time. (`skills/` today only holds the gateway's `SKILL.md`, i.e. Jataayu-as-a-skill — not
 a vetting target.)
 
 **Upgrade (P0):** add `guards/skill_vet.py` + `jataayu vet-skill <path>` CLI.
@@ -93,7 +93,7 @@ the host model's disposition. Fix: install-time compositional checks + capabilit
 - Wire capability allowlists into `config/policy.py` (per-agent capability isolation), so a
   composition that unlocks a forbidden capability is blocked at install, not at runtime.
 
-### 4. SafeClawBench — measure harm in stages, not just text · arXiv:2606.18356
+### 4. arXiv:2606.18356 — measure harm in stages, not just text
 **Finding:** separating *semantic acceptance* vs *audit-evidence* vs *sandbox-observed* harm
 matters: **291 of 347** real sandbox harms occurred in cases that **passed the semantic
 check**. Text-level grading badly undercounts real harm.
@@ -108,7 +108,7 @@ check**. Text-level grading badly undercounts real harm.
 - Add an effect-observation layer in `core/audit.py`: after `before_tool_call`, record audit
   evidence (+ optional sandbox state-delta) so Jataayu can report harm at the *effect* level.
 
-### 5. SecureClaw — dual-boundary: confine reads, authorize effects · arXiv:2606.09549
+### 5. arXiv:2606.09549 — dual-boundary: confine reads, authorize effects
 **Finding:** a two-wall architecture hit **0% ASR on ASB** while keeping utility — (a) secrets
 swapped for **opaque handles** at the *read* boundary (the runtime plans over references, never
 dereferences plaintext), and (b) external writes follow **PREVIEW→COMMIT**, where only a trusted
@@ -134,7 +134,7 @@ evaluation.
 
 **Gap in Jataayu:** inbound checks cover external *content* and MCP tool *descriptions*, but not
 tool **returns** or persistent **memory** reads/writes — the exact channels DeepTrap and
-SafeClawBench exploit (tool-return injection, memory poisoning/extraction).
+arXiv:2606.18356 exploit (tool-return injection, memory poisoning/extraction).
 
 **Upgrade (P0, with #1):** add surfaces to `surfaces/profiles.py` and route them through
 `guards/inbound.py`:
@@ -149,7 +149,7 @@ Then evaluate trajectory-level, not just final reply.
 ## Proposed roadmap (by leverage / lift)
 
 **P0 — reuse what we have, close the biggest live gaps**
-- [x] `tool-return`, `memory-read/write` surfaces (DeepTrap, SafeClawBench) — shipped on
+- [x] `tool-return`, `memory-read/write` surfaces (DeepTrap, arXiv:2606.18356) — shipped on
   `feat/execution-surfaces`: surface profiles + inbound multipliers, `after_tool_call` /
   `inspect_tool_response` return-value scanning in `mcp_gateway`, and
   `jataayu_check_tool_return` / `_memory_write` / `_memory_read` convenience API. 25 tests.
@@ -157,7 +157,7 @@ Then evaluate trajectory-level, not just final reply.
   — shipped: `SkillVetGuard` (pattern pre-filter → LLM-as-Judge), the `skill-metadata`
   surface, `jataayu vet-skill <path>` CLI, and `jataayu_vet_skill()` API. Scores the 5-dim
   Skill-Risk vector → SAFE/REVIEW/MALICIOUS, and tags **capabilities** (exec, reads_secrets,
-  network_write, …) which feed P1 composition. Positioned as a complement to OpenClaw's static
+  network_write, …) which feed P1 composition. Positioned as a complement to the gateway's static
   scanner: it reasons about the *instruction layer* (markdown prose), where command patterns are
   treated as soft (could be documentation) vs. code/manifests where they hard-block. 14 tests.
 
@@ -174,8 +174,8 @@ Then evaluate trajectory-level, not just final reply.
 
 **P2 — execution-centric core (bigger lifts)**
 - [ ] `core/audit.py` `SessionTrace` + `jataayu audit` runtime behavioral auditing (RSA)
-- [ ] effect-sink **PREVIEW→COMMIT** in `mcp_gateway` + opaque-handle read-boundary vault (SecureClaw)
-- [ ] staged harm metrics (semantic / audit / sandbox) in `tests/` (SafeClawBench)
+- [ ] effect-sink **PREVIEW→COMMIT** in `mcp_gateway` + opaque-handle read-boundary vault (arXiv:2606.09549)
+- [ ] staged harm metrics (semantic / audit / sandbox) in `tests/` (arXiv:2606.18356)
 
 **Framing for the README/positioning:** Jataayu started as inbound-injection + outbound-privacy.
 The 2026 work says the next chapter is **skill-aware + execution-aware**: vet skills before they
@@ -187,6 +187,6 @@ context, judge it, and act — not just pattern-match the words.
 - Runtime Skill Audit — https://arxiv.org/abs/2606.11671
 - SkillVetBench — https://arxiv.org/abs/2606.15899
 - When Safe Skills Collide — https://arxiv.org/abs/2606.00448
-- SafeClawBench — https://arxiv.org/abs/2606.18356
+- arXiv:2606.18356 — https://arxiv.org/abs/2606.18356
 - Red-Teaming Agent Execution Contexts (DeepTrap) — https://arxiv.org/abs/2605.11047
-- SecureClaw — https://arxiv.org/abs/2606.09549
+- arXiv:2606.09549 — https://arxiv.org/abs/2606.09549
