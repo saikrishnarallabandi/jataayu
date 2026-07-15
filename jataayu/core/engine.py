@@ -38,6 +38,10 @@ class LLMBackend:
         self.backend = backend or os.environ.get("JATAAYU_LLM_BACKEND", "ollama")
         self.model = model or os.environ.get("JATAAYU_LLM_MODEL", self._default_model())
         self.base_url = base_url or os.environ.get("JATAAYU_LLM_BASE_URL") or self._default_url()
+        # Keep the raw constructor arg BEFORE the env fallback: the gateway token path must be able
+        # to tell a programmatically-passed key from one sourced from JATAAYU_LLM_API_KEY (which is
+        # the upstream provider secret, NOT the gateway bearer). See _gateway_token.
+        self._explicit_api_key = api_key or ""
         self.api_key = api_key or os.environ.get("JATAAYU_LLM_API_KEY", "")
 
     def _default_model(self) -> str:
@@ -67,13 +71,28 @@ class LLMBackend:
             raise RuntimeError(
                 "gateway backend selected but JATAAYU_GATEWAY_BASE_URL is not set"
             )
+        # _call_openai_compat appends /v1/chat/completions, so the base must be the host root.
+        # Users commonly set …/v1 (that's the OpenAI-compatible endpoint they see), which would
+        # double to /v1/v1/… → 404. Strip a single trailing /v1 (and any trailing slashes) so both
+        # https://gw and https://gw/v1 resolve to the same request path.
+        url = url.rstrip("/")
+        if url.lower().endswith("/v1"):
+            url = url[: -len("/v1")].rstrip("/")
         return url
 
     def _gateway_token(self) -> str:
-        token = os.environ.get("JATAAYU_GATEWAY_TOKEN", "")
+        # Gateway bearer precedence:
+        #   1. Explicit constructor api_key (programmatic config, e.g. PrivacyConfig.llm_token) — wins.
+        #   2. JATAAYU_GATEWAY_TOKEN env — the gateway-specific secret.
+        #   3. Otherwise raise.
+        # Deliberately does NOT fall back to the env-sourced JATAAYU_LLM_API_KEY: that is the
+        # upstream provider secret (e.g. sk-ant-…), and sending it to the self-hosted gateway would
+        # both break gateway auth and leak the provider key over the (optionally insecure) channel.
+        token = self._explicit_api_key or os.environ.get("JATAAYU_GATEWAY_TOKEN", "")
         if not token:
             raise RuntimeError(
-                "gateway backend selected but JATAAYU_GATEWAY_TOKEN is not set"
+                "gateway backend selected but no token provided "
+                "(pass api_key or set JATAAYU_GATEWAY_TOKEN)"
             )
         return token
 
@@ -82,9 +101,6 @@ class LLMBackend:
         Call the configured LLM and return the response text.
         Raises RuntimeError if the backend is unavailable.
         """
-        import urllib3
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
         if self.backend == "ollama":
             return self._call_ollama(system_prompt, user_message, max_tokens)
         elif self.backend in ("openai", "gateway"):
@@ -114,14 +130,23 @@ class LLMBackend:
 
     def _call_openai_compat(self, system_prompt: str, user_message: str, max_tokens: int) -> str:
         import requests
-        import urllib3
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
         headers = {"Content-Type": "application/json"}
         if self.backend == "gateway":
             headers["Authorization"] = f"Bearer {self._gateway_token()}"
         elif self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
+
+        # TLS verification is ON by default. The openai backend (talking to api.openai.com) ALWAYS
+        # verifies — there is no opt-out. Only a self-hosted gateway may opt into insecure transport,
+        # for self-signed localhost certs, and only via an explicit env flag.
+        verify = True
+        if self.backend == "gateway" and os.environ.get(
+            "JATAAYU_GATEWAY_INSECURE", ""
+        ).lower() in ("1", "true", "yes"):
+            verify = False
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
         resp = requests.post(
             f"{self.base_url}/v1/chat/completions",
@@ -134,7 +159,7 @@ class LLMBackend:
                     {"role": "user", "content": user_message},
                 ],
             },
-            verify=False,
+            verify=verify,
             timeout=60,
         )
         resp.raise_for_status()
