@@ -141,7 +141,7 @@ SURFACE_PROFILES: dict[str, dict] = {
         "notes": "Alias surface for web-content. Same trust profile.",
     },
     # -----------------------------------------------------------------------
-    # Execution-context surfaces — the 2026 literature (DeepTrap / SafeClawBench)
+    # Execution-context surfaces — the 2026 literature (DeepTrap / arXiv:2606.18356)
     # moved the attack surface past the user prompt into what the agent *touches*
     # at runtime: tool outputs and persistent memory. These are inbound channels
     # the agent consumes, so they get low trust and strict inbound scanning.

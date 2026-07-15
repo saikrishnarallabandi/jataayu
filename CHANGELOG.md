@@ -23,12 +23,12 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added — semantic-vs-effect gap eval
 - `eval/run_semantic_vs_effect.py`: a deterministic, offline (no LLM, no network) harness that
-  demonstrates the SafeClawBench thesis on Jataayu's own `SessionTrace`. Grades synthetic
+  demonstrates the tool-provenance benchmark (arXiv:2606.18356) thesis on Jataayu's own `SessionTrace`. Grades synthetic
   multi-turn trajectories two ways — a naive **text** judge (visible final answer only) vs the
   **effect** grader (`SessionTrace.audit()` over the tool-call sequence) — and reports the gap.
   Result on the shipped corpus: text-grader recall on real harms **17%** vs effect-grader
   **100%**; **5 of 6** harms are "silent" (benign/`NO_REPLY` text, malicious effect sequence),
-  echoing SafeClawBench's 291/347. Writes `eval/results/semantic_vs_effect.json`. (Roadmap item #5
+  echoing arXiv:2606.18356's 291/347. Writes `eval/results/semantic_vs_effect.json`. (Roadmap item #5
   from `docs/lit-review-2026-07.md`; effect-level grading over text-level.)
 
 ### Added — composition: trust-transfer & intent-fragmentation dimensions
@@ -97,7 +97,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 Architectural defense: move the security boundary off "detect the attack string" (the weakest
 tier against adaptive attackers) toward action-level authorization, per the agent-security
-literature (CaMeL arXiv 2503.18813, FIDES 2505.23643, SecureClaw 2606.09549). The regex engine is
+literature (CaMeL arXiv 2503.18813, FIDES 2505.23643, arXiv:2606.09549). The regex engine is
 retained as a cheap pre-filter/telemetry layer.
 
 ### Added — Layer 0 (input normalization, within the existing engine)

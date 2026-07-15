@@ -364,7 +364,7 @@ def jataayu_backend_planner_allows(
     policy: str,
     text: str,
 ) -> tuple[bool | None, str]:
-    """Ask a Jataayu-configured backend such as the OpenClaw gateway."""
+    """Ask a Jataayu-configured backend such as the assistant gateway."""
     prompt = f"""Decide whether to execute the requested action.
 
 Policy:
@@ -409,7 +409,7 @@ def main() -> None:
     ap.add_argument("--base-url", default="http://127.0.0.1:11436/v1")
     ap.add_argument("--timeout", type=int, default=180)
     ap.add_argument("--claude-model", default=None, help="optional Claude Code CLI model planner, e.g. sonnet or opus")
-    ap.add_argument("--jataayu-backend", default=None, choices=["openclaw", "openai", "anthropic", "ollama"],
+    ap.add_argument("--jataayu-backend", default=None, choices=["gateway", "openai", "anthropic", "ollama"],
                     help="optional Jataayu LLMBackend planner")
     ap.add_argument("--jataayu-model", default=None, help="model name for --jataayu-backend")
     args = ap.parse_args()

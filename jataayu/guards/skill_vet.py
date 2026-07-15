@@ -10,7 +10,7 @@ instructions, memory poisoning). An LLM-as-Judge scoring a multi-dimension risk
 vector catches what regex cannot.
 
 This guard is a deliberate COMPLEMENT to a host's existing static scanner (e.g.
-OpenClaw's `skill-scanner.ts`): the static scanner reads code; this reads the
+an agent host's `skill-scanner.ts`): the static scanner reads code; this reads the
 *instructions* and reasons about intent, and rolls capability tags up so a later
 compositional pass (SkillReact) can reason about what a *set* of skills unlocks.
 

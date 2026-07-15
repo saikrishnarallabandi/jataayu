@@ -162,7 +162,7 @@ def _is_human_slug(seg: str, max_entropy: float) -> bool:
     Entropy alone CANNOT separate these -- measured on real samples:
 
         project-frontierfinance-sidecar-slm      H=3.84   (benign)
-        openclaw-watcher-and-group-guard-fixes   H=4.06   (benign)
+        gateway-watcher-and-group-guard-fixes    H=3.98   (benign)
         da39a3ee5e6b4b0d3255bfef95601890afd80709 H=3.74   (a 40-char SHA -- LOWER than the slugs)
 
     A threshold that clears the slugs would also clear a hex SHA. What does separate them

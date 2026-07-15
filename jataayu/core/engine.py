@@ -8,10 +8,8 @@ Provides:
 """
 from __future__ import annotations
 
-import json
 import os
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import Optional
 
 from jataayu.core.threat import ThreatResult
@@ -24,11 +22,11 @@ class LLMBackend:
 
     Priority:
       1. Explicitly passed config
-      2. JATAAYU_LLM_BACKEND env var (ollama | openai | anthropic | openclaw)
+      2. JATAAYU_LLM_BACKEND env var (ollama | openai | anthropic | gateway)
       3. Default: ollama at localhost:11434
     """
 
-    BACKENDS = ("ollama", "openai", "anthropic", "openclaw")
+    BACKENDS = ("ollama", "openai", "anthropic", "gateway")
 
     def __init__(
         self,
@@ -39,7 +37,7 @@ class LLMBackend:
     ):
         self.backend = backend or os.environ.get("JATAAYU_LLM_BACKEND", "ollama")
         self.model = model or os.environ.get("JATAAYU_LLM_MODEL", self._default_model())
-        self.base_url = base_url or os.environ.get("JATAAYU_LLM_BASE_URL", self._default_url())
+        self.base_url = base_url or os.environ.get("JATAAYU_LLM_BASE_URL") or self._default_url()
         self.api_key = api_key or os.environ.get("JATAAYU_LLM_API_KEY", "")
 
     def _default_model(self) -> str:
@@ -47,37 +45,37 @@ class LLMBackend:
             "ollama": "llama3",
             "openai": "gpt-4o-mini",
             "anthropic": "claude-haiku-20240307",
-            "openclaw": "anthropic/claude-sonnet-4-6",
+            "gateway": "anthropic/claude-sonnet-4-6",
         }
         return defaults.get(self.backend, "llama3")
 
     def _default_url(self) -> str:
+        if self.backend == "gateway":
+            return self._gateway_url()
         defaults = {
             "ollama": "http://localhost:11434",
             # base URL is the host root; _call_openai_compat appends /v1/chat/completions.
             # (Must NOT include /v1 here or the request path doubles to /v1/v1/… → 404.)
             "openai": "https://api.openai.com",
             "anthropic": "https://api.anthropic.com",
-            "openclaw": self._openclaw_url(),
         }
         return defaults.get(self.backend, "http://localhost:11434")
 
-    def _openclaw_url(self) -> str:
-        config_path = Path.home() / ".openclaw" / "openclaw.json"
-        try:
-            config = json.loads(config_path.read_text())
-            port = config.get("gateway", {}).get("port", 18789)
-            return f"https://localhost:{port}"
-        except Exception:
-            return "https://localhost:18789"
+    def _gateway_url(self) -> str:
+        url = os.environ.get("JATAAYU_GATEWAY_BASE_URL", "")
+        if not url:
+            raise RuntimeError(
+                "gateway backend selected but JATAAYU_GATEWAY_BASE_URL is not set"
+            )
+        return url
 
-    def _openclaw_token(self) -> str:
-        config_path = Path.home() / ".openclaw" / "openclaw.json"
-        try:
-            config = json.loads(config_path.read_text())
-            return config.get("gateway", {}).get("auth", {}).get("token", "")
-        except Exception:
-            return ""
+    def _gateway_token(self) -> str:
+        token = os.environ.get("JATAAYU_GATEWAY_TOKEN", "")
+        if not token:
+            raise RuntimeError(
+                "gateway backend selected but JATAAYU_GATEWAY_TOKEN is not set"
+            )
+        return token
 
     def call(self, system_prompt: str, user_message: str, max_tokens: int = 1024) -> str:
         """
@@ -89,7 +87,7 @@ class LLMBackend:
 
         if self.backend == "ollama":
             return self._call_ollama(system_prompt, user_message, max_tokens)
-        elif self.backend in ("openai", "openclaw"):
+        elif self.backend in ("openai", "gateway"):
             return self._call_openai_compat(system_prompt, user_message, max_tokens)
         elif self.backend == "anthropic":
             return self._call_anthropic(system_prompt, user_message, max_tokens)
@@ -120,8 +118,8 @@ class LLMBackend:
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
         headers = {"Content-Type": "application/json"}
-        if self.backend == "openclaw":
-            headers["Authorization"] = f"Bearer {self._openclaw_token()}"
+        if self.backend == "gateway":
+            headers["Authorization"] = f"Bearer {self._gateway_token()}"
         elif self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 

@@ -4,7 +4,7 @@ Jataayu Public API
 Simple functional interface for AI agent security checks.
 
 These are the primary entry points for integrating Jataayu into
-agent frameworks (OpenClaw, MCP, Claude Code, Codex, etc.).
+agent frameworks (MCP, Claude Code, Codex, etc.).
 
 Inbound checks detect injection attacks in external content.
 Outbound checks enforce privacy protection before sending to shared surfaces.
@@ -228,7 +228,7 @@ def jataayu_authorize_action(
     """
     Authorize a tool call at the EFFECT BOUNDARY — by the harm of the action, not the text.
 
-    This is the architectural defense (SecureClaw / CaMeL): an attacker who controls the content
+    This is the architectural defense (CaMeL, arXiv:2503.18813; and arXiv:2606.09549): an attacker who controls the content
     still cannot get an unauthorized high-effect action committed. Untrusted-derived input into a
     shell/code/secret effect is DENIED; into a network/file/memory-write effect it NEEDS_APPROVAL;
     trusted input (and reads) are ALLOWED — subject to the agent's capability policy.
@@ -443,7 +443,7 @@ def jataayu_recover_outbound(
         content: The draft the agent wants to send.
         surface: Target surface (drives strictness).
         protected_names: Names that must never appear in outbound content.
-        llm_backend: Transport — ollama | openai | anthropic | openclaw.
+        llm_backend: Transport — ollama | openai | anthropic | gateway.
         llm_model, llm_url, llm_token: Backend config.
         use_llm: Set False to use deterministic redaction only.
         max_attempts: LLM rewrite rounds before falling back to redaction.

@@ -1,7 +1,7 @@
 """
 Tests for the Effect Boundary (Layer 1) — action-level authorization.
 
-The property under test (the SecureClaw/CaMeL guarantee): an attacker who controls the *text*
+The property under test (the CaMeL / arXiv:2606.09549 guarantee): an attacker who controls the *text*
 still cannot COMMIT an unauthorized or post-authorization-mutated high-effect action, because the
 decision is made on (effect severity x value provenance x capability policy), not on the string.
 """

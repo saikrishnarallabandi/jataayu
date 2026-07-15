@@ -4,7 +4,7 @@ Jataayu Effect Boundary — authorize at the action, not the text
 Pattern/classifier guards (jataayu's inbound engine, Prompt-Guard, etc.) defend *the attack
 string*. The literature is unanimous that this is the weakest tier against adaptive attackers: a
 trivial transform defeats string detection ~100% of the time. The durable defenses
-(CaMeL — arXiv 2503.18813; FIDES — 2505.23643; SecureClaw — 2606.09549) move the security boundary
+(CaMeL — arXiv 2503.18813; FIDES — 2505.23643; arXiv:2606.09549) move the security boundary
 off the text and onto the **action**: an attacker who wins the text battle still must not be able
 to COMMIT an unauthorized high-effect action.
 

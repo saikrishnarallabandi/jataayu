@@ -179,12 +179,12 @@ def test_check_interface_delegates_to_vet():
 # Self-vet: Jataayu's own bundled skill should be SAFE
 # ---------------------------------------------------------------------------
 
-def test_own_openclaw_skill_is_safe():
+def test_own_assistant_skill_is_safe():
     import jataayu, os
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(jataayu.__file__)))
-    skill_md = os.path.join(repo_root, "skills", "openclaw", "SKILL.md")
+    skill_md = os.path.join(repo_root, "skills", "assistant", "SKILL.md")
     if not os.path.exists(skill_md):
-        pytest.skip("openclaw SKILL.md not present")
+        pytest.skip("assistant SKILL.md not present")
     guard = SkillVetGuard(use_llm=False)
     result = guard.vet(skill_path=skill_md)
     # Our own skill documents security commands; it must not be MALICIOUS.

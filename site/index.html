@@ -309,7 +309,7 @@ XXXX XXXX XXXX XXXX to grab the tickets.</div>
       <div class="lithead"><span class="n">01</span><h3>Execution is the attack surface</h3><span class="sub">stop grading the final answer</span></div>
       <div class="papers">
         <a class="paper" href="https://arxiv.org/abs/2606.18356" target="_blank" rel="noopener">
-          <div class="top"><span class="nick">SafeClawBench</span><span class="aid">arXiv:2606.18356</span></div>
+          <div class="top"><span class="nick">arXiv:2606.18356</span><span class="aid">arXiv:2606.18356</span></div>
           <div class="title">measuring harm in stages, not words</div>
           <div class="desc">Separates what an agent <i>says</i> from what it actually <i>does</i> in a sandbox. The authors report 291 of 347 real harms occurred in cases that passed the text-level check — so grading the answer badly undercounts real harm.</div>
           <div class="map">grounds → <b>Layer 1 effect boundary</b></div>
@@ -334,7 +334,7 @@ XXXX XXXX XXXX XXXX to grab the tickets.</div>
           <div class="map">model for → <b>capability + provenance policy</b></div>
         </a>
         <a class="paper" href="https://arxiv.org/abs/2606.09549" target="_blank" rel="noopener">
-          <div class="top"><span class="nick">SecureClaw</span><span class="aid">arXiv:2606.09549</span></div>
+          <div class="top"><span class="nick">arXiv:2606.09549</span><span class="aid">arXiv:2606.09549</span></div>
           <div class="title">dual boundary — confine reads, authorize effects</div>
           <div class="desc">Two walls: secrets become opaque handles the agent plans over but never dereferences, and external writes follow a PREVIEW→COMMIT protocol where a trusted executor commits only the exact authorized request. Authors report 0% ASR on Agent Security Bench.</div>
           <div class="map">direct model for → <b>Layer 1 (handles + commit-token)</b></div>
@@ -512,7 +512,7 @@ safe_text = res[<span class="s">"redacted"</span>] <span class="k">if</span> res
       <span class="node"><i></i>fast path · <b>regex + normalize</b></span>
       <span class="node"><i></i>slow path · <b>LLM judge</b></span>
       <span class="node"><i></i>boundary · <b>effect authorization</b></span>
-      <span class="node"><i style="background:var(--gold)"></i>backends: <b>Ollama · OpenAI · Anthropic · OpenClaw</b></span>
+      <span class="node"><i style="background:var(--gold)"></i>backends: <b>Ollama · OpenAI · Anthropic</b></span>
     </div>
   </div>
 </section>

@@ -17,7 +17,8 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 DISCORD_TARGET="user:100000000000000001"
 
 cd "$REPO" || exit 1
-notify() { openclaw message send --channel discord --target "$DISCORD_TARGET" --message "$1" 2>/dev/null || true; }
+NOTIFY_CLI="${NOTIFY_CLI:-}"   # message-gateway CLI on PATH (optional); empty = skip notifications
+notify() { [ -n "$NOTIFY_CLI" ] || return 0; "$NOTIFY_CLI" message send --channel discord --target "$DISCORD_TARGET" --message "$1" 2>/dev/null || true; }
 
 endpoint_ok() {
   curl -s --max-time 20 "$BASE_URL/chat/completions" -H 'Content-Type: application/json' \

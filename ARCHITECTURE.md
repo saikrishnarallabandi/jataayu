@@ -44,7 +44,7 @@ AI agents face two categories of threats:
 ```
                     ┌──────────────────────────────────────────┐
                     │              AI Agent                     │
-                    │  (OpenClaw / Claude Code / MCP Client)    │
+                    │  (Gateway / Claude Code / MCP Client)     │
                     └──────────┬──────────────┬────────────────┘
                                │              │
                     ┌──────────▼──────┐  ┌────▼───────────────┐
@@ -176,7 +176,7 @@ Invoked when fast path gives a medium-confidence score (configurable threshold):
 - **Inbound**: LLM evaluates text for nuanced injection attempts that escape regex
 - **Outbound**: LLM rewrites/redacts text to remove privacy violations while preserving meaning
 
-Supports multiple backends: Ollama (local), OpenAI, Anthropic, OpenClaw gateway.
+Supports multiple backends: Ollama (local), OpenAI, Anthropic, assistant gateway.
 
 ## Surface Awareness
 
@@ -192,7 +192,7 @@ See `jataayu/surfaces/profiles.py` for the full surface catalog.
 
 ## Integration Points
 
-### 1. OpenClaw Agent (SOUL.md integration)
+### 1. Agent gateway integration
 
 ```python
 # In agent's processing loop:
@@ -250,6 +250,6 @@ agents:
 2. **Fast by default** — Regex fast path handles most threats in microseconds.
 3. **LLM when needed** — Slow path adds nuance for ambiguous cases.
 4. **Surface-aware** — Context changes what's dangerous. Shell commands in coding tasks ≠ shell commands in issues.
-5. **Composable** — Works as a library, CLI, MCP hook, or OpenClaw skill.
+5. **Composable** — Works as a library, CLI, MCP hook, or gateway skill.
 6. **Honest** — Reports what it found and why. No black-box decisions.
 7. **Privacy-first** — Outbound guard is the missing piece most frameworks ignore.

@@ -152,8 +152,8 @@ def _make_llm(model: str, model_id: str | None, local_base_url: str | None):
     if model == "local":
         if not (model_id and local_base_url):
             raise ValueError("--model-id and --local-base-url are required for --model local")
-        # OPENAI_API_KEY carries the bearer token for auth'd gateways (e.g. the
-        # OpenClaw OAuth gateway); defaults to EMPTY for open local endpoints
+        # OPENAI_API_KEY carries the bearer token for auth'd gateways (e.g. an
+        # assistant OAuth gateway); defaults to EMPTY for open local endpoints
         # (ollama). verify=False accepts the gateway's self-signed TLS cert.
         client = openai.OpenAI(
             api_key=os.environ.get("OPENAI_API_KEY", "EMPTY"),

@@ -17,7 +17,7 @@ Quick start::
     status, findings = check_inbound(content, surface="github-issue")
     status, redacted = check_outbound(draft, surface="discord-channel")
 """
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 from jataayu.core.threat import ThreatResult, ThreatLevel, ThreatType
 from jataayu.guards.inbound import InboundGuard

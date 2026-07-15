@@ -1,1 +1,1 @@
-"""Jataayu integrations — CLI, MCP, OpenClaw."""
+"""Jataayu integrations — CLI, MCP, gateway."""

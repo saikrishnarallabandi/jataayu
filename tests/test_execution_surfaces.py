@@ -1,7 +1,7 @@
 """
 Tests for execution-context surfaces — tool-return + persistent memory.
 
-These cover the 2026-literature upgrade (DeepTrap / SafeClawBench): the attack
+These cover the 2026-literature upgrade (DeepTrap / arXiv:2606.18356): the attack
 surface is what the agent *touches* at runtime (tool outputs, memory), not just
 the user prompt. We add:
   - surface profiles: tool-return, memory-write, memory-read

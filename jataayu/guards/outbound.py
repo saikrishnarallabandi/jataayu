@@ -89,8 +89,8 @@ class PrivacyConfig:
     # Whether to run high-entropy string detection (may have false positives)
     check_high_entropy: bool = False
 
-    # LLM backend. `llm_backend` selects the transport (ollama | openai | anthropic | openclaw);
-    # "openclaw" talks straight to the local gateway over HTTP and reuses its provider auth, so the
+    # LLM backend. `llm_backend` selects the transport (ollama | openai | anthropic | gateway);
+    # "gateway" talks straight to the local assistant gateway over HTTP and reuses its provider auth, so the
     # rewrite runs on the same model that wrote the reply.
     llm_backend: Optional[str] = None
     llm_url: Optional[str] = None
