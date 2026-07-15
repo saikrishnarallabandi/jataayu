@@ -1,9 +1,0 @@
-{
-  "name": "openclaw-plugin-jataayu",
-  "version": "0.1.0",
-  "description": "Jataayu security guard plugin for OpenClaw",
-  "main": "index.js",
-  "scripts": {
-    "test": "node outbound-recover.test.js && node tools-contract.test.js"
-  }
-}
