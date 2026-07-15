@@ -220,7 +220,7 @@ class TestDictApi:
 # and the message tool reported SUCCESS while the message was dropped.
 #
 # Entropy alone cannot separate these: a 40-char SHA is H=3.74, LOWER than the benign
-# slug 'gateway-watcher-and-group-guard-fixes' at H=4.06. Shape (lowercase kebab/snake)
+# slug 'gateway-watcher-and-group-guard-fixes' at H=3.98. Shape (lowercase kebab/snake)
 # is what separates them; the entropy cap then stops a hyphen-chunked payload.
 # ---------------------------------------------------------------------------
 

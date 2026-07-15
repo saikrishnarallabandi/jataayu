@@ -6,7 +6,7 @@ set -uo pipefail
 # Derive the repo root from this script's location; override any path via env.
 REPO="${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 PY="${PY:-python3}"                 # a python with the agentdojo deps installed
-GATEWAY="${GATEWAY:-gateway}"    # gateway CLI on PATH (optional; for notifications)
+NOTIFY_CLI="${NOTIFY_CLI:-}"        # message-gateway CLI on PATH (optional; for notifications)
 WA_TARGET="${WA_TARGET:-}"          # notification target; empty = skip notifications
 OUT="${OUT:-$REPO/eval/results/agentdojo_workspace_local.json}"
 
@@ -17,7 +17,7 @@ LOGDIR="${LOGDIR:-$REPO/runs/agentdojo/${SAFE_MODEL_ID}_$(date -u +%Y%m%dT%H%M%S
 
 cd "$REPO" || exit 1
 
-send() { [ -n "$WA_TARGET" ] || return 0; "$GATEWAY" message send --channel whatsapp --target "$WA_TARGET" --message "$1" 2>/dev/null; }
+send() { [ -n "$WA_TARGET" ] && [ -n "$NOTIFY_CLI" ] || return 0; "$NOTIFY_CLI" message send --channel whatsapp --target "$WA_TARGET" --message "$1" 2>/dev/null; }
 
 send "[jataayu] AgentDojo local run started on ${MODEL_ID} (workspace/important_instructions, baseline vs jataayu). Will report numbers when done."
 

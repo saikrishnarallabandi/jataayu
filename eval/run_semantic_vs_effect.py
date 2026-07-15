@@ -2,7 +2,7 @@
 """
 Semantic-vs-effect gap — text grading undercounts real agent harm.
 
-arXiv:2606.18356's headline result (arXiv:2606.18356) is that **291 of 347 sandbox
+The tool-provenance benchmark's headline result (arXiv:2606.18356) is that **291 of 347 sandbox
 harms passed a semantic/text check** — i.e. a judge reading only the agent's
 visible final text calls them safe while a real harmful *effect* fired. The same
 thesis runs through DeepTrap and the whole 2026 execution-centric line: you can't

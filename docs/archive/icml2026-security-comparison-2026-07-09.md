@@ -98,8 +98,8 @@ Not just the effect boundary. The 2026 preprint frontier has direct analogs for 
   **>96.5%**, AuthBlur risky-approval **+71.8%**. Our trust-transfer + capability-pair + fragmentation
   taxonomy maps almost 1:1 — this is the benchmark to run our composition guard against.
 - **When Safe Skills Collide** (2606.00448): 1,520 skills → 211,575 pairs, 18.2% validated risk.
-- ⚠ **Both use the gateway/skill-registry ecosystem names** — verify they're independent third-party work
-  and not derivative of our own project before citing as external validation.
+- ⚠ **Both build on the same external assistant/registry ecosystem** — verify they're independent
+  third-party work and not derivative of our own project before citing as external validation.
 
 **SessionTrace cross-turn auditor** (sleeper memory: write→recall→effect):
 - *Attacks:* "Hidden in Memory" (2605.15338) — sleeper implant up to **99.8%** (GPT-5.5); MemMorph
@@ -120,7 +120,7 @@ Not just the effect boundary. The 2026 preprint frontier has direct analogs for 
 
 The mechanism we describe in `guards/effect_boundary.py` is no longer novel in isolation:
 
-- **arXiv:2606.09549 (2606.09549)** independently proposes **opaque-handle read confinement + PREVIEW→COMMIT
+- **arXiv:2606.09549** independently proposes **opaque-handle read confinement + PREVIEW→COMMIT
   with a trusted executor committing the canonical policy-authorized request** — nearly verbatim our
   read/write boundary. Reports ASB 0% / AgentDojo 0.64% / AgentLeak 3.23%, no utility %. **Action: read
   it; differentiate on the three-factor severity-graded authorization and the deterministic single-gate
@@ -165,8 +165,8 @@ The mechanism we describe in `guards/effect_boundary.py` is no longer novel in i
 - **Numbers flagged soft** (secondary-source or abstract-only, verify against PDF before citing in a
   camera-ready): CausalArmor ICML-accept status; arXiv:2606.09549/AuthGraph/PORTICO exact utility baselines;
   ATBench baseline F1s; MELON 0.32%/68.72%.
-- ⚠ **Ecosystem-name flag:** several skill-composition/memory papers (2606.00448, 2606.00925, and the
-  *Vendor*-named family) build on gateway/skill-registry — the same names as our own stack. Confirm independence
+- ⚠ **Ecosystem flag:** several skill-composition/memory papers (2606.00448, 2606.00925, and others)
+  build on the same external assistant/registry ecosystem as our own stack. Confirm independence
   before citing as third-party validation; this recurs from lit-review §0's caveat.
 
 *Jataayu AgentDojo numbers: `eval/results/agentdojo_*.json`. AgentHarm: run

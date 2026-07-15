@@ -1,4 +1,4 @@
-# Jataayu — gateway Skill
+# Jataayu — Agent Skill
 
 AI agent security: inbound injection detection + outbound privacy protection.
 
@@ -19,7 +19,7 @@ cd /path/to/jataayu
 pip install -e .
 ```
 
-## Usage in gateway
+## Usage in your agent
 
 ### Check inbound content for injection threats
 
@@ -79,8 +79,10 @@ export JATAAYU_LLM_MODEL=llama3
 export JATAAYU_LLM_BACKEND=openai
 export JATAAYU_LLM_API_KEY=sk-...
 
-# Use gateway gateway (auto-reads ~/.gateway/gateway.json)
+# Use an OpenAI-compatible gateway
 export JATAAYU_LLM_BACKEND=gateway
+export JATAAYU_GATEWAY_BASE_URL=https://your-gateway/v1
+export JATAAYU_GATEWAY_TOKEN=...
 ```
 
 ## Surface Names
