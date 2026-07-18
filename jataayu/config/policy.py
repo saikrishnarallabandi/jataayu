@@ -35,7 +35,7 @@ agents:
     # allowed_capabilities (allowlist; empty = all allowed) and forbidden_capabilities
     # are enforced by jataayu_check_skillset() at install time. Capability tags:
     # exec, fs_read, fs_write, network_read, network_write, reads_secrets,
-    # memory_read, memory_write.
+    # memory_read, memory_write, unknown_effect.
     allowed_capabilities: [fs_read, network_read]
     forbidden_capabilities: [exec]
 

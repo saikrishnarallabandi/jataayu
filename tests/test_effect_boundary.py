@@ -244,6 +244,19 @@ class TestCapabilityPolicy:
         pv = boundary.preview("write_file", {"path": "/x", "content": "y"}, [T("y")])
         assert pv.decision is Decision.DENY  # fs_write not in allowlist
 
+    def test_allowlist_blocks_unknown_effect_even_if_trusted(self, boundary):
+        boundary.policy = AgentPolicy(name="a", allowed_capabilities=["fs_read"])
+        pv = boundary.preview("frobnicate.widget", {"x": 1}, [T("safe")])
+        assert pv.effect_class is EffectClass.UNKNOWN
+        assert pv.decision is Decision.DENY
+        assert "unknown_effect" in pv.violations
+
+    def test_allowlist_can_explicitly_allow_unknown_effect(self, boundary):
+        boundary.policy = AgentPolicy(name="a", allowed_capabilities=["fs_read", "unknown_effect"])
+        pv = boundary.preview("frobnicate.widget", {"x": 1}, [T("safe")])
+        assert pv.effect_class is EffectClass.UNKNOWN
+        assert pv.decision is Decision.ALLOW
+
 
 class TestCommitBinding:
     def test_commit_runs_when_authorized(self, boundary):
