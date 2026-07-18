@@ -399,7 +399,7 @@ project's research notes.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE). Same license as the published adapter and the Qwen3.5 base model.
 
 ---
 
