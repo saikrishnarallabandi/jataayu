@@ -1,6 +1,6 @@
 # jataayu Layer 2 — SecAlign-style preference tuning (ready-to-launch)
 
-> ## Adversarial-robustness study (2026-06-29/30, gpu-host / GB10) — headline
+> ## Adversarial-robustness study (2026-06-29/30, an NVIDIA GB10) — headline
 >
 > "Can we improve beyond published fine-tuning defenses?" Measured answer: **yes, substantially —
 > but not a solve.** All numbers are GCG attack-success-rate (lower = better), Qwen2.5-3B.
@@ -56,13 +56,13 @@ Local quick smoke (1080 Ti, tiny base) or fleet/vast.ai for the real run:
 ```bash
 cd training/secalign
 python prep_data.py                       # CPU, minutes
-# real run — gpu-host (GB10) or a vast.ai RTX 4090:
+# real run — an NVIDIA GB10 or a vast.ai RTX 4090:
 python train_dpo.py --config config.yaml  # logs to wandb, saves to exp/secalign-qwen3-8b
 ```
-Recommended: vast.ai RTX 4090 (~$0.30/hr) or gpu-host. QLoRA keeps an 8B in ~16GB. Destroy the
+Recommended: vast.ai RTX 4090 (~$0.30/hr) or a local GB10. QLoRA keeps an 8B in ~16GB. Destroy the
 vast instance when done.
 
-## Results (2026-06-29, gpu-host / GB10)
+## Results (2026-06-29, an NVIDIA GB10)
 
 **The proper recipe works — attack-success-rate driven 74.5% → 0%.** Measured on 200 held-out
 structured prompts whose DATA channel carries an injection with a unique payload; train and test

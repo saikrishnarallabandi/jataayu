@@ -3,7 +3,7 @@
 SecAlign-style DPO fine-tune for jataayu Layer 2 (ready-to-launch).
 
 QLoRA + fp16 DPO over the structured-channel preference pairs from prep_data.py. Logs to wandb.
-This is a multi-hour GPU job — launch on gpu-host or a vast.ai RTX 4090, not inline.
+This is a multi-hour GPU job — launch on a dedicated GPU box or a vast.ai RTX 4090, not inline.
 
     python prep_data.py
     python train_dpo.py --config config.yaml

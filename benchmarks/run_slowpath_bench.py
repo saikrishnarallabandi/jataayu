@@ -8,7 +8,7 @@ Reports precision / recall / FPR / F1 / latency so the talk can state, honestly,
 exactly what the LLM layer buys and what it costs.
 
 Concurrency: ollama serves requests in parallel, so we hit one endpoint with a
-thread pool. Point --host/--model at any tailnet ollama (orchestrator, gpu-host).
+thread pool. Point --host/--model at any ollama endpoint.
 
   python run_slowpath_bench.py --host http://localhost:11434 --model qwen3:8b --workers 6
 """
