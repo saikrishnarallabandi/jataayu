@@ -102,7 +102,7 @@ DPO closed the residual (-> 0%).
 After training, point the slow path at the tuned model and re-run the benchmark:
 ```bash
 JATAAYU_LLM_BACKEND=ollama JATAAYU_LLM_MODEL=secalign-qwen3-8b \
-  python ../../eval/run_slowpath_bench.py --host http://localhost:11434 --model secalign-qwen3-8b
+  python ../../benchmarks/run_slowpath_bench.py --host http://localhost:11434 --model secalign-qwen3-8b
 ```
 Target: recall up from the current slow-path ~0.50 toward SecAlign's <10% ASR, at lower latency
 than the 35B judge.

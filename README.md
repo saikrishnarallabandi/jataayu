@@ -275,7 +275,7 @@ a **high-precision, modest-recall** detector (ROC-AUC ≈ 0.596; ~0.5% benign fa
 cheap triage, *not* a complete defense. Its strongest measured win is narrow: input normalization
 drops **space-out and leetspeak** evasion from ~0.97/0.92 success to 0.00 on a synthetic set, at
 unchanged precision. This is exactly why the guarantee lives at the effect boundary, not here. Full
-reproducible harness and saved results in [`eval/`](eval/).
+reproducible harness and saved results in [`benchmarks/`](benchmarks/).
 
 ---
 

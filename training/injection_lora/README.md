@@ -11,7 +11,7 @@ on HELD-OUT public datasets to test out-of-distribution generalization. Backs th
    (rank 16), completion-only loss. Trained on a 24GB GPU (vast.ai RTX 4090). ~30 min.
 3. `python3 eval_lora.py --datasets deepset/prompt-injections jackhhao/jailbreak-classification`
    — scores held-out sets by the log-prob margin of ` INJECTION` vs ` SAFE`; ROC-AUC, recall@1%FPR,
-   character-perturbation evasion. Results: `eval/results/injection_lora_heldout.json`.
+   character-perturbation evasion. Results: `benchmarks/results/injection_lora_heldout.json`.
 
 ## Held-out results (recall@1%FPR)
 | detector | deepset AUC/rec | jailbreak AUC/rec |

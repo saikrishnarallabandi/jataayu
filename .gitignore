@@ -6,13 +6,13 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-# eval/: track source; exclude vendored venvs, bulk data and run logs.
-eval/.venv*/
-eval/**/__pycache__/
-eval/data/agentharm/
-eval/data/injecagent/test_cases_*.json
-eval/results/qwen_scores/eval_cache.jsonl
-eval/results/**/*.log
+# benchmarks/: track source; exclude vendored venvs, bulk data and run logs.
+benchmarks/.venv*/
+benchmarks/**/__pycache__/
+benchmarks/data/agentharm/
+benchmarks/data/injecagent/test_cases_*.json
+benchmarks/results/qwen_scores/eval_cache.jsonl
+benchmarks/results/**/*.log
 downloads/
 runs/
 eggs/
@@ -52,10 +52,9 @@ exp/
 # session working notes
 tasks/
 
-# eval run artifacts (trajectory logs + transcripts)
+# benchmark run artifacts (trajectory logs + transcripts)
 runs/
-eval/results/*.log
-eval/eval/
+benchmarks/results/*.log
 
 # model weights & training data artifacts (large; regenerable, not for the repo
 # or third-party tool workspaces)
@@ -96,8 +95,8 @@ wandb/
 # Deployment notes specific to a private environment. Not part of this project.
 training/injection_adapter/INFRA.md
 training/injection_adapter/scripts/tunnels.sh
-eval/run_muse_spark_jataayu_bench.py
-eval/results/muse_spark_*
+benchmarks/run_muse_spark_jataayu_bench.py
+benchmarks/results/muse_spark_*
 
 # External / third-party tooling workspaces — ONE ROOF, LOCAL ONLY, never tracked.
 # Vendor pilots, their benchmark caches, optimizer state, feedback drafts. Anything
@@ -113,3 +112,6 @@ paper/
 site/
 POSITIONING.md
 jataayu-substack-post.md
+
+# bulk per-row score dumps from checkpoint scoring (regenerable; large)
+benchmarks/results/qwen_scores/

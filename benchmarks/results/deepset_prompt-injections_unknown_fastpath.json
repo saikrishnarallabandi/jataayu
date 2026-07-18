@@ -1,0 +1,82 @@
+{
+  "dataset": "deepset/prompt-injections",
+  "surface": "unknown",
+  "n_total": 662,
+  "n_injection": 263,
+  "n_benign": 399,
+  "latency_ms": {
+    "mean": 0.5328,
+    "p50": 0.2852,
+    "p99": 4.2807
+  },
+  "roc_auc": 0.596,
+  "pr_auc": 0.5055,
+  "recall_at_1pct_fpr": {
+    "recall": 0.1977,
+    "fpr": 0.005,
+    "threshold": 0.6,
+    "fpr_budget": 0.01
+  },
+  "operating_points": {
+    "BLOCKED>=0.90": {
+      "threshold": 0.9,
+      "tp": 4,
+      "fp": 0,
+      "tn": 399,
+      "fn": 259,
+      "precision": 1.0,
+      "recall": 0.0152,
+      "fpr": 0.0,
+      "f1": 0.03
+    },
+    "HIGH>=0.70": {
+      "threshold": 0.7,
+      "tp": 29,
+      "fp": 2,
+      "tn": 397,
+      "fn": 234,
+      "precision": 0.9355,
+      "recall": 0.1103,
+      "fpr": 0.005,
+      "f1": 0.1973
+    },
+    "MEDIUM>=0.45": {
+      "threshold": 0.45,
+      "tp": 52,
+      "fp": 2,
+      "tn": 397,
+      "fn": 211,
+      "precision": 0.963,
+      "recall": 0.1977,
+      "fpr": 0.005,
+      "f1": 0.3281
+    },
+    "LOW>=0.20": {
+      "threshold": 0.2,
+      "tp": 52,
+      "fp": 2,
+      "tn": 397,
+      "fn": 211,
+      "precision": 0.963,
+      "recall": 0.1977,
+      "fpr": 0.005,
+      "f1": 0.3281
+    }
+  },
+  "robustness": {
+    "baseline_caught_at_MEDIUM": 52,
+    "baseline_pos": 263,
+    "space_out": {
+      "still_caught": 52,
+      "evasion_rate": 0.0
+    },
+    "zero_width": {
+      "still_caught": 52,
+      "evasion_rate": 0.0
+    },
+    "leetspeak": {
+      "still_caught": 52,
+      "evasion_rate": 0.0
+    }
+  }
+}

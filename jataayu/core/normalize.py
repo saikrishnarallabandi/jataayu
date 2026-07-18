@@ -19,7 +19,7 @@ Design constraints:
   - No new dependencies (stdlib only).
   - Cheap: views are only generated when a cheap heuristic says they could matter.
   - Conservative: views are *additional* scan surfaces; they only ever raise a score. Benign-FPR
-    impact is measured in eval/run_injection_bench.py (deleet is the riskiest view and is gated).
+    impact is measured in benchmarks/run_injection_bench.py (deleet is the riskiest view and is gated).
 """
 from __future__ import annotations
 

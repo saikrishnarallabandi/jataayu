@@ -1,7 +1,7 @@
 """
 Tests for input normalization & payload decoding (Layer 0).
 
-These lock in the robustness win measured by eval/run_injection_bench.py: trivial input
+These lock in the robustness win measured by benchmarks/run_injection_bench.py: trivial input
 transforms (character spacing, homoglyphs, zero-width, leetspeak, base64/hex/url encoding) must
 no longer evade the fast path, while benign text must not be mangled into false positives.
 """
