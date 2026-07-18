@@ -45,7 +45,7 @@ the 2026 standards (OWASP Agentic Top 10, NIST) converged on — is that the dur
 ## Status
 
 **v0.3.1 — alpha.** Not yet on PyPI. Install from GitHub (see below). API may still shift before 1.0.
-See [CHANGELOG.md](CHANGELOG.md) for what landed in each release and [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
+See [CHANGELOG.md](CHANGELOG.md) for what landed in each release.
 Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md); security reports go to [SECURITY.md](SECURITY.md).
 
 ---
@@ -370,7 +370,7 @@ Pattern-only mode needs no LLM and no API key — pass `use_llm=False` (or `--no
 
 ## For AI Agents
 
-See [AGENTS.md](AGENTS.md) for how to wire Jataayu into an agent's action-authorization, inbound,
+See the Quick Start above for how to wire Jataayu into an agent's action-authorization, inbound,
 tool-return, and memory paths.
 
 ---

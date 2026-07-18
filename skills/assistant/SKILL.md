@@ -113,4 +113,3 @@ Use these surface names for accurate threat profiling:
 ## Reference
 
 - Repo: https://github.com/saikrishnarallabandi/jataayu
-- AGENTS.md: guidance for AI agents using Jataayu

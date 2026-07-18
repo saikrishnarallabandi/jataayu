@@ -115,3 +115,7 @@ jataayu-substack-post.md
 
 # bulk per-row score dumps from checkpoint scoring (regenerable; large)
 benchmarks/results/qwen_scores/
+
+# design/agent notes kept local — not maintained to publication standard
+ARCHITECTURE.md
+AGENTS.md
