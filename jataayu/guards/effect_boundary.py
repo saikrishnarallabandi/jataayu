@@ -95,8 +95,6 @@ _EFFECT_CAPABILITY = {
     EffectClass.SECRET_READ: "reads_secrets",
     EffectClass.SHELL: "exec",
     EffectClass.CODE_EVAL: "exec",
-    # Keep UNKNOWN under capability isolation in allowlist mode.
-    EffectClass.UNKNOWN: "unknown_effect",
 }
 
 # Effects for which untrusted-derived input is categorically denied (no preview->commit at all):
