@@ -277,6 +277,35 @@ drops **space-out and leetspeak** evasion from ~0.97/0.92 success to 0.00 on a s
 unchanged precision. This is exactly why the guarantee lives at the effect boundary, not here. Full
 reproducible harness and saved results in [`benchmarks/`](benchmarks/).
 
+#### The trained detector (optional, separate from the regex tier)
+
+Above the regex pre-filter we also ship a small **fine-tuned detector** — a LoRA adapter on
+Qwen3.5-0.8B that emits a single decision token read as a continuous `P(INJECTION)`.
+
+- **Model:** [`srallaba/Jataayu.promptinjection.v0.1`](https://huggingface.co/srallaba/Jataayu.promptinjection.v0.1)
+- **Try it:** [live demo Space](https://huggingface.co/spaces/srallaba/Jataayu-promptinjection-demo)
+- **Training code:** [`training/injection_adapter/`](training/injection_adapter/)
+
+Measured on a frozen 4,101-row held-out suite (6 injection datasets + NotInject over-defense),
+with **zero overlap** between training data and the suite:
+
+| metric | value |
+|---|---|
+| mean Recall@1%FPR (6 sets) | **0.828** |
+| NotInject over-defense acc | 0.968 (11 FP) |
+| counterfactual paired accuracy (400 pairs) | **0.778** |
+| — authority-framed family | 0.938 |
+
+The counterfactual number is the one we care about most: it is the only metric here that
+penalizes *both* the "trigger word ⇒ attack" shortcut and over-defense with a single figure.
+Selecting on recall alone actively rewards that shortcut.
+
+**Known limitation, stated up front:** the model over-flags benign text that refers to its own
+instructions ("please ignore the typos in my last message") — 18 of 40 such held-out rows score
+≥ 0.9999, tied with real attacks, so **no threshold separates them**. The base model does not
+have this failure; fine-tuning introduces it. Do not use the 0.5 default cutoff — calibrate on
+your own benign traffic. Full numbers and caveats on the model card.
+
 ---
 
 ## Surface Profiles
