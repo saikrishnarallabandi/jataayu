@@ -6,7 +6,15 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-eval/
+# eval/: track SOURCE, exclude vendored venvs, bulk data and run logs.
+# A bare `eval/` here silently untracked 70+ source files, including runners
+# that produced published numbers. Narrowed 2026-07-18.
+eval/.venv*/
+eval/**/__pycache__/
+eval/data/agentharm/
+eval/data/injecagent/test_cases_*.json
+eval/results/qwen_scores/eval_cache.jsonl
+eval/results/**/*.log
 downloads/
 runs/
 eggs/
@@ -14,7 +22,15 @@ eggs/
 lib/
 lib64/
 parts/
-training/
+# training/: track CODE + configs, exclude datasets, adapters and checkpoints.
+# A bare `training/` untracked the entire pipeline that trained the published
+# v0.1 model — it existed only on one disk. Narrowed 2026-07-18.
+training/**/data/
+training/**/adapters/
+training/**/checkpoints/
+training/**/*.safetensors
+training/**/__pycache__/
+training/**/logs/
 sdist/
 var/
 wheels/
@@ -78,3 +94,13 @@ training/**/checkpoints/
 
 # lavish review artifacts (working files)
 .lavish/
+
+# Local run artifacts — leak host/infra metadata (host, absolute paths, GPU UUIDs)
+wandb/
+
+# Internal infrastructure dossiers — tailnet IPs, host map, vast SSH strings.
+# Never publish: these describe the private compute fabric, not the project.
+training/injection_adapter/INFRA.md
+training/injection_adapter/scripts/tunnels.sh
+eval/run_muse_spark_jataayu_bench.py
+eval/results/muse_spark_*

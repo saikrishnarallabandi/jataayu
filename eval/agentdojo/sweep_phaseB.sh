@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Phase B AgentDojo model sweep — qwen3.6:35b-a3b, paired baseline+jataayu.
 # Resumable: skips a suite whose out-file already exists and is non-partial.
-# Single request stream (gpu-host GB10 is shared) — suites run sequentially.
+# Single request stream (GPU_HOST GB10 is shared) — suites run sequentially.
 #   nohup bash eval/agentdojo/sweep_phaseB.sh > runs/agentdojo/sweep_phaseB.log 2>&1 &
 set -uo pipefail
 

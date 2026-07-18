@@ -266,7 +266,7 @@ def main() -> None:
     ap.add_argument("--min-status", default="HIGH", choices=["HIGH", "MEDIUM"])
     ap.add_argument("--model-id", default=None, help="ollama/vLLM model name when --model local")
     ap.add_argument("--local-base-url", default=None,
-                    help="OpenAI-compatible base URL when --model local, e.g. http://gpu-host:11434/v1")
+                    help="OpenAI-compatible base URL when --model local, e.g. http://GPU_HOST:11434/v1")
     ap.add_argument("--injection-tasks", nargs="*", default=None,
                     help="subset of injection tasks; omit for all")
     ap.add_argument("--logdir", default="./runs/agentdojo")

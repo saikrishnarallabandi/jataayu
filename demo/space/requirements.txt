@@ -1,0 +1,15 @@
+# Base model is model_type `qwen3_5`, which needs the Qwen3.5 architecture in transformers.
+# It landed in the 5.x line: 5.14.1 loads it from PyPI (verified). Stable 4.57.x does NOT —
+# it raises KeyError: 'qwen3_5'. Pinned rather than tracking git main so a Space rebuild is
+# reproducible and does not compile transformers from source.
+transformers==5.14.1
+# transformers 5.x imports symbols added in torch >= 2.6 (TransformGetItemToIndex,
+# CPUOffloadPolicy); torch 2.5.x fails at import time. Floor raised to 2.8 because ZeroGPU
+# supports "almost all versions from 2.8.0 to latest" and nothing below — do NOT pin a +cpu
+# build here, ZeroGPU's image ships the CUDA wheel.
+torch>=2.8
+peft>=0.19
+accelerate
+gradio
+# ZeroGPU runtime: provides @spaces.GPU. No-op off ZeroGPU (SPACES_ZERO_GPU unset).
+spaces

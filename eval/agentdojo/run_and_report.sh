@@ -32,7 +32,7 @@ send "[jataayu] AgentDojo local run started on ${MODEL_ID} (workspace/important_
 RC=$?
 
 if [ $RC -ne 0 ] || [ ! -f "$OUT" ]; then
-  send "[jataayu] AgentDojo local run FAILED (rc=$RC) on ${MODEL_ID}. Check logs on orchestrator. No numbers produced."
+  send "[jataayu] AgentDojo local run FAILED (rc=$RC) on ${MODEL_ID}. Check logs on LOCAL_HOST. No numbers produced."
   exit 1
 fi
 
