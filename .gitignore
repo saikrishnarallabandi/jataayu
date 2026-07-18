@@ -104,3 +104,9 @@ training/injection_adapter/INFRA.md
 training/injection_adapter/scripts/tunnels.sh
 eval/run_muse_spark_jataayu_bench.py
 eval/results/muse_spark_*
+
+# External / third-party tooling workspaces — ONE ROOF, LOCAL ONLY, never tracked.
+# Vendor pilots, their benchmark caches, optimizer state, feedback drafts. Anything
+# that belongs to someone else's tool goes here and stays out of the repo.
+# Project findings extracted from these live in tasks/research_log.md instead.
+.external/
