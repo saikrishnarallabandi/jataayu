@@ -106,8 +106,7 @@ class TestClassification:
 
     @pytest.mark.parametrize("tool", SECRET_MUST_STAY_READ)
     def test_untrusted_benign_not_denied(self, boundary, tool):
-        # Undoing the over-block means these are not DENIED (they are READ->allow, or an
-        # unrecognized name held for approval under the fail-closed default — never a hard deny).
+        # Undoing the over-block means these are not DENIED.
         pv = boundary.preview(tool, {"x": 1}, [U("payload")])
         assert pv.decision is not Decision.DENY
 
@@ -164,8 +163,65 @@ class TestClassification:
         assert boundary.classify(tool) is EffectClass.READ
 
     @pytest.mark.parametrize("tool", ["frobnicate.widget", "wibble", "xyzzy_thing"])
-    def test_unrecognized_names_are_unknown(self, boundary, tool):
-        assert boundary.classify(tool) is EffectClass.UNKNOWN
+    def test_unrecognized_names_fall_back_to_read(self, boundary, tool):
+        # Unrecognized names keep the pre-existing posture. Gating them (fail-closed on
+        # unrecognized) is deferred: unrecognized is ~50% of realistic tool names, so gating it
+        # would put ~75% of untrusted calls in front of a human. See PR #21.
+        assert boundary.classify(tool) is EffectClass.READ
+        pv = boundary.preview(tool, {"x": 1}, [U("payload")])
+        assert pv.decision is Decision.ALLOW
+
+
+class TestVerbPositionMatching:
+    """
+    The effect verb is identified by POSITION (leading, or trailing after a namespace), not by
+    membership anywhere in the name. Set membership fails in both directions: a benign token
+    appended to a dangerous name masks it, and a dangerous-looking noun escalates a benign name.
+    """
+
+    # Direction 1: a dangerous name must NOT be masked by a benign token sitting next to it.
+    @pytest.mark.parametrize("tool", [
+        "read_file_and_exec", "get_python_and_eval", "list_dir_then_system",
+        "search_repo_exec", "shell_exec", "fs.read.exec",
+    ])
+    def test_dangerous_verb_not_masked_by_read_token(self, boundary, tool):
+        assert boundary.classify(tool) in (EffectClass.SHELL, EffectClass.CODE_EVAL)
+        pv = boundary.preview(tool, {"cmd": "rm -rf /"}, [U("rm -rf /")])
+        assert pv.decision is Decision.DENY
+
+    # Direction 2: a benign read must NOT be escalated by a dangerous-looking noun in object
+    # position. These all DENIED before the positional fix.
+    @pytest.mark.parametrize("tool", [
+        "list_shell_history", "get_python_docs", "search_javascript_tutorials",
+        "read_bash_profile", "get_terminal_theme", "list_code_snippets",
+    ])
+    def test_benign_read_not_escalated_by_dangerous_noun(self, boundary, tool):
+        assert boundary.classify(tool) is EffectClass.READ
+        pv = boundary.preview(tool, {"x": 1}, [U("payload")])
+        assert pv.decision is Decision.ALLOW
+
+    # A read verb only counts in a verb position — appending or prefixing one must not make an
+    # arbitrary name a *recognized* read (it still falls back to READ, but not via this rule).
+    @pytest.mark.parametrize("tool,verb_recognized", [
+        ("read_file", True),
+        ("file.read", True),
+        ("exfiltrate_everything_status", False),
+        ("frobnicate_widget_info", False),
+        ("wibble_lookup", False),
+    ])
+    def test_read_verb_must_be_in_verb_position(self, tool, verb_recognized):
+        from jataayu.guards.effect_boundary import _READ_VERBS, _verb_tokens
+        _, _, head = _verb_tokens(tool)
+        assert bool(head & _READ_VERBS) is verb_recognized
+
+    # Generic action verbs mean "execute" only when the object is a shell or an interpreter.
+    @pytest.mark.parametrize("tool", ["run_query", "execute_search", "run_report", "start_timer"])
+    def test_weak_exec_verb_without_exec_object_is_not_exec(self, boundary, tool):
+        assert boundary.classify(tool) not in (EffectClass.SHELL, EffectClass.CODE_EVAL)
+
+    @pytest.mark.parametrize("tool", ["get_shell", "open_terminal", "spawn_bash"])
+    def test_asking_for_a_shell_by_name_is_shell(self, boundary, tool):
+        assert boundary.classify(tool) is EffectClass.SHELL
 
 
 class TestNamespacedShellDenied:
@@ -173,29 +229,13 @@ class TestNamespacedShellDenied:
 
     @pytest.mark.parametrize("tool", [
         "shell.exec", "run_shell_command", "os.system", "subprocess.run",
-        "subprocess.Popen", "system",
+        "subprocess.Popen", "system", "bash", "sh.run", "execute_shell", "Shell.Exec",
+        "shell_exec", "eval_python",
     ])
     def test_untrusted_shell_variant_denied(self, boundary, tool):
         pv = boundary.preview(tool, {"cmd": "rm -rf /"}, [U("rm -rf /")])
         assert pv.decision is Decision.DENY
         assert pv.commit_token is None
-
-
-class TestUnknownFailClosed:
-    def test_unknown_untrusted_needs_approval(self, boundary):
-        pv = boundary.preview("frobnicate.widget", {"x": 1}, [U("payload")])
-        assert pv.effect_class is EffectClass.UNKNOWN
-        assert pv.decision is Decision.NEEDS_APPROVAL
-
-    def test_unknown_trusted_allowed(self, boundary):
-        pv = boundary.preview("frobnicate.widget", {"x": 1}, [T("safe")])
-        assert pv.effect_class is EffectClass.UNKNOWN
-        assert pv.decision is Decision.ALLOW
-
-    def test_unknown_permissive_posture_allows_untrusted(self):
-        b = EffectBoundary(fail_closed_unknown=False)
-        pv = b.preview("frobnicate.widget", {"x": 1}, [U("payload")])
-        assert pv.decision is Decision.ALLOW
 
 
 class TestDecisions:

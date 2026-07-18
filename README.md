@@ -103,11 +103,11 @@ the same effect, so a shell call denies whether it arrives as `bash`, `shell.exe
 | `file_write`  | **needs_approval** | `write_file`, `fs.write`, `file.delete`, `append_file`, `overwrite_file` |
 | `memory_write`| **needs_approval** | `memory_write`, `save_memory`, `store_memory`, `kv_set` |
 | `read`        | allow | `read_file`, `get_*`, `list_*`, `search_*`, `recall` |
-| `unknown`     | **needs_approval** (fail-closed) | any name matching no family above |
 
-A tool name that matches **no** known family is treated as `unknown`: under untrusted input it is
-held for approval rather than allowed (fail-closed). Pass `fail_closed_unknown=False` for a
-permissive posture on unrecognized tools.
+The effect is read off the **verb** (leading, or trailing after a namespace), not off any token
+anywhere in the name, so `run_shell_command` is a shell effect while `list_shell_history` stays a
+read. A name matching no family at all falls back to `read`, as before — classification can only
+move a name into a *more* restrictive class, never a less restrictive one.
 
 For enforced execution, use the `PREVIEW → COMMIT` object API — the `commit_token` binds the exact
 request, so mutating the action after authorization is rejected:

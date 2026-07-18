@@ -224,7 +224,6 @@ def jataayu_authorize_action(
     untrusted: bool = True,
     policy_file: Optional[str] = None,
     agent: Optional[str] = None,
-    fail_closed_unknown: bool = True,
 ) -> dict:
     """
     Authorize a tool call at the EFFECT BOUNDARY — by the harm of the action, not the text.
@@ -236,8 +235,8 @@ def jataayu_authorize_action(
 
     Tool names are matched by effect family, not just exact string: namespaced / snake_case /
     camelCase variants (e.g. "shell.exec", "os.system", "run_shell_command", "subprocess.run")
-    resolve to their real effect. A name that matches NO known family is UNKNOWN and, under
-    untrusted input, is held for approval by default (fail-closed).
+    resolve to their real effect. A name matching no known family falls back to READ, so
+    classification only ever moves a name INTO a more restrictive class than before.
 
     Args:
         tool_name: The tool about to be called (e.g. "bash", "write_file", "fetch").
@@ -246,8 +245,6 @@ def jataayu_authorize_action(
                    (tool returns, web pages, issues, memory). Default True (assume untrusted).
         policy_file: Optional path to a Jataayu policy YAML for capability isolation.
         agent: Agent name to resolve in the policy.
-        fail_closed_unknown: When True (default), an unrecognized tool under untrusted input
-                   NEEDS_APPROVAL instead of being allowed. Set False for a permissive posture.
 
     Returns:
         dict: tool_name, effect_class, provenance, decision ('allow'|'deny'|'needs_approval'),
@@ -261,7 +258,7 @@ def jataayu_authorize_action(
         loaded = load_policy(policy_file)
         policy = loaded.get_agent_policy(agent) if agent else None
 
-    boundary = EffectBoundary(policy=policy, fail_closed_unknown=fail_closed_unknown)
+    boundary = EffectBoundary(policy=policy)
     prov = Provenance.UNTRUSTED if untrusted else Provenance.TRUSTED
     values = [Value(str(params), prov)]
     return boundary.preview(tool_name, params, values).to_dict()

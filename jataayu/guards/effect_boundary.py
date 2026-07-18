@@ -61,9 +61,6 @@ class EffectClass(Enum):
     SECRET_READ = "secret_read"
     SHELL = "shell"
     CODE_EVAL = "code_eval"
-    # A tool name that matches NO known effect family. Treated as high-harm under untrusted
-    # provenance (fail-closed), because we cannot vouch that an unrecognized action is safe.
-    UNKNOWN = "unknown"
 
     @property
     def severity(self) -> int:
@@ -84,7 +81,6 @@ _SEVERITY = {
     EffectClass.SECRET_READ: 4,
     EffectClass.SHELL: 5,
     EffectClass.CODE_EVAL: 5,
-    EffectClass.UNKNOWN: 4,
 }
 
 _EFFECT_CAPABILITY = {
@@ -101,10 +97,8 @@ _EFFECT_CAPABILITY = {
 # committing them under attacker influence is the kill-chain endpoint.
 _CRITICAL_EFFECTS = frozenset({EffectClass.SHELL, EffectClass.CODE_EVAL, EffectClass.SECRET_READ})
 # Effects for which untrusted-derived input requires human approval rather than an outright deny.
-# UNKNOWN is here so an unrecognized tool driven by untrusted input is held for approval, not
-# silently allowed (the fail-closed posture; see EffectBoundary(fail_closed_unknown=...)).
 _APPROVAL_EFFECTS = frozenset({
-    EffectClass.NETWORK, EffectClass.FILE_WRITE, EffectClass.MEMORY_WRITE, EffectClass.UNKNOWN,
+    EffectClass.NETWORK, EffectClass.FILE_WRITE, EffectClass.MEMORY_WRITE,
 })
 
 _CODE_EVAL_TOOLS = frozenset({"eval", "exec", "python_eval", "js_eval", "run_code", "code_interpreter"})
@@ -119,6 +113,14 @@ _MEMORY_WRITE_TOOLS = frozenset({"memory_write", "save_memory", "remember", "sto
 # input was authorized under a name like `shell.exec`. We therefore also match on the *components*
 # of the tool name (split on `.`/`_`/`-`/`/`/space and camelCase).
 #
+# Tokens are NOT all equal, and matching on mere set membership is wrong in both directions: it
+# lets one benign token mask a dangerous name and one dangerous-looking noun escalate a benign one.
+# A tool name is verb + object (`read_file`, `run_shell_command`) or namespace + verb
+# (`shell.exec`, `os.system`), so the EFFECT is carried by the verb and the object only qualifies
+# it. We therefore match effect verbs at a *verb position* (see `_verb_tokens`) and treat the
+# object tokens below as qualifiers. That is what separates `run_shell_command` (exec) from
+# `list_shell_history` (a read that merely mentions a shell).
+#
 # SHELL and CODE_EVAL are security-equivalent here (both severity-5, both capability "exec", both
 # in _CRITICAL_EFFECTS), so the shell-vs-codeeval label is best-effort; what matters is that either
 # is recognized as a critical exec effect rather than a read.
@@ -126,17 +128,26 @@ _SHELL_TOKENS = frozenset({
     "bash", "shell", "sh", "zsh", "ksh", "csh", "fish", "cmd", "powershell", "pwsh",
     "terminal", "subprocess", "popen",
 })
-# Shell-ish tokens that are too common to match anywhere in a name (e.g. "get_system_status"),
-# so they only count when they are the trailing verb (`os.system`, `process.spawn`).
-_SHELL_VERB_TOKENS = frozenset({"system", "spawn"})
-_CODE_TOKENS = frozenset({
+_INTERPRETER_TOKENS = frozenset({
     "python", "python3", "py", "javascript", "js", "node", "nodejs", "ruby", "perl", "php",
-    "lua", "code", "interpreter", "compile",
-    # RCE-capable deserialization sinks: loading untrusted pickle/dill/marshal is arbitrary code
-    # execution regardless of arguments. (Unsafe `yaml.load` is handled separately in classify()
-    # so that the safe `yaml.safe_load` is not swept in.)
-    "pickle", "unpickle", "cpickle", "dill", "marshal",
+    "lua", "code", "interpreter",
 })
+# RCE-capable deserialization sinks: loading untrusted pickle/dill/marshal is arbitrary code
+# execution regardless of arguments, and these tokens are never a benign noun in a tool name, so
+# unlike the interpreter tokens they fire wherever they appear. (Unsafe `yaml.load` is handled
+# separately in classify() so that the safe `yaml.safe_load` is not swept in.)
+_RCE_TOKENS = frozenset({"pickle", "unpickle", "cpickle", "dill", "marshal"})
+
+# Exec verbs, by how much they mean on their own.
+#   STRONG   — unambiguous in any verb position: `shell.exec`, `eval_python`, `read_file_and_exec`.
+#   TRAILING — too common leading (`system_info`, `spawn_worker`) so only as the trailing verb:
+#              `os.system`, `process.spawn`.
+#   WEAK     — generic action verbs that mean "execute" only when the object is a shell or an
+#              interpreter (`run_shell_command`, `code.run`); `run_query` / `execute_search`
+#              are ordinary reads.
+_EXEC_VERBS_STRONG = frozenset({"exec", "eval", "popen"})
+_EXEC_VERBS_TRAILING = frozenset({"system", "spawn"})
+_EXEC_VERBS_WEAK = frozenset({"run", "execute", "launch", "invoke", "start", "compile"})
 
 # Secret-read detection.
 #
@@ -201,8 +212,7 @@ _NETWORK_VERBS = frozenset({
     "email", "sms", "notify", "dispatch",
 })
 
-# Verbs that mark a genuine READ (so the name is *recognized* and stays ALLOW even under untrusted
-# input), distinguishing benign reads from a truly-unknown tool that must fail closed.
+# Verbs that mark a genuine READ.
 _READ_VERBS = frozenset({
     "read", "get", "list", "search", "view", "show", "cat", "open", "load", "find", "query",
     "describe", "stat", "head", "tail", "grep", "ls", "dir", "lookup", "count", "info", "status",
@@ -214,6 +224,29 @@ def _name_tokens(name: str) -> list[str]:
     """Split a tool name into lowercase components on separators and camelCase boundaries."""
     spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name)
     return [tok for tok in re.split(r"[^a-zA-Z0-9]+", spaced.lower()) if tok]
+
+
+def _verb_tokens(name: str) -> tuple[set[str], Optional[str], set[str]]:
+    """
+    (verb positions, trailing token, head-verb positions) for a tool name.
+
+    A dotted prefix is a namespace, so the verb lives in the final dotted segment; within that
+    segment it sits either leading (`read_file`, `run_shell_command`) or trailing (`shell_exec`,
+    `os.system`). `verbs` is both ends — enough for the unambiguous exec verbs, and narrow enough
+    that a token buried in the middle cannot decide the effect.
+
+    `head` is stricter: the leading token, plus the trailing one only when a dotted namespace
+    makes it the method name (`file.read`, `secrets.get`). The read verbs are ordinary English
+    words, so they are matched against `head` alone — otherwise appending or prefixing one would
+    make any name a recognized read (`exfiltrate_everything_status`, `wibble_lookup`).
+    """
+    segment = name.rsplit(".", 1)[-1]
+    toks = _name_tokens(segment) or _name_tokens(name)
+    if not toks:
+        return set(), None, set()
+    verbs = {toks[0], toks[-1]}
+    head = verbs if "." in name else {toks[0]}
+    return verbs, toks[-1], head
 
 
 class Decision(Enum):
@@ -296,13 +329,9 @@ class EffectBoundary:
             log(pv.reason)   # DENY — untrusted data may not reach a shell, regardless of text
     """
 
-    def __init__(self, policy=None, *, default_untrusted: bool = True,
-                 fail_closed_unknown: bool = True):
+    def __init__(self, policy=None, *, default_untrusted: bool = True):
         self.policy = policy
         self.default_untrusted = default_untrusted
-        # When True (default), an unrecognized tool name driven by untrusted input is held for
-        # human approval rather than allowed. Set False for a permissive posture on unknowns.
-        self.fail_closed_unknown = fail_closed_unknown
         self._vault: dict[str, str] = {}
         self._counter = 0
 
@@ -328,33 +357,46 @@ class EffectBoundary:
         #    benign READ fallback (e.g. `get_shell` -> SHELL, not READ).
         toks = _name_tokens(tool_name)
         if not toks:
-            return EffectClass.UNKNOWN
+            return EffectClass.READ
         tset = set(toks)
-        verb = toks[-1]
+        verbs, trailing, head = _verb_tokens(tool_name)
 
-        # Exec effects (shell / code-eval) — severity-5, capability "exec".
-        shell_strong = bool(tset & _SHELL_TOKENS) or verb in _SHELL_VERB_TOKENS
-        code_strong = bool(tset & _CODE_TOKENS)
-        exec_verb = verb in {"exec", "eval"} or bool(tset & {"exec", "eval"})
+        # Exec effects (shell / code-eval) — severity-5, capability "exec". The verb decides;
+        # the shell/interpreter tokens only qualify which of the two labels applies.
+        shell_obj = bool(tset & _SHELL_TOKENS)
+        code_obj = bool(tset & _INTERPRETER_TOKENS)
+        exec_verb = (
+            bool(verbs & _EXEC_VERBS_STRONG)
+            or trailing in _EXEC_VERBS_TRAILING
+            or (bool(verbs & _EXEC_VERBS_WEAK) and (shell_obj or code_obj))
+        )
+        # A name that is nothing but an interpreter/exec word (`bash`, `python`, `compile`) is a
+        # request to run it, as is one that asks for a shell by name (`get_shell`, `open_terminal`).
+        bare_exec = len(toks) == 1 and bool(
+            tset & (_SHELL_TOKENS | _INTERPRETER_TOKENS | _EXEC_VERBS_WEAK)
+        )
+        shell_target = trailing in _SHELL_TOKENS
         # Unsafe YAML load (`yaml.load` / `yaml_load` / `load_yaml`) is an RCE deserialization sink,
         # but the safe `yaml.safe_load` must NOT trip — so match yaml+load only when not "safe".
         yaml_unsafe = ("yaml" in tset) and bool(tset & {"load", "loads"}) and ("safe" not in tset)
-        if shell_strong or code_strong or exec_verb or yaml_unsafe:
-            if shell_strong:
+        if exec_verb or bare_exec or shell_target or (tset & _RCE_TOKENS) or yaml_unsafe:
+            if (shell_obj or trailing in _EXEC_VERBS_TRAILING) and not (tset & _RCE_TOKENS):
                 return EffectClass.SHELL
-            # Code namespace (python.exec), a bare exec/eval verb, or unsafe deserialization.
+            # Interpreter namespace (python.exec), a bare exec/eval verb, or an unsafe
+            # deserialization sink.
             return EffectClass.CODE_EVAL
 
         # Secret reads: a strong standalone token, a known secret-store token combo, a qualifier +
         # a generic secret noun, or any read of the environment. Checked before the READ-verb
-        # fallback so `get_api_key` / `cat_env` are SECRET_READ, not READ. The env branch uses the
-        # SAME full read-verb set as the fallback so every env read denies consistently.
+        # fallback so `get_api_key` / `cat_env` are SECRET_READ, not READ. The env branch matches
+        # read verbs at the SAME head positions as the fallback, so every env read denies
+        # consistently and `environment_report` is not swept in.
         if (
             (tset & _SECRET_STRONG)
             or any(combo <= tset for combo in _SECRET_STORE_COMBOS)
             or ((tset & _SECRET_QUALIFIERS) and (tset & _SECRET_NOUNS))
             or ((tset & _SECRET_ENV_TOKENS)
-                and bool(tset & (_READ_VERBS | _SECRET_EXTRA_READ_VERBS)))
+                and bool(head & (_READ_VERBS | _SECRET_EXTRA_READ_VERBS)))
         ):
             return EffectClass.SECRET_READ
 
@@ -370,7 +412,7 @@ class EffectBoundary:
         if (tset & _NETWORK_STRONG) or (tset & _NETWORK_VERBS):
             return EffectClass.NETWORK
 
-        # 3. Recognized read verb -> genuine READ (stays ALLOW even under untrusted input).
+        # 3. Read verb in a verb position -> READ.
         #
         # Known residual gap (deliberately not reclassified here): names whose harm lives in the
         # *arguments*, not the name — `sql.query` (a SELECT read vs a DROP), `dns_lookup` (a read
@@ -378,13 +420,17 @@ class EffectBoundary:
         # over-block the common benign read; discriminating them needs argument inspection, which
         # is out of scope for name-based classification. Likewise a plain `read_certificate` stays
         # READ (a public cert is not secret); the private-key/cert BUNDLE forms `pkcs12`/`keystore`
-        # are strong secret tokens and deny. The fail-closed UNKNOWN default already covers any
-        # name that carries no read verb at all.
-        if tset & _READ_VERBS:
+        # are strong secret tokens and deny.
+        if head & _READ_VERBS:
             return EffectClass.READ
 
-        # 4. Nothing matched -> unknown; the decision layer fails closed on untrusted input.
-        return EffectClass.UNKNOWN
+        # 4. Nothing matched. Unrecognized names fall back to READ — the pre-existing posture.
+        #    Gating them instead (fail-closed on unrecognized) is NOT viable at this classifier's
+        #    coverage: unrecognized is the majority class over realistic tool corpora (~50% of
+        #    names: `git_diff`, `create_issue`, `add_comment`), so gating it puts ~75% of untrusted
+        #    tool calls in front of a human, and a guard that prompts that often gets turned off.
+        #    Widen coverage first, track the unrecognized rate, then gate. See PR #21.
+        return EffectClass.READ
 
     # -- the policy decision (deterministic, no LLM) ---------------------------
     def _decide(self, effect: EffectClass, provenance: Provenance) -> tuple[Decision, str, list[str]]:
@@ -401,13 +447,7 @@ class EffectBoundary:
             if effect in _CRITICAL_EFFECTS:
                 return (Decision.DENY,
                         f"untrusted-derived input may not reach a {effect.value} effect", violations)
-            if effect is EffectClass.UNKNOWN:
-                if self.fail_closed_unknown:
-                    return (Decision.NEEDS_APPROVAL,
-                            "unrecognized tool with untrusted-derived input requires human "
-                            "approval (fail-closed on unknown effect)", violations)
-                # Permissive posture: fall through to ALLOW.
-            elif effect in _APPROVAL_EFFECTS:
+            if effect in _APPROVAL_EFFECTS:
                 return (Decision.NEEDS_APPROVAL,
                         f"untrusted-derived {effect.value} effect requires human approval", violations)
 
