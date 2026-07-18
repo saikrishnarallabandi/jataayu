@@ -360,8 +360,8 @@ so you can slot it into the framework your org already uses:
 | Cascading / progressive compromise | `SessionTrace` escalating-trajectory + cross-turn exfil-chain auditing |
 
 The moat is the effect boundary and the execution-aware layers — the regex catalog is a cheap
-pre-filter, deliberately the *weakest* tier. See [`docs/lit-review-2026-07.md`](docs/lit-review-2026-07.md)
-for the full 2026 literature scan this positioning is drawn from.
+pre-filter, deliberately the *weakest* tier. This positioning is drawn from a 2026 literature scan of agent-security work, kept with the
+project's research notes.
 
 ## License
 

@@ -110,3 +110,10 @@ eval/results/muse_spark_*
 # that belongs to someone else's tool goes here and stays out of the repo.
 # Project findings extracted from these live in tasks/research_log.md instead.
 .external/
+
+# Research notes and dated session journals — local only, for now.
+# These are working records, not library structure. Findings that matter get promoted
+# into tasks/research_log.md; everything else stays on disk.
+docs/
+heartbeat/
+paper/
