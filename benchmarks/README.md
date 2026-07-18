@@ -21,7 +21,7 @@ and report metrics rather than pass/fail.
   detectors), `run_lodo_fastpath.py` (leave-one-dataset-out).
 - **Effect boundary** — `run_effect_boundary_bench.py` (Tier 1) plus `_tier2`, `_edges`,
   `_injecagent`, `run_agentharm_effect_boundary.py`, `run_semantic_vs_effect.py`,
-  `run_synthetic_bias_effect.py`. Design spec: `EFFECT_BOUNDARY_BENCHMARK_SPEC.md`.
+  `run_synthetic_bias_effect.py`.
 - **Egress / privacy** — `run_egress_bench.py`, `run_outbound_privacy_bench.py`.
 - **Memory poisoning** — `run_memory_poison_bench.py`.
 - **Composition** — `run_composition_bench.py` (individually-plausible skill *sets*).

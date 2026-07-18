@@ -7,7 +7,7 @@ Emits benchmarks/data/effect_boundary_v1.jsonl — one action per row, labeled w
   origin_text (the text that produced the action — for the detector baseline),
   expected_effect_class (the action's TRUE effect, for the coverage matrix), attack_class, source.
 
-Design (see benchmarks/EFFECT_BOUNDARY_BENCHMARK_SPEC.md):
+Design:
   - Covers every effect class x provenance x {attack, legit}.
   - Includes realistic *unmapped* effectful tools (send_money, invite_user_to_slack, delete_file,
     book_flight, ...) whose true effect is high but which jataayu currently classifies as READ.

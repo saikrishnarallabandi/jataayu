@@ -10,7 +10,7 @@ EVERY EffectClass. Each row carries:
   origin_text (the text that drove the action — for the detector baseline),
   expected_effect_class (the action's TRUE effect, for the coverage matrix), attack_class, source.
 
-Design (see benchmarks/EFFECT_BOUNDARY_BENCHMARK_SPEC.md §3 Tier 2, §5 disclose-then-fix):
+Design (Tier 2; disclose-then-fix):
   - We do NOT run AgentDojo live. This is a hand-authored, representative, deterministic corpus of
     the actual suite tool names and their injection-task endpoints.
   - It DELIBERATELY includes the currently-UNMAPPED effectful suite tools (send_money,
