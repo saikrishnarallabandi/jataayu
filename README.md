@@ -284,7 +284,7 @@ Qwen3.5-0.8B that emits a single decision token read as a continuous `P(INJECTIO
 
 - **Model:** [`srallaba/Jataayu.promptinjection.v0.1`](https://huggingface.co/srallaba/Jataayu.promptinjection.v0.1)
 - **Try it:** [live demo Space](https://huggingface.co/spaces/srallaba/Jataayu-promptinjection-demo)
-- **Training code:** [`training/injection_adapter/`](training/injection_adapter/)
+- **Training data & licensing:** every source MIT / Apache-2.0 / generated in-house; see the model card
 
 Measured on a frozen 4,101-row held-out suite (6 injection datasets + NotInject over-defense),
 with **zero overlap** between training data and the suite:
