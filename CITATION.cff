@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+title: "Jataayu: An Effect-Boundary Security Guard for AI Agents"
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - family-names: Rallabandi
+    given-names: Sai Krishna
+repository-code: "https://github.com/saikrishnarallabandi/jataayu"
+license: Apache-2.0
+abstract: >-
+  A deterministic action-authorization primitive for tool-using AI agents.
+  Rather than classifying whether input text looks malicious, Jataayu gates
+  the effect an action would have, using provenance and taint tracking, so
+  the guarantee does not depend on a detector firing.
+keywords:
+  - prompt-injection
+  - ai-agent-security
+  - llm-security
+  - guardrails

@@ -46,6 +46,7 @@ the 2026 standards (OWASP Agentic Top 10, NIST) converged on — is that the dur
 
 **v0.3.1 — alpha.** Not yet on PyPI. Install from GitHub (see below). API may still shift before 1.0.
 See [CHANGELOG.md](CHANGELOG.md) for what landed in each release and [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
+Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md); security reports go to [SECURITY.md](SECURITY.md).
 
 ---
 
