@@ -1,5 +1,5 @@
 """
-Jataayu — SLM-backed AI agent security.
+Jataayu — deterministic action authorization for AI agents.
 
 Inbound injection detection + outbound privacy protection.
 

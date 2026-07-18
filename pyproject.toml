@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "jataayu"
 version = "0.3.1"
-description = "SLM-backed AI agent security — inbound injection detection + outbound privacy protection"
+description = "Deterministic action authorization for AI agents — gate the effect, not the string. Optional SLM injection detection as defense in depth."
 readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.10"

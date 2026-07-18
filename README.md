@@ -13,6 +13,25 @@ shell command, reading the secret, or POSTing your data that the attacker wanted
 it adds defense-in-depth screening (inbound injection, outbound privacy, exfiltration channels,
 skill supply-chain) and replayable audit traces.
 
+## What is deterministic, and what is a model
+
+The distinction matters, so it is stated once, plainly:
+
+| Component | Deterministic? | Uses a model? |
+|---|---|---|
+| **Effect boundary** — authorize the action from effect × provenance × capability policy | **Yes.** Pure function of its inputs; same inputs always give the same decision. | **No.** No model, no network call. |
+| **Inbound fast path** — ~68 compiled regex patterns over normalized views | **Yes.** Same text always scores the same. | **No.** |
+| **Inbound slow path** — *optional*, only for mid-confidence scores | No. | Yes — any OpenAI-compatible endpoint you point it at. |
+| **[Jataayu prompt-injection detector](https://huggingface.co/srallaba/Jataayu.promptinjection.v0.1)** — *optional, separate artifact* | No. | Yes — it *is* a model (Qwen3.5-0.8B LoRA). |
+
+**The guarantee is the deterministic part.** The effect boundary decides whether an action runs;
+it does not ask a model, and it does not depend on any detector firing. The detectors are a
+pre-filter and a taint source.
+
+**The published SLM is not a dependency of this package.** `jataayu` never imports or calls it.
+It is a separate model you may serve yourself and point the slow path at, exactly like any other
+OpenAI-compatible endpoint. Install the package and the boundary works with no model at all.
+
 ## Why "gate the action, not the string"
 
 Most agent-security tooling tries to *detect the attack text*. That's a losing arms race: an
