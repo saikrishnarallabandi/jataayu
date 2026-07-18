@@ -301,6 +301,8 @@ The counterfactual number is the one we care about most: it is the only metric h
 penalizes *both* the "trigger word ⇒ attack" shortcut and over-defense with a single figure.
 Selecting on recall alone actively rewards that shortcut.
 
+Result files backing every number above: [`training/injection_adapter/eval/results/`](training/injection_adapter/eval/results/).
+
 **Known limitation, stated up front:** the model over-flags benign text that refers to its own
 instructions ("please ignore the typos in my last message") — 18 of 40 such held-out rows score
 ≥ 0.9999, tied with real attacks, so **no threshold separates them**. The base model does not
