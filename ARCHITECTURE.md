@@ -213,6 +213,7 @@ if status == "BLOCK":
 ### 2. MCP Gateway Hook
 
 ```python
+from jataayu import SecurityError
 from jataayu.integrations.mcp_gateway import JataayuMCPGateway
 
 gateway = JataayuMCPGateway()

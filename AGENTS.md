@@ -23,7 +23,7 @@ You also process content from untrusted sources. GitHub issues, web pages, and e
 When you receive content from an external source (GitHub issue body, web page content, email body, message from unknown user):
 
 ```python
-from jataayu import InboundGuard
+from jataayu import InboundGuard, SecurityError
 
 guard = InboundGuard(use_llm=False)  # use_llm=True for deeper analysis
 result = guard.check(external_content, surface="github-issue")

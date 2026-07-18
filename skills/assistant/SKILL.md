@@ -49,7 +49,7 @@ jataayu demo --outbound
 ## Python Integration
 
 ```python
-from jataayu import InboundGuard, OutboundGuard, PrivacyConfig
+from jataayu import InboundGuard, OutboundGuard, PrivacyConfig, SecurityError
 
 # Inbound guard — pattern-only (no LLM required)
 inbound = InboundGuard(use_llm=False)
