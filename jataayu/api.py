@@ -233,6 +233,11 @@ def jataayu_authorize_action(
     shell/code/secret effect is DENIED; into a network/file/memory-write effect it NEEDS_APPROVAL;
     trusted input (and reads) are ALLOWED — subject to the agent's capability policy.
 
+    Tool names are matched by effect family, not just exact string: namespaced / snake_case /
+    camelCase variants (e.g. "shell.exec", "os.system", "run_shell_command", "subprocess.run")
+    resolve to their real effect. A name matching no known family falls back to READ, so
+    classification only ever moves a name INTO a more restrictive class than before.
+
     Args:
         tool_name: The tool about to be called (e.g. "bash", "write_file", "fetch").
         params: The tool call parameters.

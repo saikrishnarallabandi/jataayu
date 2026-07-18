@@ -80,14 +80,34 @@ decision = jataayu_authorize_action(
     {"cmd": "rm -rf /tmp/cache"},
     untrusted=True,   # these params were influenced by untrusted inbound content
 )
-# {tool_name, effect_class: 'shell', provenance: 'untrusted',
-#  decision: 'allow'|'deny'|'needs_approval', reason, violations, commit_token}
+# {tool_name: 'shell.exec', effect_class: 'shell', provenance: 'untrusted',
+#  decision: 'deny', reason: 'untrusted-derived input may not reach a shell effect', ...}
+assert decision["decision"] == "deny"   # rm -rf from untrusted input never runs
 if decision["decision"] == "deny":
     raise SecurityError(decision["reason"])
 ```
 
 Untrusted-derived input into a **shell / code-eval / secret-read** effect is denied; into
 **network / file-write / memory-write** it needs human approval; everything else is allowed.
+
+Tool names are matched by effect *family*, not by exact string — the common spellings resolve to
+the same effect, so a shell call denies whether it arrives as `bash`, `shell.exec`, `os.system`,
+`run_shell_command`, `subprocess.run`, or `subprocess.Popen`:
+
+| Effect | Decision on untrusted input | Recognized name forms (exact + namespaced / snake_case / camelCase) |
+|--------|-----------------------------|----------------------------------------------------------------------|
+| `shell`       | **deny** | `bash`, `sh`, `shell.exec`, `os.system`, `run_shell_command`, `subprocess.run`, `subprocess.Popen`, `terminal`, `powershell` |
+| `code_eval`   | **deny** | `eval`, `exec`, `python.exec`, `code.run`, `python_eval`, `js_eval`, `code_interpreter` |
+| `secret_read` | **deny** | `read_env`, `get_secret`, `vault.read`, `secrets.get`, `read_credentials`, `env.get` |
+| `network`     | **needs_approval** | `fetch`, `http.post`, `curl`, `webhook.trigger`, `send_email`, `send_channel_message`, `transfer_funds` |
+| `file_write`  | **needs_approval** | `write_file`, `fs.write`, `file.delete`, `append_file`, `overwrite_file` |
+| `memory_write`| **needs_approval** | `memory_write`, `save_memory`, `store_memory`, `kv_set` |
+| `read`        | allow | `read_file`, `get_*`, `list_*`, `search_*`, `recall` |
+
+The effect is read off the **verb** (leading, or trailing after a namespace), not off any token
+anywhere in the name, so `run_shell_command` is a shell effect while `list_shell_history` stays a
+read. A name matching no family at all falls back to `read`, as before — classification can only
+move a name into a *more* restrictive class, never a less restrictive one.
 
 For enforced execution, use the `PREVIEW → COMMIT` object API — the `commit_token` binds the exact
 request, so mutating the action after authorization is rejected:
