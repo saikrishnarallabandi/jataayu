@@ -1,5 +1,5 @@
 """
-Jataayu — LLM-backed AI agent security.
+Jataayu — SLM-backed AI agent security.
 
 Inbound injection detection + outbound privacy protection.
 
