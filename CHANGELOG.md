@@ -5,6 +5,76 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+31 commits have touched `jataayu/` since 0.3.1, several of them fixing real fail-open
+bugs. Those were shipping undocumented, which for a security library is the wrong way
+round — a user cannot tell whether they are running a version that authorizes `rm -rf`
+from untrusted input. Backfilled here.
+
+### Security — fail-open fixes
+
+These are cases where a guard returned "allow" when it should not have. Anyone on an
+earlier build should assume the described bypass works against them.
+
+- **Effect boundary authorized destructive tools under unrecognized names** (#21).
+  `EffectBoundary.classify()` matched tool names against exact string sets, so any name
+  outside them fell through to `READ` → `ALLOW`. `rm -rf /` arriving from untrusted
+  content under the name `shell.exec` was **authorized**, because `shell.exec` was not
+  literally a member of the shell set. Now resolves namespaced / dotted / snake_case /
+  camelCase names to their real effect family by verb position. Verified: 10/10
+  destructive spellings deny; benign reads still allow.
+- **Two plugin guard tools returned an unconditional all-clear.** They reported "no
+  threat" regardless of input — the guard was decorative on that path.
+- **Owner-delegation bypass in the gateway inbound allowlist.** A delegated identity
+  could pass content that the allowlist was configured to reject.
+- **Outbound: a finding you can detect but cannot redact is a message you cannot send.**
+  Previously a detected-but-unredactable leak could still be transmitted; it is now
+  blocked rather than sent with an apology appended.
+- **Egress: a human-readable slug is not an encoded blob.** The egress guard treated
+  readable identifiers as opaque, skipping checks it should have applied.
+- **PI-006 delimiter injection** tightened to require an instruction-object, killing a
+  false-negative class (#15).
+
+### Security — transport
+
+- **Gateway now verifies TLS by default.** Certificate verification previously depended
+  on configuration; it is now on unless explicitly disabled. Explicit-token precedence
+  and `/v1` URL normalization fixed alongside, including tolerance for whitespace in the
+  insecure flag.
+
+### Added
+
+- **LLM-triage tier for indirect injection.** Raises InjecAgent base-split recall from
+  **0% (fast path) to ~90%+ at zero false positives** in the measured pilot. This is the
+  strongest evidence in the project for a triage stage sitting inside the detector rather
+  than beside it.
+- YAML policy config with per-agent surface allowlists (#6).
+- Cross-turn audit, egress-channel guard, composition trust-transfer.
+- `SECURITY.md` — coordinated-disclosure path, scope, and supported versions. Its absence
+  in a vulnerability-detection library was conspicuous.
+
+### Changed
+
+- Vendor-neutral LLM gateway backend; vendor branding removed from docs and eval.
+- Research and writing material (`docs/`, `paper/`, `site/`, positioning and blog drafts)
+  removed from the repository. The published page now has a single source outside this
+  repo. These were never consumed by the package, its tests, or any runner.
+- Dead `jataayu/threats.py` deleted — no importers, and it carried a stale hardcoded name
+  list left over from the de-personalization pass.
+- Internal strategy and product codenames are no longer shipped as source literals. They
+  are deployer-supplied configuration, defaulting to empty.
+
+### Fixed
+
+- README stated detection ROC-AUC ≈ 0.63; the repository's own committed result file says
+  **0.596**. Corrected. The number sat inside a passage promising candour, which is
+  precisely why it mattered.
+- README claimed `requests` was the only hard dependency; `pyyaml>=6` has been required
+  since 0.3.1 and the changelog said so.
+- Quickstart raised `NameError` on copy-paste — `SecurityError` was referenced but never
+  defined or exported.
+- Machine-specific home paths removed from test fixtures. The 0.3.1 entry claimed this had
+  already been done; it had not.
+
 ## [0.3.1] - 2026-07-06
 
 ### Changed — packaging & first-run behavior (public-install readiness)
@@ -29,7 +99,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   Result on the shipped corpus: text-grader recall on real harms **17%** vs effect-grader
   **100%**; **5 of 6** harms are "silent" (benign/`NO_REPLY` text, malicious effect sequence),
   echoing arXiv:2606.18356's 291/347. Writes `eval/results/semantic_vs_effect.json`. (Roadmap item #5
-  from `docs/lit-review-2026-07.md`; effect-level grading over text-level.)
+  from the 2026 agent-security literature scan; effect-level grading over text-level.)
 
 ### Added — composition: trust-transfer & intent-fragmentation dimensions
 - `guards/composition.py` `check_skillset()` gained two SCR-Bench dimensions on top of the existing
@@ -46,7 +116,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
     pairwise / per-skill review to catch. Surfaced in the explanation and `to_dict()`.
   - New `CompositionRisk.trust_transfer` field; combos carry `fragmented` / `endorsed_contributors`.
     Skills accept an `endorsed` flag (dict key or `SkillVetResult` attr). 6 tests.
-    (Roadmap item #4 from `docs/lit-review-2026-07.md`.)
+    (Roadmap item #4 from the 2026 literature scan.)
 
 ### Added — runtime behavioral auditing (cross-turn trajectory analysis)
 - `core/audit.py`: `SessionTrace` — accumulates a session's tool calls and audits the
@@ -65,7 +135,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
     turns, and defaults unknown provenance to UNTRUSTED. `audit()` returns an `AuditResult`
     (risk + findings + capability profile); `to_dict()` serializes the whole trajectory.
   - Exposed `SessionTrace`, `AuditResult`, `AuditFinding`, `AuditRisk`, `TraceEvent`. 14 tests.
-    (Roadmap item #3 from `docs/lit-review-2026-07.md`; the deferred P2 `SessionTrace` from the
+    (Roadmap item #3 from the 2026 literature scan; the deferred P2 `SessionTrace` from the
     June-2026 upgrade notes.)
 
 ### Added — outbound egress / exfiltration-channel guard
@@ -90,7 +160,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
     exposed as the `jataayu_check_egress()` dict API + `EgressChannelGuard` / `EgressConfig`.
   - New `ThreatType.EXFIL_CHANNEL`. 26 tests (channels, false-positive controls, sanitize,
     OutboundGuard integration, dict API).
-- Research: `docs/lit-review-2026-07.md` — field scan of 2025 H2 → mid-2026 agent-security work
+- Research: field scan of 2025 H2 → mid-2026 agent-security work
   mapped to Jataayu's pillars; this guard is roadmap item #2 from that review.
 
 ## [0.3.0] - 2026-06-28

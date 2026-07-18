@@ -46,6 +46,10 @@ agents:
         block_threshold: 0.70
         inbound_strict: true
     protected_names: ["Alice Smith", "Bob Jones"]
+    # Internal codenames — blocked on every surface. Ships empty; these are yours to supply.
+    internal_codenames: ["Bluebird", "Redwood"]
+    # To-market product codenames — allowed on github/public, held on social surfaces.
+    gtm_codenames: ["Skylark"]
     check_credentials: true
     use_llm: true
     llm_threshold: 0.4
@@ -134,6 +138,8 @@ class AgentPolicy:
             Empty list = all surfaces allowed.
         surface_overrides: Per-surface configuration overrides.
         protected_names: Names that OutboundGuard must never emit.
+        internal_codenames: Internal codenames OutboundGuard must never emit on any surface.
+        gtm_codenames: To-market product codenames — allowed on github/public surfaces only.
         check_credentials: Whether OutboundGuard should scan for credentials.
         disabled_cred_rules: Credential rule IDs to disable (e.g. CRED_004).
         check_high_entropy: Enable high-entropy string detection.
@@ -146,6 +152,8 @@ class AgentPolicy:
     allowed_surfaces: list[str] = field(default_factory=list)
     surface_overrides: dict[str, SurfacePolicy] = field(default_factory=dict)
     protected_names: list[str] = field(default_factory=list)
+    internal_codenames: list[str] = field(default_factory=list)
+    gtm_codenames: list[str] = field(default_factory=list)
     check_credentials: bool = True
     disabled_cred_rules: list[str] = field(default_factory=list)
     check_high_entropy: bool = False
@@ -205,6 +213,8 @@ class AgentPolicy:
         from jataayu.guards.outbound import PrivacyConfig
         return PrivacyConfig(
             protected_names=self.protected_names,
+            internal_codenames=self.internal_codenames,
+            gtm_codenames=self.gtm_codenames,
             use_llm=self.use_llm,
             llm_threshold=self.llm_threshold,
             block_threshold=self.block_threshold,
@@ -219,6 +229,8 @@ class AgentPolicy:
             "allowed_surfaces": self.allowed_surfaces,
             "surface_overrides": {k: v.to_dict() for k, v in self.surface_overrides.items()},
             "protected_names": self.protected_names,
+            "internal_codenames": self.internal_codenames,
+            "gtm_codenames": self.gtm_codenames,
             "check_credentials": self.check_credentials,
             "disabled_cred_rules": self.disabled_cred_rules,
             "use_llm": self.use_llm,
@@ -418,6 +430,8 @@ class PolicyLoader:
             allowed_surfaces=cfg.get("allowed_surfaces", []),
             surface_overrides=surface_overrides,
             protected_names=cfg.get("protected_names", []),
+            internal_codenames=cfg.get("internal_codenames", defaults.get("internal_codenames", [])),
+            gtm_codenames=cfg.get("gtm_codenames", defaults.get("gtm_codenames", [])),
             check_credentials=cfg.get("check_credentials", defaults.get("check_credentials", True)),
             disabled_cred_rules=cfg.get("disabled_cred_rules", []),
             check_high_entropy=cfg.get("check_high_entropy", defaults.get("check_high_entropy", False)),
@@ -428,6 +442,7 @@ class PolicyLoader:
             forbidden_capabilities=cfg.get("forbidden_capabilities", defaults.get("forbidden_capabilities", [])),
             extra={k: v for k, v in cfg.items()
                    if k not in ("allowed_surfaces", "surface_overrides", "protected_names",
+                                "internal_codenames", "gtm_codenames",
                                 "check_credentials", "disabled_cred_rules", "check_high_entropy",
                                 "use_llm", "llm_threshold", "block_threshold",
                                 "allowed_capabilities", "forbidden_capabilities")},

@@ -13,6 +13,16 @@ def guard():
 
 
 @pytest.fixture
+def guard_with_codenames():
+    """Codenames are deployer-supplied; the package ships none. Synthetic names throughout."""
+    return OutboundGuard(PrivacyConfig(
+        internal_codenames=["Project Bluebird"],
+        gtm_codenames=["Redwood"],
+        use_llm=False,
+    ))
+
+
+@pytest.fixture
 def guard_with_names():
     config = PrivacyConfig(
         protected_names=["Alice", "Bobby"],
@@ -185,21 +195,29 @@ class TestInternalContextDenylist:
         assert r.blocked
 
     def test_absolute_path_blocked(self, guard):
-        r = guard.check("Wrote it to /home/user/projects/x/notes.txt", surface="github-comment")
+        r = guard.check("Wrote it to /home/alice/projects/x/notes.txt", surface="github-comment")
         assert r.blocked
 
     def test_agent_scaffolding_blocked(self, guard):
         for leak in ("queue item 29", "Wake timestamp 2026-07-10", "HEARTBEAT_OK"):
             assert guard.check(leak, surface="group-chat").blocked, leak
 
-    def test_internal_strategy_codename_blocked_everywhere(self, guard):
-        assert guard.check("Advancing Project Medallion this week.", surface="group-chat").blocked
-        assert guard.check("Advancing Project Medallion this week.", surface="github-comment").blocked
+    def test_internal_strategy_codename_blocked_everywhere(self, guard_with_codenames):
+        text = "Advancing Project Bluebird this week."
+        assert guard_with_codenames.check(text, surface="group-chat").blocked
+        assert guard_with_codenames.check(text, surface="github-comment").blocked
 
-    def test_product_codename_surface_aware(self, guard):
-        text = "SentinelForge added a design-partner candidate."
-        assert guard.check(text, surface="group-chat").blocked          # social -> held
-        assert not guard.check(text, surface="github-comment").blocked  # GTM -> allowed
+    def test_product_codename_surface_aware(self, guard_with_codenames):
+        text = "Redwood added a design-partner candidate."
+        assert guard_with_codenames.check(text, surface="group-chat").blocked          # social -> held
+        assert not guard_with_codenames.check(text, surface="github-comment").blocked  # GTM -> allowed
+
+    def test_codenames_ship_empty(self, guard):
+        """The package must not carry anyone's codenames. An unconfigured guard flags neither."""
+        assert not guard.check("Advancing Project Bluebird this week.", surface="group-chat").blocked
+        assert not guard.check("Redwood added a candidate.", surface="group-chat").blocked
+        assert PrivacyConfig().internal_codenames == []
+        assert PrivacyConfig().gtm_codenames == []
 
     def test_clean_business_update_not_blocked(self, guard):
         r = guard.check("OpenAI shipped a platform update; here is why it matters.", surface="group-chat")

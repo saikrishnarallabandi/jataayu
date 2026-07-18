@@ -464,7 +464,7 @@ def jataayu_recover_outbound(
     Example::
 
         r = jataayu_recover_outbound(
-            "Done — scaffolding is in /home2/sai/projects/foo",
+            "Done — scaffolding is in /home/alice/projects/foo",
             surface="whatsapp-group",
         )
         # {'action': 'send', 'text': 'Done — scaffolding is in foo', ...}

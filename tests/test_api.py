@@ -277,3 +277,25 @@ class TestStatusValues:
         # Unsafe
         r = jataayu_check_outbound("Card: 4111 1111 1111 1111", surface="group-chat")
         assert r["status"] in valid
+
+
+class TestSecurityError:
+    """The exception the README/AGENTS integration examples raise at an enforcement point."""
+
+    def test_importable_from_package_root(self):
+        import jataayu
+        from jataayu import SecurityError
+
+        assert "SecurityError" in jataayu.__all__
+        assert issubclass(SecurityError, Exception)
+
+    def test_raises_and_carries_the_reason(self):
+        from jataayu import SecurityError, jataayu_authorize_action
+
+        decision = jataayu_authorize_action(
+            "shell.exec", {"cmd": "rm -rf /tmp/cache"}, untrusted=True
+        )
+        assert decision["decision"] == "deny"
+
+        with pytest.raises(SecurityError, match=decision["reason"]):
+            raise SecurityError(decision["reason"])

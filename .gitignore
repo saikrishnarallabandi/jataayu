@@ -6,9 +6,7 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-# eval/: track SOURCE, exclude vendored venvs, bulk data and run logs.
-# A bare `eval/` here silently untracked 70+ source files, including runners
-# that produced published numbers. Narrowed 2026-07-18.
+# eval/: track source; exclude vendored venvs, bulk data and run logs.
 eval/.venv*/
 eval/**/__pycache__/
 eval/data/agentharm/
@@ -22,9 +20,7 @@ eggs/
 lib/
 lib64/
 parts/
-# training/: track CODE + configs, exclude datasets, adapters and checkpoints.
-# A bare `training/` untracked the entire pipeline that trained the published
-# v0.1 model — it existed only on one disk. Narrowed 2026-07-18.
+# training/: track code and configs; exclude datasets, adapters and checkpoints.
 training/**/data/
 training/**/adapters/
 training/**/checkpoints/
@@ -62,7 +58,7 @@ eval/results/*.log
 eval/eval/
 
 # model weights & training data artifacts (large; regenerable, not for the repo
-# or the RELAI simulator workspace)
+# or third-party tool workspaces)
 *.safetensors
 *.bin
 *.gguf
@@ -76,7 +72,7 @@ training/**/data/*.jsonl
 training/**/exp/
 training/**/checkpoints/
 
-# RELAI local files
+# Third-party tool state
 .relai/config.toml
 .relai/.npmrc
 .relai/node_modules/
@@ -88,18 +84,16 @@ training/**/checkpoints/
 .relai/simulator.env
 .relai/tag-records/
 
-# RELAI run artifacts + benchmark exports — 239MB / 17k files in the working tree.
-# Regenerable; purged from history 2026-07-11. Blanket-ignored (the entries above were partial).
+# Third-party tool run artifacts and exports. Regenerable; not part of this project.
 .relai/
 
 # lavish review artifacts (working files)
 .lavish/
 
-# Local run artifacts — leak host/infra metadata (host, absolute paths, GPU UUIDs)
+# Local run artifacts (host metadata, absolute paths, device ids)
 wandb/
 
-# Internal infrastructure dossiers — tailnet IPs, host map, vast SSH strings.
-# Never publish: these describe the private compute fabric, not the project.
+# Deployment notes specific to a private environment. Not part of this project.
 training/injection_adapter/INFRA.md
 training/injection_adapter/scripts/tunnels.sh
 eval/run_muse_spark_jataayu_bench.py
@@ -108,12 +102,11 @@ eval/results/muse_spark_*
 # External / third-party tooling workspaces — ONE ROOF, LOCAL ONLY, never tracked.
 # Vendor pilots, their benchmark caches, optimizer state, feedback drafts. Anything
 # that belongs to someone else's tool goes here and stays out of the repo.
-# Project findings extracted from these live in tasks/research_log.md instead.
+# Findings worth keeping are promoted into the tracked docs instead.
 .external/
 
-# Research notes and dated session journals — local only, for now.
-# These are working records, not library structure. Findings that matter get promoted
-# into tasks/research_log.md; everything else stays on disk.
+# Research notes and working journals. Not library structure; kept out of the
+# repository so what ships is the toolkit and its tests.
 docs/
 heartbeat/
 paper/

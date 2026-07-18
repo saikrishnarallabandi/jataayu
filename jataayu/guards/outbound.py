@@ -51,6 +51,10 @@ class PrivacyConfig:
     Attributes:
         protected_names: Specific names/terms that must never appear in output.
             Typical use: names of minors, family members, protected individuals.
+        internal_codenames: Deployer-supplied internal codenames (projects, strategies,
+            unannounced work) that must never reach ANY shared surface.
+        gtm_codenames: Deployer-supplied to-market product codenames. Permitted on an
+            explicit go-to-market surface (github/public), held everywhere else.
         check_categories: Privacy categories to scan for. All are checked by default.
         llm_url: OpenAI-compatible API base URL for LLM-backed sanitization.
             Leave None to use the configured JataayuEngine LLM backend.
@@ -62,6 +66,13 @@ class PrivacyConfig:
     """
     # Names/terms that should never appear in output
     protected_names: list[str] = field(default_factory=list)
+
+    # Internal codenames — blocked on every surface. Empty by default: these are the
+    # deployer's own secrets, so the library ships knowing none of them.
+    internal_codenames: list[str] = field(default_factory=list)
+
+    # To-market product codenames — allowed on a GTM surface, held on social/unknown ones.
+    gtm_codenames: list[str] = field(default_factory=list)
 
     # Categories to always check for
     check_categories: list[str] = field(default_factory=lambda: [
@@ -425,23 +436,21 @@ _INTERNAL_CONTEXT_PATTERNS: list[tuple[str, ThreatType, float, str]] = [
     (r"\bdocs/[\w./-]+\.(?:md|py|json)\b", ThreatType.PRIVACY_VIOLATION, 0.95, "Internal repo doc path"),
     (r"/home2?/[\w./-]+", ThreatType.PRIVACY_VIOLATION, 0.95, "Absolute local filesystem path"),
 ]
-# Internal strategy codenames — never on any shared surface.
-_INTERNAL_STRATEGY_CODENAMES = ["Cassandra", "Kailash", "Prahaar", "Delphi Gamma", "Project Medallion", "NSE Whales"]
-# To-market PRODUCT codenames — fine on an explicit GTM surface (github/public, e.g. the product's own
-# tracking issue), but must not be broadcast to a social group. Held on every non-GTM surface.
-_GTM_PRODUCT_CODENAMES = ["SentinelForge"]
-
-_COMPILED_INTERNAL = (
-    [(re.compile(p, re.IGNORECASE), tt, s, d) for (p, tt, s, d) in _INTERNAL_CONTEXT_PATTERNS]
-    + [(re.compile(r"\b" + re.escape(c) + r"\b", re.IGNORECASE),
-        ThreatType.PRIVACY_VIOLATION, 0.95, f"Internal strategy codename: {c}")
-       for c in _INTERNAL_STRATEGY_CODENAMES]
-)
-_COMPILED_SOCIAL_ONLY = [
-    (re.compile(r"\b" + re.escape(c) + r"\b", re.IGNORECASE),
-     ThreatType.PRIVACY_VIOLATION, 0.95, f"To-market product codename on a social surface: {c}")
-    for c in _GTM_PRODUCT_CODENAMES
+_COMPILED_INTERNAL = [
+    (re.compile(p, re.IGNORECASE), tt, s, d) for (p, tt, s, d) in _INTERNAL_CONTEXT_PATTERNS
 ]
+
+# Codenames are NOT shipped. They are the deployer's own confidential vocabulary, so baking a list
+# into the package would publish exactly what this rule exists to protect. Supply them via
+# PrivacyConfig(internal_codenames=..., gtm_codenames=...) or the `internal_codenames` /
+# `gtm_codenames` keys on an agent in a policy YAML.
+def _compile_codenames(names: list[str], desc: str) -> list[tuple[re.Pattern, ThreatType, float, str]]:
+    return [
+        (re.compile(r"\b" + re.escape(name) + r"\b", re.IGNORECASE),
+         ThreatType.PRIVACY_VIOLATION, 0.95, f"{desc}: {name}")
+        for name in names
+        if name and name.strip()
+    ]
 
 
 def _is_gtm_surface(surface: str) -> bool:
@@ -510,7 +519,7 @@ refuse, and NOT to explain yourself.
 
 Rewrite these away:
 - Absolute filesystem paths (/home/..., /home2/..., /Users/...) → the bare filename only
-  (e.g. "/home2/x/projects/jataayu/guards/outbound.py" → "outbound.py")
+  (e.g. "/home/alice/projects/example/guards/outbound.py" → "outbound.py")
 - Internal repo doc paths (docs/foo/bar.md) → the bare filename ("bar.md")
 - Internal codenames, project scaffolding, agent bookkeeping → a plain generic description
 - Protected/personal names → a role ("a family member") or drop them
@@ -531,7 +540,7 @@ HARD RULES:
 def _basename_only(match: re.Match) -> str:
     """Collapse a leaked path to its bare filename.
 
-    "/home/user/projects/jataayu/guards/outbound.py" → "outbound.py"
+    "/home/alice/projects/example/guards/outbound.py" → "outbound.py"
 
     A path is redacted to its LAST segment rather than to "[REDACTED]" on purpose: it keeps the
     sentence useful ("the guard lives in outbound.py") instead of gutting it. The private part of
@@ -618,6 +627,12 @@ class OutboundGuard(JataayuEngine):
         )
         self.config = cfg
         self._compiled_names = self._compile_protected_names(cfg.protected_names)
+        self._compiled_internal = list(_COMPILED_INTERNAL) + _compile_codenames(
+            cfg.internal_codenames, "Internal codename"
+        )
+        self._compiled_social_only = _compile_codenames(
+            cfg.gtm_codenames, "To-market product codename on a social surface"
+        )
         self._egress_guard = None
         if cfg.check_egress:
             from jataayu.guards.egress import EgressChannelGuard, EgressConfig
@@ -851,9 +866,9 @@ class OutboundGuard(JataayuEngine):
         # Check internal/operational-context denylist (agent scaffolding, repo paths, internal
         # codenames). Surface-INDEPENDENT hard leak — score used as-is (no multiplier) so it always
         # blocks. To-market product codenames are added only on non-GTM (social/unknown) surfaces.
-        internal_patterns = list(_COMPILED_INTERNAL)
+        internal_patterns = list(self._compiled_internal)
         if not _is_gtm_surface(surface):
-            internal_patterns += _COMPILED_SOCIAL_ONLY
+            internal_patterns += self._compiled_social_only
         for pattern, threat_type, base_score, desc in internal_patterns:
             if pattern.search(text):
                 matched.append(desc)
@@ -1062,9 +1077,9 @@ class OutboundGuard(JataayuEngine):
         # "sanitized" text came back still carrying the path, failed re-screening, and every
         # caller was left with nothing to send. Redaction that cannot remove the thing that
         # blocked you is not redaction.
-        internal_patterns = list(_COMPILED_INTERNAL)
+        internal_patterns = list(self._compiled_internal)
         if not _is_gtm_surface(fast_result.surface):
-            internal_patterns += _COMPILED_SOCIAL_ONLY
+            internal_patterns += self._compiled_social_only
         for pattern, _tt, _score, desc in internal_patterns:
             replacement = _INTERNAL_REDACTORS.get(desc, _INTERNAL_DEFAULT_REDACTION)
             redacted = pattern.sub(replacement, redacted)

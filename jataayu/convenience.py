@@ -1,7 +1,7 @@
 """
 Jataayu convenience API
 ========================
-Simple functional interface matching the SOUL.md integration pattern:
+Simple functional interface for the common case:
 
     from jataayu.convenience import check_inbound, check_outbound
 

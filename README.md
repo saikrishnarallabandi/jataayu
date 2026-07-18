@@ -62,7 +62,8 @@ pip install "jataayu[llm] @ git+https://github.com/saikrishnarallabandi/jataayu.
 pip install "jataayu[ollama] @ git+https://github.com/saikrishnarallabandi/jataayu.git"
 ```
 
-Requires Python ≥ 3.10. The only hard dependency is `requests`; LLM backends are optional extras.
+Requires Python ≥ 3.10. The only hard dependencies are `requests` and `pyyaml` (policy files);
+LLM backends are optional extras.
 
 ---
 
@@ -73,7 +74,7 @@ Requires Python ≥ 3.10. The only hard dependency is `requests`; LLM backends a
 Decide by the *harm of the effect* × the *provenance of the input*, deterministically (no LLM):
 
 ```python
-from jataayu import jataayu_authorize_action
+from jataayu import jataayu_authorize_action, SecurityError
 
 decision = jataayu_authorize_action(
     "shell.exec",
@@ -141,6 +142,7 @@ from jataayu import (
     jataayu_check_tool_return,
     jataayu_check_memory_write,
     jataayu_check_memory_read,
+    SecurityError,
 )
 
 result = jataayu_check_inbound(github_issue_body, surface="github-issue")
@@ -205,7 +207,7 @@ risk = jataayu_check_skillset([skill_a, skill_b, skill_c])
 ### Advanced / object API
 
 ```python
-from jataayu import InboundGuard, OutboundGuard, PrivacyConfig
+from jataayu import InboundGuard, OutboundGuard, PrivacyConfig, SecurityError
 
 guard = InboundGuard()                       # use_llm=True by default
 result = guard.check(github_issue_body, surface="github-issue")
@@ -267,7 +269,7 @@ Inbound text ──► Fast path (regex over all normalized views)
 ### Detection performance
 
 Be clear-eyed about the pre-filter: on the public `deepset/prompt-injections` set the fast path is
-a **high-precision, modest-recall** detector (ROC-AUC ≈ 0.63; ~0.5% benign false-block) — good for
+a **high-precision, modest-recall** detector (ROC-AUC ≈ 0.596; ~0.5% benign false-block) — good for
 cheap triage, *not* a complete defense. Its strongest measured win is narrow: input normalization
 drops **space-out and leetspeak** evasion from ~0.97/0.92 success to 0.00 on a synthetic set, at
 unchanged precision. This is exactly why the guarantee lives at the effect boundary, not here. Full

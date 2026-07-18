@@ -19,6 +19,7 @@ Quick start::
 """
 __version__ = "0.3.1"
 
+from jataayu.core.errors import SecurityError
 from jataayu.core.threat import ThreatResult, ThreatLevel, ThreatType
 from jataayu.guards.inbound import InboundGuard
 from jataayu.guards.outbound import OutboundGuard, PrivacyConfig, RecoveryResult
@@ -83,6 +84,8 @@ __all__ = [
     # Short aliases (tuple return format)
     "check_inbound",
     "check_outbound",
+    # Raised by callers when a Jataayu verdict is enforced
+    "SecurityError",
     # Core classes (for advanced usage)
     "ThreatResult",
     "ThreatLevel",

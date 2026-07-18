@@ -70,8 +70,8 @@ class LLMBackend:
         defaults = {
             "ollama": "llama3",
             "openai": "gpt-4o-mini",
-            "anthropic": "claude-haiku-20240307",
-            "gateway": "anthropic/claude-sonnet-4-6",
+            "anthropic": "claude-haiku-4-5",
+            "gateway": "anthropic/claude-sonnet-5",
         }
         return defaults.get(self.backend, "llama3")
 

@@ -2,8 +2,8 @@
 OutboundGuard.recover() — rewrite-to-send, not refuse-to-send.
 
 The regression these lock down is real and dated. On 2026-07-12 a group agent answered five
-questions with "I drafted a reply to that, but it would have exposed private details from Sai's
-setup, so I'm not sending it." Every one of those five was blocked on a single finding —
+questions with "I drafted a reply to that, but it would have exposed private details from the
+owner's setup, so I'm not sending it." Every one of those five was blocked on a single finding —
 "Absolute local filesystem path". A path is trivially rewritable. The agent apologised instead of
 answering, five times, for a problem it could have simply fixed.
 
@@ -22,13 +22,14 @@ import pytest
 from jataayu.guards.outbound import OutboundGuard, PrivacyConfig
 
 
-# The five real declines, verbatim from jataayu_quarantine.jsonl. Not illustrative — the actual
-# drafts that were thrown away.
+# The shape of the real declines from jataayu_quarantine.jsonl, with the paths made synthetic.
+# Each is an answer whose ONLY finding is a filesystem path — trivially rewritable, and yet each
+# was thrown away and replaced with an apology.
 REAL_DECLINES = [
-    "Done. Started a clean new project: `/home/user/projects/project_agent_guardrail_drift` "
+    "Done. Started a clean new project: `/home/alice/projects/example-guardrail-drift` "
     "-- scaffolding is in place.",
     "The local repo is already set up correctly here: "
-    "`/home/user/projects/project_webpage/repos/saikrishnarallabandi.github.io`",
+    "`/home/alice/projects/example-webpage/repos/alice.github.io`",
 ]
 
 GROUP = "whatsapp-group"
@@ -49,9 +50,10 @@ class StubLLM:
         return self.reply
 
 
-def guard(llm=None, use_llm=False, names=None):
+def guard(llm=None, use_llm=False, names=None, codenames=None):
     g = OutboundGuard(PrivacyConfig(
         protected_names=names or [],
+        internal_codenames=codenames or [],
         use_llm=use_llm,
     ))
     if llm is not None:
@@ -70,8 +72,18 @@ def test_real_declines_now_send_without_any_llm(draft):
 
     assert r.action == "send", f"still refusing to send: {r.reason}"
     assert r.text, "sent an empty message"
-    assert "/home2/" not in r.text and "/home/" not in r.text, "path survived the rewrite"
+    assert "/home/" not in r.text, "path survived the rewrite"
     assert "I'm not sending it" not in r.text, "still apologising instead of answering"
+
+
+def test_home2_style_path_is_also_redacted():
+    """The path pattern is `/home2?/`, so the two-digit home dir must be caught as well."""
+    r = guard(use_llm=False).recover(
+        "Logs are under /home2/alice/projects/example/run.log", surface=GROUP
+    )
+    assert r.action == "send"
+    assert "/home2/" not in r.text
+    assert "run.log" in r.text
 
 
 def test_path_collapses_to_bare_filename_not_a_redaction_marker():
@@ -80,14 +92,14 @@ def test_path_collapses_to_bare_filename_not_a_redaction_marker():
     "[REDACTED]" would technically be safe and would also destroy the answer.
     """
     r = guard(use_llm=False).recover(
-        "The outbound guard lives in /home/user/projects/jataayu/jataayu/guards/outbound.py "
+        "The outbound guard lives in /home/alice/projects/example/jataayu/guards/outbound.py "
         "and the scoring is in docs/design/scoring.md",
         surface=GROUP,
     )
     assert r.action == "send"
     assert "outbound.py" in r.text
     assert "scoring.md" in r.text
-    assert "/home2/" not in r.text
+    assert "/home/" not in r.text
     assert "docs/design" not in r.text
 
 
@@ -102,9 +114,20 @@ def test_clean_message_is_untouched():
 
 
 def test_internal_codename_is_neutralised():
-    r = guard(use_llm=False).recover("The Cassandra numbers look strong.", surface=GROUP)
+    """Codenames are deployer-supplied, so the test supplies its own rather than relying on any
+    list baked into the package — there is none, by design."""
+    g = guard(use_llm=False, codenames=["Bluebird"])
+    r = g.recover("The Bluebird numbers look strong.", surface=GROUP)
     assert r.action == "send"
-    assert "Cassandra" not in r.text
+    assert "Bluebird" not in r.text
+
+
+def test_unconfigured_codename_is_not_flagged():
+    """A default install must not block an arbitrary capitalised word."""
+    r = guard(use_llm=False).recover("The Bluebird numbers look strong.", surface=GROUP)
+    assert r.action == "send"
+    assert r.changed is False
+    assert r.text == "The Bluebird numbers look strong."
 
 
 def test_mixed_pii_and_path_is_still_sendable():
@@ -118,13 +141,13 @@ def test_mixed_pii_and_path_is_still_sendable():
     Nothing that can stop a message may be beyond the reach of the thing that repairs it.
     """
     r = guard(use_llm=False, names=["Veda"]).recover(
-        "Ping sai@example.com or +1 555 123 4567 — the scoring lives in docs/design/scoring.md "
+        "Ping alice@example.com or +1 555 123 4567 — the scoring lives in docs/design/scoring.md "
         "and Veda has the notes.",
         surface=GROUP,
     )
 
     assert r.action == "send", f"multi-class findings must still be sendable: {r.reason}"
-    assert "sai@example.com" not in r.text
+    assert "alice@example.com" not in r.text
     assert "555 123 4567" not in r.text
     assert "Veda" not in r.text
     assert "docs/design" not in r.text
@@ -159,7 +182,7 @@ def test_rewrite_that_reintroduces_a_credential_is_withheld():
     llm = StubLLM(reply="here, use sk-ant-api03-QQQQRRRRSSSSTTTTUUUUVVVVWWWWXXXXYYYYZZZZ00001111")
     g = guard(llm=llm, use_llm=True)
 
-    r = g.recover("scaffolding is in /home/user/projects/foo", surface=GROUP)
+    r = g.recover("scaffolding is in /home/alice/projects/foo", surface=GROUP)
 
     assert r.action == "withhold"
     assert r.withheld_category == "credential"
@@ -170,7 +193,7 @@ def test_rewrite_that_reintroduces_a_credential_is_withheld():
 # ---------------------------------------------------------------------------
 
 def test_llm_rewrite_is_used_and_re_screened():
-    llm = StubLLM(reply="Done. Started a clean new project: project_agent_guardrail_drift.")
+    llm = StubLLM(reply="Done. Started a clean new project: example-guardrail-drift.")
     g = guard(llm=llm, use_llm=True)
 
     r = g.recover(REAL_DECLINES[0], surface=GROUP)
@@ -178,7 +201,7 @@ def test_llm_rewrite_is_used_and_re_screened():
     assert r.action == "send"
     assert r.llm_used is True
     assert r.stages == ["llm-rephrase"]
-    assert r.text == "Done. Started a clean new project: project_agent_guardrail_drift."
+    assert r.text == "Done. Started a clean new project: example-guardrail-drift."
     assert len(llm.calls) == 1
 
 
@@ -199,13 +222,13 @@ def test_llm_rewrite_preserves_the_answer_a_protected_name_would_have_destroyed(
 
 def test_llm_that_still_leaks_falls_back_to_deterministic_redaction():
     """The LLM is a network call to a model that can be wrong. The floor catches it."""
-    llm = StubLLM(reply="Sure! It's at /home/user/projects/still_leaking/x.py")
+    llm = StubLLM(reply="Sure! It's at /home/alice/projects/still_leaking/x.py")
     g = guard(llm=llm, use_llm=True)
 
     r = g.recover(REAL_DECLINES[0], surface=GROUP)
 
     assert r.action == "send", "a bad rewrite must not become a refusal"
-    assert "/home2/" not in r.text
+    assert "/home/" not in r.text
     assert "redact" in r.stages
 
 
@@ -216,7 +239,7 @@ def test_llm_down_falls_back_to_deterministic_redaction():
     r = g.recover(REAL_DECLINES[0], surface=GROUP)
 
     assert r.action == "send"
-    assert "/home2/" not in r.text
+    assert "/home/" not in r.text
     assert r.stages == ["llm-unavailable", "redact"]
     assert r.llm_used is False
 
@@ -229,7 +252,7 @@ def test_llm_refusal_is_treated_as_no_answer_not_as_the_message():
 
     assert r.action == "send"
     assert "BLOCKED" not in r.text
-    assert "/home2/" not in r.text
+    assert "/home/" not in r.text
 
 
 def test_residue_is_fed_back_on_retry():
@@ -239,7 +262,7 @@ def test_residue_is_fed_back_on_retry():
         def call(self, system_prompt, user_message, max_tokens=1024):
             self.calls.append((system_prompt, user_message))
             if len(self.calls) == 1:
-                return "Nearly: /home/user/projects/foo is done"  # still leaking
+                return "Nearly: /home/alice/projects/foo is done"  # still leaking
             return "Nearly: foo is done"  # clean
 
     llm = TwoTries()
@@ -264,8 +287,8 @@ def test_sanitize_rescues_a_blocked_message_instead_of_returning_BLOCKED():
     out = guard(use_llm=False).sanitize(REAL_DECLINES[0], surface=GROUP)
 
     assert not out.startswith("[BLOCKED")
-    assert "/home2/" not in out
-    assert "project_agent_guardrail_drift" in out
+    assert "/home/" not in out
+    assert "example-guardrail-drift" in out
 
 
 def test_sanitize_still_blocks_a_credential():
