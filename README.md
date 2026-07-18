@@ -216,8 +216,10 @@ if result.blocked:
 # ThreatResult: threat_level, threat_types, risk_score, blocked, is_safe,
 #   explanation, sanitized_text (alias .redacted), matched_patterns, surface
 
-config = PrivacyConfig(protected_names=["Alice", "Bob"],
-                       check_categories=["minors_info", "health", "financial"])
+# check_categories NARROWS what is checked — omit it to check everything.
+# Naming a subset here silently disables the rest: with the three below, a home
+# address or phone number in the draft would pass through unredacted.
+config = PrivacyConfig(protected_names=["Alice", "Bob"])
 safe_reply = OutboundGuard(config).sanitize(draft_reply, surface="group-chat")   # -> str
 ```
 
