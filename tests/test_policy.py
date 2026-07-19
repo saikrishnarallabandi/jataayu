@@ -581,14 +581,26 @@ class TestPolicyFileHotReload:
             "shell.exec", {"x": 1}, untrusted=False, policy_file=str(p), agent="prod",
         )["decision"] == "deny"
 
-    def test_unchanged_file_is_parsed_once(self, tmp_path, monkeypatch):
-        """The cache still has to be a cache — no YAML re-parse per call."""
+    def test_an_edit_takes_effect_on_the_very_next_call(self, tmp_path):
+        """No stat manipulation, no sleep, no cache to clear — just write and call.
+
+        This is the whole contract. It held for none of the three caches that lived
+        here; each one served the stale `observe` policy after the file said `enforce`.
+        """
+        from jataayu import api
+
+        p = tmp_path / "jataayu-policy.yml"
+        for mode in ("observe", "enforce", "observe", "enforce"):
+            self._write(p, mode)
+            assert api._load_agent_policy(str(p), "prod").mode == mode
+
+    def test_every_call_re_reads_the_file(self, tmp_path, monkeypatch):
+        """The parse is deliberately NOT cached — see _load_agent_policy's docstring."""
         from jataayu import api
         from jataayu.config import policy as policy_mod
 
         p = tmp_path / "jataayu-policy.yml"
         self._write(p, "enforce")
-        api._load_agent_policy_cached.cache_clear()
 
         calls = []
         real = policy_mod.PolicyLoader._load_yaml
@@ -599,7 +611,41 @@ class TestPolicyFileHotReload:
 
         for _ in range(3):
             api._load_agent_policy(str(p), "prod")
-        assert len(calls) == 1
+        assert len(calls) == 3
+
+    def test_a_concurrent_edit_never_yields_a_policy_that_was_never_on_disk(self, tmp_path):
+        """The TOCTOU the digest cache had: a writer flipping the file while a reader
+        loops must never poison the reader into a mode the file no longer holds."""
+        import threading
+
+        from jataayu import api
+
+        p = tmp_path / "jataayu-policy.yml"
+        self._write(p, "enforce")
+        stop = threading.Event()
+
+        staged = tmp_path / "staged.yml"
+
+        def churn():
+            # os.replace, not write_text: a truncate-then-write would let the reader see
+            # a half-written file and fail for a reason that is not the one under test.
+            while not stop.is_set():
+                for mode in ("observe", "enforce"):
+                    self._write(staged, mode)
+                    os.replace(staged, p)
+
+        writer = threading.Thread(target=churn, daemon=True)
+        writer.start()
+        try:
+            for _ in range(500):
+                assert api._load_agent_policy(str(p), "prod").mode in ("observe", "enforce")
+        finally:
+            stop.set()
+            writer.join(timeout=5)
+
+        self._write(p, "enforce")
+        for _ in range(20):
+            assert api._load_agent_policy(str(p), "prod").mode == "enforce"
 
     def test_missing_file_still_raises(self, tmp_path):
         from jataayu import api
@@ -624,11 +670,45 @@ class TestScalarListFieldsAreRejected:
             )
 
     def test_scalar_forbidden_capabilities_in_defaults_raises(self, tmp_path):
+        """No `agents:` block — the defaults block has to be validated on its own.
+
+        With an agent present the scalar was only caught because _parse_agent inherited
+        it; a policy that is nothing but `defaults:` was parsed clean and blew up later
+        on every authorization request instead.
+        """
         with pytest.raises(ValueError, match="defaults"):
             self._load(
-                "version: 1\ndefaults:\n  forbidden_capabilities: exec\n"
-                "agents:\n  prod: {}\n",
+                "version: 1\ndefaults:\n  forbidden_capabilities: exec\n", tmp_path
+            )
+
+    def test_scalar_in_defaults_raises_from_from_dict_directly(self):
+        with pytest.raises(ValueError, match="forbidden_capabilities"):
+            PolicyLoader.from_dict(
+                {"version": 1, "defaults": {"forbidden_capabilities": "exec"}}
+            )
+
+    @pytest.mark.parametrize(
+        "key",
+        ["forbidden_capabilities", "allowed_capabilities",
+         "internal_codenames", "gtm_codenames"],
+    )
+    def test_every_inherited_list_key_is_validated_in_defaults(self, key):
+        with pytest.raises(ValueError, match=key):
+            PolicyLoader.from_dict({"version": 1, "defaults": {key: "oops"}})
+
+    def test_non_string_elements_are_rejected(self, tmp_path):
+        """`[1, 2]` is a list, so the container check passes — but is_capability_allowed()
+        compares against a str and can never match, so it forbids nothing."""
+        with pytest.raises(ValueError, match="forbidden_capabilities"):
+            self._load(
+                "version: 1\nagents:\n  prod:\n    forbidden_capabilities: [1, 2]\n",
                 tmp_path,
+            )
+
+    def test_non_string_elements_in_defaults_are_rejected(self):
+        with pytest.raises(ValueError, match="forbidden_capabilities"):
+            PolicyLoader.from_dict(
+                {"version": 1, "defaults": {"forbidden_capabilities": [1, 2]}}
             )
 
     def test_scalar_in_defaults_raises_on_the_fallback_path_too(self):
@@ -663,6 +743,73 @@ class TestScalarListFieldsAreRejected:
             "version: 1\nagents:\n  prod:\n    forbidden_capabilities: [exec]\n", tmp_path
         )
         assert p.get_agent_policy("prod").forbidden_capabilities == ["exec"]
+
+
+class TestDefaultsFallbackInheritsEverything:
+    """A misspelled agent name must not silently drop half the `defaults:` block.
+
+    get_agent_policy()'s unknown-agent branch and PolicyLoader._parse_agent() are the
+    two ways an AgentPolicy comes into being; any field one inherits and the other does
+    not is a policy that turns off when you typo the agent name.
+    """
+
+    POLICY = (
+        "version: 1\n"
+        "defaults:\n"
+        "  internal_codenames: [Skunkworks]\n"
+        "  gtm_codenames: [Skylark]\n"
+        "  forbidden_capabilities: [exec]\n"
+        "  check_credentials: false\n"
+        "  check_high_entropy: true\n"
+        "  block_threshold: 0.5\n"
+        "  llm_threshold: 0.1\n"
+        "  strict_unknown_tools: true\n"
+        "  mode: observe\n"
+        "  tool_effects:\n    internal.run_playbook: shell\n"
+        "agents:\n  prod: {}\n"
+    )
+
+    @pytest.fixture
+    def policy(self, tmp_path):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(self.POLICY)
+        return load_policy(str(p))
+
+    def test_the_typo_path_matches_the_named_path_field_for_field(self, policy):
+        named = policy.get_agent_policy("prod").to_dict()
+        typo = policy.get_agent_policy("prodd").to_dict()
+        named.pop("name"), typo.pop("name")
+        assert named == typo
+
+    def test_codenames_are_inherited_on_the_fallback_path(self, policy):
+        assert policy.get_agent_policy("prodd").internal_codenames == ["Skunkworks"]
+        assert policy.get_agent_policy("prodd").gtm_codenames == ["Skylark"]
+
+    @pytest.mark.parametrize("agent", ["prod", "prodd", ""])
+    def test_a_codename_is_blocked_whatever_the_agent_name(self, policy, agent):
+        """The live failure: agent='prod' blocked, agent='prodd' clean at risk 0.0."""
+        from jataayu.guards.outbound import OutboundGuard
+
+        guard = OutboundGuard(policy.get_agent_policy(agent).to_privacy_config())
+        result = guard.check("Ship notes for Skunkworks.", surface="github-issue")
+        assert not result.is_safe
+
+    def test_the_fallback_lists_are_not_aliased_to_defaults(self, policy):
+        got = policy.get_agent_policy("prodd")
+        assert got.internal_codenames is not policy.defaults["internal_codenames"]
+        got.internal_codenames.clear()
+        assert policy.defaults["internal_codenames"] == ["Skunkworks"]
+
+
+class TestFromDirRejectsANonMapping:
+    def test_a_list_valued_yaml_file_raises_valueerror(self, tmp_path):
+        """Without the guard this is an AttributeError from raw.get(), which reads as a
+        Jataayu bug rather than as the user's malformed policy file."""
+        d = tmp_path / "policy.d"
+        d.mkdir()
+        (d / "a.yml").write_text("- version: 1\n- agents: {}\n")
+        with pytest.raises(ValueError, match="mapping"):
+            PolicyLoader.from_dir(str(d))
 
 
 class TestPolicyListsAreNotAliased:

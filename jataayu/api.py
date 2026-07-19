@@ -30,8 +30,6 @@ Example::
 """
 from __future__ import annotations
 
-import functools
-import hashlib
 from typing import Optional
 
 from jataayu.guards.inbound import InboundGuard
@@ -219,55 +217,31 @@ def jataayu_check_skillset(
     return risk.to_dict()
 
 
-@functools.lru_cache(maxsize=32)
-def _load_agent_policy_cached(policy_file: str, agent: Optional[str], digest):
-    """`digest` is not used — it is in the key so an edited policy file misses the cache."""
-    from jataayu.config.policy import load_policy
-    return load_policy(policy_file).get_agent_policy(agent or "")
-
-
-def _policy_digest(policy_file: str):
-    """Hash of the policy file(s)' bytes — the cache key that expires on an edit.
-
-    Not the file's stat: mtime granularity is coarse (measured at 4-13ms on ext4, worse
-    on HFS+/NFS), and `observe` and `enforce` are both 7 bytes, so an edit within one
-    clock tick leaves an identical (mtime, size) and the stale policy is served forever.
-    Reading a small YAML is far cheaper than re-parsing it, which is what the cache is for.
-
-    None when the path cannot be read — deleted, unreadable, or replaced mid-call — which
-    forces a reload so the loader raises the real error instead of serving a stale hit.
-    """
-    from pathlib import Path
-
-    p = Path(policy_file)
-    h = hashlib.sha256()
-    try:
-        files = sorted(p.glob("*.y*ml")) if p.is_dir() else [p]
-        for f in files:
-            data = f.read_bytes()
-            # Length-prefixed so no rename/split of content across files collides.
-            h.update(f"{f}\0{len(data)}\0".encode("utf-8", "surrogateescape"))
-            h.update(data)
-    except OSError:
-        return None
-    return h.hexdigest()
-
-
 def _load_agent_policy(policy_file: str, agent: Optional[str]):
-    """Resolve an AgentPolicy from a policy YAML, re-reading it when the file changes.
+    """Resolve an AgentPolicy from a policy YAML — re-read and re-parsed on every call.
 
-    Editing `mode: observe` to `mode: enforce` — the workflow observe mode exists for —
-    must take effect without a process restart, so the parse is cached against the file's
-    CONTENT rather than for the process lifetime.
+    DO NOT CACHE THIS. Three cache variants shipped here and all three failed OPEN,
+    serving `mode: observe` after the file said `enforce`:
+      - lru_cache on the path: an edit never took effect at all.
+      - an (mtime, size) key: `observe` and `enforce` are both 7 bytes and back-to-back
+        saves share an st_mtime_ns, so a same-tick edit was invisible forever.
+      - a content digest hashed by a read separate from the parse: the file changes
+        between the two, and the entry is poisoned for the process lifetime.
+    The re-parse is not free and the number is not a guess: measured over 1000 calls,
+    jataayu_authorize_action(policy_file=...) costs ~0.76ms/call re-parsing versus
+    ~0.05ms/call cached, against ~0.04ms with no policy file at all. So the YAML parse
+    IS ~95% of this call, and deleting the cache cost ~0.71ms/call — a deliberate trade,
+    made after three fail-open bugs, of ~1300 authorizations/sec/core for a policy that
+    is always the one on disk. That is the wrong trade to buy back HERE: if you need the
+    throughput, load the policy yourself, build ONE EffectBoundary and reuse it, and own
+    the reload explicitly. Do not put the cache back inside a convenience function whose
+    whole contract is that it reflects what is on disk right now.
 
     `get_agent_policy("")` never raises and falls back to the `defaults:` block, so a
     policy file with no named agent is still load-bearing.
     """
-    digest = _policy_digest(policy_file)
-    if digest is None:
-        from jataayu.config.policy import load_policy
-        return load_policy(policy_file).get_agent_policy(agent or "")
-    return _load_agent_policy_cached(policy_file, agent, digest)
+    from jataayu.config.policy import load_policy
+    return load_policy(policy_file).get_agent_policy(agent or "")
 
 
 def jataayu_authorize_action(

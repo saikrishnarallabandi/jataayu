@@ -266,16 +266,20 @@ VALID_MODES = ("enforce", "observe")
 
 
 def _string_list(value: Any, where: str, key: str) -> list[str]:
-    """Coerce a policy list field to a fresh list, rejecting a bare scalar.
+    """Coerce a policy list field to a fresh list of str, rejecting a bare scalar.
 
     `forbidden_capabilities: exec` is a YAML scalar, and list("exec") is
     ['e','x','e','c'] — which forbids nothing and fails OPEN. Rejecting at parse
     is the only place that catches it; by the time it reaches
     is_capability_allowed() it is indistinguishable from an empty policy.
 
-    The returned list is always a copy: policies are cached and shared, and both
-    to_dict() and to_privacy_config() hand these lists out past the module boundary,
-    so an aliased `defaults:` list lets one caller's mutation poison every agent.
+    Elements are checked for the same reason one level down: `[1, 2]` clears the
+    container check, but every consumer compares against a str, so it matches nothing.
+    Note YAML 1.1 folds `[on, off]` to booleans, which is exactly this case.
+
+    The returned list is always a copy: to_dict() and to_privacy_config() hand these
+    lists out past the module boundary, so an aliased `defaults:` list lets one
+    caller's mutation poison every agent.
     """
     if value is None:
         return []
@@ -284,7 +288,25 @@ def _string_list(value: Any, where: str, key: str) -> list[str]:
             f"{where}: {key} must be a list, got {type(value).__name__} {value!r} — "
             f"write it as a YAML sequence (e.g. {key}: [{value!r}])"
         )
-    return list(value)
+    items = list(value)
+    for item in items:
+        if not isinstance(item, str):
+            raise ValueError(
+                f"{where}: {key} entries must be strings, got "
+                f"{type(item).__name__} {item!r} — quote it (e.g. {key}: [\"{item}\"])"
+            )
+    return items
+
+
+# Every list field an agent block inherits from `defaults:`. get_agent_policy()'s
+# unknown-agent fallback and _parse_agent() both resolve these, so the defaults block
+# is a config path in its own right and is validated at parse time.
+_INHERITED_LIST_KEYS = (
+    "allowed_capabilities",
+    "forbidden_capabilities",
+    "internal_codenames",
+    "gtm_codenames",
+)
 
 
 def _validate_effect_fields(mode: Any, tool_effects: Any, where: str) -> None:
@@ -341,27 +363,12 @@ class Policy:
         if agent_name in self.agents:
             return self.agents[agent_name]
 
-        # Unknown agent — return policy built from global defaults
-        return AgentPolicy(
-            name=agent_name,
-            use_llm=self.defaults.get("use_llm", False),
-            llm_threshold=self.defaults.get("llm_threshold", 0.35),
-            block_threshold=self.defaults.get("block_threshold", 0.9),
-            check_credentials=self.defaults.get("check_credentials", True),
-            check_high_entropy=self.defaults.get("check_high_entropy", False),
-            # The capability lists are inherited here for the same reason _parse_agent
-            # inherits them: a `defaults:` block that forbids `exec` must not become inert
-            # for an unnamed or misspelled agent — that is the half of the block that denies.
-            allowed_capabilities=_string_list(
-                self.defaults.get("allowed_capabilities"), "defaults", "allowed_capabilities"
-            ),
-            forbidden_capabilities=_string_list(
-                self.defaults.get("forbidden_capabilities"), "defaults", "forbidden_capabilities"
-            ),
-            mode=self.defaults.get("mode", "enforce"),
-            tool_effects=dict(self.defaults.get("tool_effects", {})),
-            strict_unknown_tools=self.defaults.get("strict_unknown_tools", False),
-        )
+        # Unknown agent — an agent with an empty config block IS a defaults-only agent,
+        # so parse one rather than re-deriving the inheritance here. Hand-listing the
+        # inherited fields twice has now diverged twice (capability lists, then the
+        # codename lists), and each divergence meant a misspelled agent name silently
+        # switched off the half of the `defaults:` block that denies.
+        return PolicyLoader._parse_agent(agent_name, {}, self.defaults)
 
     def get_surface_profile(self, surface: str) -> dict:
         """
@@ -440,6 +447,11 @@ class PolicyLoader:
         merged: dict[str, Any] = {"version": 1, "agents": {}, "surfaces": {}}
         for yaml_file in sorted(directory.glob("*.y*ml")):
             raw = PolicyLoader._load_yaml(str(yaml_file))
+            if not isinstance(raw, dict):
+                raise ValueError(
+                    f"{yaml_file}: policy must be a mapping at the top level, got "
+                    f"{type(raw).__name__}"
+                )
             # `agents:` with an empty body parses as None, not {} — same guard as from_dict.
             for agent, cfg in (raw.get("agents") or {}).items():
                 merged["agents"][agent] = cfg
@@ -482,12 +494,17 @@ class PolicyLoader:
             )
 
         # The defaults block feeds get_agent_policy()'s fallback for unknown agents,
-        # so it is a config path in its own right and gets the same validation.
+        # so it is a config path in its own right and gets the same validation —
+        # unconditionally, not only when some agent block happens to omit the key.
+        # Otherwise a defaults-only policy parses clean and raises from
+        # get_agent_policy() on every authorization request instead.
         _validate_effect_fields(
             defaults.get("mode", "enforce"),
             defaults.get("tool_effects", {}) or {},
             "defaults",
         )
+        for key in _INHERITED_LIST_KEYS:
+            _string_list(defaults.get(key), "defaults", key)
 
         agents: dict[str, AgentPolicy] = {}
         for agent_name, agent_cfg in (raw.get("agents", {}) or {}).items():
@@ -552,7 +569,9 @@ class PolicyLoader:
         # Validate BEFORE coercing: dict() on a list raises its own opaque ValueError,
         # which would hide which key is actually wrong.
         raw_effects = cfg.get("tool_effects", defaults.get("tool_effects", {})) or {}
-        _validate_effect_fields(mode, raw_effects, f"agents.{name}")
+        # An empty cfg is the defaults-only fallback from get_agent_policy(); blame the
+        # block the bad value actually came from.
+        _validate_effect_fields(mode, raw_effects, f"agents.{name}" if cfg else "defaults")
         tool_effects = dict(raw_effects)
 
         return AgentPolicy(

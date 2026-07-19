@@ -105,9 +105,17 @@ def _safe_copy(value, depth: int = 0):
         return _repr_or_placeholder(value)
     if isinstance(value, dict):
         try:
-            return {
-                _safe_copy(k, depth + 1): _safe_copy(v, depth + 1) for k, v in value.items()
-            }
+            items = [
+                (_safe_copy(k, depth + 1), _safe_copy(v, depth + 1))
+                for k, v in value.items()
+            ]
+            copied = dict(items)
+            # Two distinct keys can degrade to the SAME repr, and dict() would then drop
+            # one entry from the audit record with nothing to say it happened. Keeping
+            # the whole dict as text loses the structure but never loses an entry.
+            if len(copied) != len(items):
+                return _repr_or_placeholder(value)
+            return copied
         except Exception:
             return _repr_or_placeholder(value)
     if isinstance(value, (list, tuple, set, frozenset)):

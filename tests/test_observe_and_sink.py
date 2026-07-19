@@ -330,6 +330,24 @@ class TestSinkCannotMutateTheDecision:
 
         assert params["env"] == {"PATH": "/usr/bin"}
 
+    def test_distinct_keys_that_degrade_alike_do_not_collapse(self):
+        """Keying the copy on _safe_copy(k) merges two keys whose repr matches, and the
+        audit record loses an entry with nothing to say it happened."""
+        import threading
+
+        from jataayu.core.audit import _safe_copy
+
+        class Opaque:
+            def __init__(self):
+                self.lock = threading.Lock()   # undeepcopyable, so it degrades to repr
+
+            def __repr__(self):
+                return "<opaque>"
+
+        got = _safe_copy({Opaque(): "first", Opaque(): "second"})
+        assert "first" in repr(got)
+        assert "second" in repr(got)
+
     def test_a_cancelled_sink_propagates_the_cancellation(self):
         import asyncio
 
