@@ -332,16 +332,34 @@ def _resolve(kwarg, policy, field_name: str, default):
 
 
 def _coerce_effect(tool: str, value) -> EffectClass:
-    """Accept an EffectClass or its string value in a tool_effects map."""
+    """Accept an EffectClass or its string value in a tool_effects map.
+
+    Rejects ``EffectClass.NONE`` / ``"none"``: that value has no capability tag and
+    sits outside every critical/approval set, so mapping a tool to it bypasses all
+    provenance-based denials and every ``forbidden_capabilities`` rule.  There is no
+    legitimate use for a "this tool has zero effect" override in a security policy.
+    """
     if isinstance(value, EffectClass):
+        if value is EffectClass.NONE:
+            raise ValueError(
+                f"tool_effects[{tool!r}]: 'none' is not a valid override — "
+                f"it bypasses all security checks; use 'read' for the lowest effect class"
+            )
         return value
     try:
-        return EffectClass(value)
+        effect = EffectClass(value)
     except ValueError:
+        valid = sorted(e.value for e in EffectClass if e is not EffectClass.NONE)
         raise ValueError(
             f"tool_effects[{tool!r}]: invalid effect {value!r} — "
-            f"expected one of {sorted(e.value for e in EffectClass)}"
+            f"expected one of {valid}"
         ) from None
+    if effect is EffectClass.NONE:
+        raise ValueError(
+            f"tool_effects[{tool!r}]: 'none' is not a valid override — "
+            f"it bypasses all security checks; use 'read' for the lowest effect class"
+        )
+    return effect
 
 
 def _json_default(value) -> str:

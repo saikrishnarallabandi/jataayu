@@ -101,10 +101,13 @@ Usage:
 """
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
+
+_logger = logging.getLogger("jataayu")
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -323,7 +326,9 @@ def _validate_effect_fields(mode: Any, tool_effects: Any, where: str) -> None:
         )
     if not isinstance(tool_effects, dict):
         raise ValueError(f"{where}: tool_effects must be a mapping, got {type(tool_effects).__name__}")
-    valid = {e.value for e in EffectClass}
+    # 'none' is excluded: mapping a tool to EffectClass.NONE bypasses all provenance-based
+    # denials and forbidden_capabilities checks (no capability tag, not in any effect set).
+    valid = {e.value for e in EffectClass if e is not EffectClass.NONE}
     for tool, effect in tool_effects.items():
         if effect not in valid:
             raise ValueError(
@@ -439,7 +444,23 @@ class PolicyLoader:
 
     @staticmethod
     def from_dir(directory: str | Path) -> Policy:
-        """Load and merge all *.yml / *.yaml policy files from a directory."""
+        """Load and merge all *.yml / *.yaml policy files from a directory.
+
+        **Merge semantics** (important for security overlays):
+
+        - **Agents** — last file wins, per agent, as a *complete replacement*.
+          A second file that defines ``prod-agent:`` with only ``mode: observe``
+          discards every setting from the first file (``tool_effects``,
+          ``forbidden_capabilities``, etc.) and replaces the whole entry.
+          The intended pattern is one authoritative file per agent; use separate
+          agent names if you need compositional overrides, or a single file.
+          A ``WARNING`` is logged when an agent key is defined in more than one
+          file so the replacement is never silent.
+        - **Surfaces** — same last-file-wins, full replacement per surface key.
+        - **Defaults** — first file wins; subsequent ``defaults:`` blocks are
+          ignored.  Prefix the defaults file ``00-defaults.yml`` to make this
+          predictable.
+        """
         directory = Path(directory)
         if not directory.is_dir():
             raise NotADirectoryError(f"Not a directory: {directory}")
@@ -454,6 +475,14 @@ class PolicyLoader:
                 )
             # `agents:` with an empty body parses as None, not {} — same guard as from_dict.
             for agent, cfg in (raw.get("agents") or {}).items():
+                if agent in merged["agents"]:
+                    _logger.warning(
+                        "Policy directory %s: agent %r is defined in multiple files — "
+                        "%s replaces the earlier definition completely. "
+                        "Security settings from the earlier file (tool_effects, "
+                        "forbidden_capabilities, etc.) are discarded.",
+                        directory, agent, yaml_file.name,
+                    )
                 merged["agents"][agent] = cfg
             # Merge surface overrides
             for surf, cfg in (raw.get("surfaces") or {}).items():

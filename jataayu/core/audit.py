@@ -122,7 +122,15 @@ def _safe_copy(value, depth: int = 0):
         try:
             # type(...) preserves tuple/set; a subclass with a different signature
             # (namedtuple) raises and falls through to repr.
-            return type(value)(_safe_copy(v, depth + 1) for v in value)
+            orig_len = len(value)
+            copied = type(value)(_safe_copy(v, depth + 1) for v in value)
+            # For sets and frozensets two distinct elements can degrade to the same
+            # repr string, causing the reconstructed set to be smaller than the
+            # original — an entry is silently dropped, the same failure mode that
+            # the dict path guards against with its len() check.
+            if isinstance(copied, (set, frozenset)) and len(copied) != orig_len:
+                return _repr_or_placeholder(value)
+            return copied
         except Exception:
             return _repr_or_placeholder(value)
     return _repr_or_placeholder(value)

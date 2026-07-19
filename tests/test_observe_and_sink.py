@@ -450,3 +450,148 @@ class TestStrictUnknownTools:
     def test_strict_via_api_kwarg(self):
         d = jataayu_authorize_action("frobnicate.widget", {"x": 1}, strict=True)
         assert d["decision"] == "needs_approval"
+
+
+class TestToolEffectsNoneRejected:
+    """EffectClass.NONE has no capability tag and sits outside every critical/approval set,
+    so mapping a tool to 'none' bypasses all provenance denials and forbidden_capabilities.
+    It must be rejected at construction time — both via string and enum value."""
+
+    def test_none_string_raises_at_construction(self):
+        with pytest.raises(ValueError, match="none"):
+            EffectBoundary(tool_effects={"bash": "none"})
+
+    def test_none_enum_raises_at_construction(self):
+        with pytest.raises(ValueError, match="none"):
+            EffectBoundary(tool_effects={"bash": EffectClass.NONE})
+
+    def test_none_string_raises_via_policy_yaml(self, tmp_path):
+        from jataayu.config.policy import PolicyLoader
+
+        p = tmp_path / "p.yml"
+        p.write_text("version: 1\nagents:\n  a:\n    tool_effects:\n      bash: none\n")
+        with pytest.raises(ValueError, match="none"):
+            PolicyLoader.from_file(p)
+
+    def test_none_is_not_in_the_error_message_valid_list(self):
+        """The error message must not suggest 'none' as a valid choice."""
+        with pytest.raises(ValueError) as exc_info:
+            EffectBoundary(tool_effects={"x": "shel"})
+        assert "none" not in exc_info.value.args[0]
+
+    def test_none_does_not_bypass_forbidden_capabilities(self):
+        """Without the fix, tool_effects={bash: none} + forbidden_capabilities=[exec]
+        still returned ALLOW — the forbidden capability had no effect."""
+        from jataayu.config.policy import AgentPolicy
+
+        # The fix rejects construction; this confirms the guard fires before the bypass.
+        with pytest.raises(ValueError, match="none"):
+            EffectBoundary(
+                policy=AgentPolicy(name="a", forbidden_capabilities=["exec"]),
+                tool_effects={"bash": "none"},
+            )
+
+    def test_read_is_the_lowest_valid_override(self):
+        """'read' is the least restrictive valid value — it still applies capability checks."""
+        b = EffectBoundary(tool_effects={"bash": "read"})
+        pv = b.preview("bash", {"cmd": "ls"}, [U("payload")])
+        assert pv.effect_class is EffectClass.READ
+        assert pv.decision is Decision.ALLOW  # READ under untrusted is allowed
+
+
+class TestSafeCopySetFrozensetCollision:
+    """When set/frozenset elements degrade to identical repr strings, _safe_copy must
+    fall back to repr(value) rather than silently dropping elements — matching the dict
+    path's guard against key collision."""
+
+    def test_frozenset_with_colliding_reprs_falls_back_to_repr(self):
+        from jataayu.core.audit import _safe_copy
+        import threading
+
+        class Undeepcopyable:
+            def __deepcopy__(self, memo):
+                raise RuntimeError("no")
+
+            def __repr__(self):
+                return "<opaque>"
+
+        a, b = Undeepcopyable(), Undeepcopyable()
+        original = frozenset([a, b])
+        assert len(original) == 2
+
+        result = _safe_copy(original)
+        # Must not silently drop an element — fall back to repr
+        assert isinstance(result, str)
+        assert "<opaque>" in result
+
+    def test_frozenset_with_distinct_reprs_is_preserved(self):
+        from jataayu.core.audit import _safe_copy
+
+        result = _safe_copy(frozenset(["x", "y", "z"]))
+        assert isinstance(result, frozenset)
+        assert result == frozenset(["x", "y", "z"])
+
+    def test_sink_receives_repr_not_collapsed_frozenset(self):
+        """Integration: a param value that is a frozenset with uncopyable elements
+        must reach the sink as repr(frozenset) rather than a smaller frozenset."""
+        import threading
+
+        class Undeepcopyable:
+            def __deepcopy__(self, memo):
+                raise RuntimeError("no")
+
+            def __repr__(self):
+                return "<opaque>"
+
+        records = []
+        set_decision_sink(records.append, capture_content=True)
+        a, b = Undeepcopyable(), Undeepcopyable()
+        EffectBoundary().preview("read_file", {"tags": frozenset([a, b])}, [U("p")])
+
+        got = records[0]["params"]["tags"]
+        # Must be a string fallback, not a frozenset that silently dropped one element
+        if isinstance(got, frozenset):
+            assert len(got) == 2, "frozenset element was silently dropped"
+        else:
+            assert isinstance(got, str)
+
+
+class TestFromDirAgentOverwriteWarning:
+    """from_dir logs a WARNING when an agent key defined in an earlier file is completely
+    replaced by a later file — the replacement is never silent."""
+
+    def test_overwrite_emits_a_warning(self, tmp_path, caplog):
+        from jataayu.config.policy import PolicyLoader
+        import logging
+
+        (tmp_path / "01-base.yml").write_text(
+            "version: 1\nagents:\n  prod:\n    mode: enforce\n"
+        )
+        (tmp_path / "02-overlay.yml").write_text(
+            "version: 1\nagents:\n  prod:\n    mode: observe\n"
+        )
+
+        with caplog.at_level(logging.WARNING, logger="jataayu"):
+            PolicyLoader.from_dir(tmp_path)
+
+        assert any("prod" in r.message and "replace" in r.message.lower()
+                   for r in caplog.records), "expected a warning about prod being overwritten"
+
+    def test_no_warning_when_each_agent_appears_once(self, tmp_path, caplog):
+        from jataayu.config.policy import PolicyLoader
+        import logging
+
+        (tmp_path / "01.yml").write_text(
+            "version: 1\nagents:\n  alpha:\n    mode: enforce\n"
+        )
+        (tmp_path / "02.yml").write_text(
+            "version: 1\nagents:\n  beta:\n    mode: enforce\n"
+        )
+
+        with caplog.at_level(logging.WARNING, logger="jataayu"):
+            PolicyLoader.from_dir(tmp_path)
+
+        overwrite_warnings = [
+            r for r in caplog.records if "replace" in r.message.lower()
+        ]
+        assert overwrite_warnings == []
