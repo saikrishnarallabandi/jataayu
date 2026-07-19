@@ -72,17 +72,9 @@ agents:
     protected_names: ["Alice", "Bob", "Carol"]
     check_credentials: false
 
-# Surface profile overrides (global, applies to all agents unless overridden per-agent)
-surfaces:
-  github-issue:
-    trust_level: low
-    inbound_strict: true
-    outbound_strict: false
-    risk_multiplier: 1.2
-  coding-task:
-    trust_level: medium
-    inbound_strict: false
-    risk_multiplier: 0.7
+There is deliberately no top-level `surfaces:` block. Surface profiles are a fixed
+table in jataayu/surfaces/profiles.py (SURFACE_PROFILES) — the guards read it directly.
+Writing one raises at load rather than being ignored.
 
 Usage:
     policy = load_policy("jataayu-policy.yml")
@@ -270,9 +262,28 @@ VALID_MODES = ("enforce", "observe")
 
 _SECTION_NOUNS = {
     "agents": "agent names",
-    "surfaces": "surface names",
     "defaults": "settings",
 }
+
+
+def _reject_surfaces_block(raw: dict, where: str = "") -> None:
+    """Reject a `surfaces:` block rather than parsing one nothing reads.
+
+    The block was documented and parsed into Policy.global_surface_overrides, but no
+    guard ever consulted it: InboundGuard resolves a surface through
+    JataayuEngine.get_surface_profile(), which reads the fixed SURFACE_PROFILES table
+    directly. A user could set risk_multiplier: 0.001 on github-issue, load clean, and
+    change nothing. Failing at load is the same posture the rest of this loader takes.
+    """
+    if "surfaces" in raw:
+        prefix = f"{where}: " if where else ""
+        raise ValueError(
+            f"{prefix}surfaces: surface profiles are not policy-tunable. They are a "
+            f"fixed table in jataayu/surfaces/profiles.py (SURFACE_PROFILES), which is "
+            f"the only thing the guards read — a `surfaces:` block here would be "
+            f"silently ignored. Remove it. Per-surface tuning may become "
+            f"policy-configurable later."
+        )
 
 
 def _mapping_section(raw: dict, key: str, where: str = "") -> dict:
@@ -391,7 +402,9 @@ class Policy:
     Attributes:
         version: Policy format version.
         agents: Dict of agent_name → AgentPolicy.
-        global_surface_overrides: Global surface profile overrides.
+        global_surface_overrides: Always empty — the loader rejects a `surfaces:` block.
+            Kept so get_surface_profile()/to_dict() keep their shape; see
+            _reject_surfaces_block.
         defaults: Global defaults applied to all agents.
         source_path: Path to the YAML file this was loaded from (if any).
     """
@@ -511,7 +524,7 @@ class PolicyLoader:
         if not directory.is_dir():
             raise NotADirectoryError(f"Not a directory: {directory}")
 
-        merged: dict[str, Any] = {"version": 1, "agents": {}, "surfaces": {}}
+        merged: dict[str, Any] = {"version": 1, "agents": {}}
         for yaml_file in sorted(directory.glob("*.y*ml")):
             raw = PolicyLoader._load_yaml(str(yaml_file))
             if not isinstance(raw, dict):
@@ -519,6 +532,7 @@ class PolicyLoader:
                     f"{yaml_file}: policy must be a mapping at the top level, got "
                     f"{type(raw).__name__}"
                 )
+            _reject_surfaces_block(raw, str(yaml_file))
             for agent, cfg in _mapping_section(raw, "agents", str(yaml_file)).items():
                 if agent in merged["agents"]:
                     _logger.warning(
@@ -529,9 +543,6 @@ class PolicyLoader:
                         directory, agent, yaml_file.name,
                     )
                 merged["agents"][agent] = cfg
-            # Merge surface overrides
-            for surf, cfg in _mapping_section(raw, "surfaces", str(yaml_file)).items():
-                merged["surfaces"][surf] = cfg
             # Use first file's defaults
             if "defaults" not in merged and "defaults" in raw:
                 merged["defaults"] = raw["defaults"]
@@ -553,8 +564,8 @@ class PolicyLoader:
             raise ValueError(
                 f"policy must be a mapping at the top level, got {type(raw).__name__}"
             )
+        _reject_surfaces_block(raw)
         defaults = _mapping_section(raw, "defaults")
-        global_surfaces = _mapping_section(raw, "surfaces")
 
         # The defaults block feeds get_agent_policy()'s fallback for unknown agents,
         # so it is a config path in its own right and gets the same validation —
@@ -586,7 +597,6 @@ class PolicyLoader:
         return Policy(
             version=int(raw.get("version", 1)),
             agents=agents,
-            global_surface_overrides=global_surfaces,
             defaults=defaults,
             source_path=source_path,
         )

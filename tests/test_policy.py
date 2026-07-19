@@ -3,6 +3,8 @@ Tests for Issue #6 — YAML policy configuration.
 """
 import os
 import tempfile
+from pathlib import Path
+
 import pytest
 from jataayu.config.policy import Policy, PolicyLoader, load_policy, AgentPolicy, SurfacePolicy
 
@@ -59,16 +61,6 @@ agents:
       - Alice
       - Bob
     check_credentials: false
-
-surfaces:
-  github-issue:
-    trust_level: low
-    inbound_strict: true
-    risk_multiplier: 1.3
-  coding-task:
-    trust_level: medium
-    inbound_strict: false
-    risk_multiplier: 0.7
 """
 
 
@@ -186,11 +178,10 @@ class TestAgentPolicy:
 
 
 class TestSurfacePolicy:
-    def test_global_surface_override(self, policy):
-        """Global surface overrides should affect get_surface_profile."""
-        profile = policy.get_surface_profile("github-issue")
-        # Should reflect the global surface override (risk_multiplier: 1.3)
-        assert profile.get("risk_multiplier", 0) == 1.3
+    def test_surface_profile_is_the_builtin_table(self, policy):
+        """get_surface_profile() returns SURFACE_PROFILES verbatim — nothing overrides it."""
+        from jataayu.surfaces.profiles import SURFACE_PROFILES
+        assert policy.get_surface_profile("github-issue") == SURFACE_PROFILES["github-issue"]
 
     def test_surface_profile_fallback_to_builtin(self, policy):
         """Surfaces not overridden in policy should use built-in profiles."""
@@ -865,10 +856,6 @@ class TestEmptyBodiesRaiseAClearError:
         with pytest.raises(ValueError, match="agents.prod"):
             load_policy(str(tmp_path))
 
-    def test_empty_surfaces_body_in_a_directory(self, tmp_path):
-        (tmp_path / "a.yml").write_text("version: 1\nsurfaces:\n")
-        assert load_policy(str(tmp_path)).get_surface_profile("github-issue")
-
     def test_empty_defaults_body(self, tmp_path):
         p = tmp_path / "jataayu-policy.yml"
         p.write_text("version: 1\ndefaults:\n")
@@ -882,28 +869,123 @@ class TestEmptyBodiesRaiseAClearError:
 
 
 class TestSectionsMustBeMappings:
-    """`agents:`/`surfaces:` written as a YAML sequence must name the offending key.
+    """`agents:` written as a YAML sequence must name the offending key.
 
     Both loader entry points are covered because they kept diverging: from_dir() merges
-    these two sections itself, so a check added to from_dict() alone never ran for a
-    directory load. Three review rounds found this same shape; these four tests are what
-    keeps the fifth from finding it again.
+    this section itself, so a check added to from_dict() alone never ran for a
+    directory load. Three review rounds found this same shape; these tests are what
+    keeps the fourth from finding it again. `surfaces:` is no longer a section — any
+    shape of it raises; see TestSurfacesBlockIsRejected.
     """
 
-    @pytest.mark.parametrize("key", ["agents", "surfaces"])
-    def test_from_dict_rejects_a_sequence(self, key):
-        with pytest.raises(ValueError, match=f"{key}: expected a mapping"):
-            PolicyLoader.from_dict({"version": 1, key: ["prod"]})
+    def test_from_dict_rejects_a_sequence(self):
+        with pytest.raises(ValueError, match="agents: expected a mapping"):
+            PolicyLoader.from_dict({"version": 1, "agents": ["prod"]})
 
-    @pytest.mark.parametrize("key", ["agents", "surfaces"])
-    def test_from_dir_rejects_a_sequence_and_names_the_file(self, tmp_path, key):
-        (tmp_path / "bad.yml").write_text(f"version: 1\n{key}:\n  - prod\n")
-        with pytest.raises(ValueError, match=rf"bad\.yml: {key}: expected a mapping"):
+    def test_from_dir_rejects_a_sequence_and_names_the_file(self, tmp_path):
+        (tmp_path / "bad.yml").write_text("version: 1\nagents:\n  - prod\n")
+        with pytest.raises(ValueError, match=r"bad\.yml: agents: expected a mapping"):
             load_policy(str(tmp_path))
 
     def test_defaults_as_a_sequence_still_raises(self):
         with pytest.raises(ValueError, match="defaults: expected a mapping"):
             PolicyLoader.from_dict({"version": 1, "defaults": ["x"]})
+
+
+class TestSurfacesBlockIsRejected:
+    """A `surfaces:` block used to parse into Policy.global_surface_overrides and then
+    be read by nobody: InboundGuard resolves a surface through
+    JataayuEngine.get_surface_profile(), which reads SURFACE_PROFILES directly. A user
+    could set risk_multiplier: 0.001 on github-issue, load clean, and change nothing.
+    """
+
+    SURFACES_YAML = (
+        "version: 1\n"
+        "surfaces:\n"
+        "  github-issue:\n"
+        "    trust_level: high\n"
+        "    inbound_strict: false\n"
+        "    risk_multiplier: 0.001\n"
+    )
+
+    def _assert_message(self, excinfo):
+        msg = str(excinfo.value)
+        assert "not policy-tunable" in msg
+        assert "jataayu/surfaces/profiles.py" in msg
+
+    def test_from_dict_raises(self):
+        with pytest.raises(ValueError) as e:
+            PolicyLoader.from_dict({"version": 1, "surfaces": {"github-issue": {}}})
+        self._assert_message(e)
+
+    def test_from_file_raises(self, tmp_path):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(self.SURFACES_YAML)
+        with pytest.raises(ValueError) as e:
+            load_policy(str(p))
+        self._assert_message(e)
+
+    def test_from_dir_raises_and_names_the_file(self, tmp_path):
+        (tmp_path / "10-surfaces.yml").write_text(self.SURFACES_YAML)
+        with pytest.raises(ValueError) as e:
+            load_policy(str(tmp_path))
+        assert "10-surfaces.yml" in str(e.value)
+        self._assert_message(e)
+
+    @pytest.mark.parametrize("body", [None, [], ["github-issue"], "github-issue", {}])
+    def test_any_shape_of_the_key_raises(self, body):
+        """Including an empty body — `surfaces:` alone is still a user asking for
+        something the loader cannot give them, so it gets the explanation too."""
+        with pytest.raises(ValueError) as e:
+            PolicyLoader.from_dict({"version": 1, "surfaces": body})
+        self._assert_message(e)
+
+    def test_agent_surface_overrides_still_parse(self, tmp_path):
+        """The per-agent form still parses and is reachable on AgentPolicy. NOTE: no
+        guard reads it either — see the dead-key audit; it is not fixed here."""
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(
+            "version: 1\n"
+            "agents:\n"
+            "  bot:\n"
+            "    surface_overrides:\n"
+            "      github-issue:\n"
+            "        block_threshold: 0.65\n"
+        )
+        agent = load_policy(str(p)).get_agent_policy("bot")
+        assert agent.get_block_threshold("github-issue") == 0.65
+
+    def test_builtin_profiles_are_unchanged_by_any_policy(self, tmp_path):
+        """The guards read SURFACE_PROFILES, and no policy load perturbs it."""
+        from jataayu.surfaces.profiles import SURFACE_PROFILES
+        from jataayu.guards.inbound import InboundGuard
+
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text("version: 1\nagents:\n  bot:\n    block_threshold: 0.1\n")
+        load_policy(str(p))
+        assert SURFACE_PROFILES["github-issue"]["risk_multiplier"] == 1.2
+        assert SURFACE_PROFILES["github-issue"]["trust_level"] == "low"
+        assert InboundGuard().get_surface_profile("github-issue") == SURFACE_PROFILES["github-issue"]
+
+
+class TestShippedExampleLoads:
+    """examples/jataayu-policy.example.yml is what users copy. If it documents a key
+    the loader rejects — or one it ignores — they find out the hard way."""
+
+    EXAMPLE = Path(__file__).resolve().parent.parent / "examples" / "jataayu-policy.example.yml"
+
+    def test_example_file_exists(self):
+        assert self.EXAMPLE.is_file(), f"missing {self.EXAMPLE}"
+
+    def test_example_loads_cleanly(self):
+        policy = load_policy(str(self.EXAMPLE))
+        assert "coding-agent" in policy.list_agents()
+        assert policy.get_agent_policy("prod-agent").mode == "observe"
+
+    def test_example_documents_no_surfaces_block(self):
+        """A regression guard on the doc itself, not just the loader."""
+        import yaml
+        assert "surfaces" not in yaml.safe_load(self.EXAMPLE.read_text())
 
 
 class TestBoolFieldsAreNotCoerced:

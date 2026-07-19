@@ -124,36 +124,9 @@ agents:
         inbound_strict: false
     check_credentials: false
 
-# Global surface profile overrides (apply to all agents)
-# These override the built-in profiles in surfaces/profiles.py
-surfaces:
-  github-issue:
-    trust_level: low
-    inbound_strict: true
-    risk_multiplier: 1.2
-    description: "GitHub issue body — classic Clinejection attack surface"
-
-  github-pr:
-    trust_level: low
-    inbound_strict: true
-    risk_multiplier: 1.15
-
-  github-comment:
-    trust_level: low
-    inbound_strict: true
-    risk_multiplier: 1.1
-
-  web-content:
-    trust_level: low
-    inbound_strict: true
-    risk_multiplier: 1.1
-
-  coding-task:
-    trust_level: medium
-    inbound_strict: false        # Coding tasks often contain shell commands
-    risk_multiplier: 0.7
-
-  internal:
-    trust_level: high
-    inbound_strict: false
-    risk_multiplier: 0.4
+# There is no top-level `surfaces:` block, and writing one is a load error.
+# Surface profiles (trust_level, inbound_strict, outbound_strict, risk_multiplier)
+# are a fixed table in jataayu/surfaces/profiles.py — SURFACE_PROFILES — and that
+# table is what the guards actually read. Making them policy-configurable is a
+# possible future change; until then the loader raises rather than accepting a
+# block it would ignore.
