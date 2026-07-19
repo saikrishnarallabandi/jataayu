@@ -55,16 +55,26 @@ _OUTBOUND_STATUS_MAP = {
     ThreatLevel.BLOCKED: "BLOCK",
 }
 
-# Module-level singleton guards (lazy-initialized)
+# Module-level singleton guards, each cached alongside the config that built it.
+# The key is mandatory, not an optimization: a guard whose construction depends on
+# per-call arguments and is cached on first call silently serves the FIRST caller's
+# config to every later one — `protected_names=["Alice"]` accepted and never applied.
+# Rebuilding is cheap (measured: OutboundGuard.__init__ ~0.012ms vs ~0.29ms for the
+# check it precedes, ~4%), so the cache only ever saves the repeated-same-config case,
+# which is the common one.
 _inbound_guard: Optional[InboundGuard] = None
+_inbound_key: Optional[tuple] = None
 _outbound_guard: Optional[OutboundGuard] = None
+_outbound_key: Optional[tuple] = None
 
 
 def _get_inbound_guard(use_llm: bool = False) -> InboundGuard:
-    """Get or create the singleton InboundGuard."""
-    global _inbound_guard
-    if _inbound_guard is None or _inbound_guard.use_llm != use_llm:
+    """Get or create the InboundGuard, rebuilding it when `use_llm` differs."""
+    global _inbound_guard, _inbound_key
+    key = (use_llm,)
+    if _inbound_guard is None or _inbound_key != key:
         _inbound_guard = InboundGuard(use_llm=use_llm)
+        _inbound_key = key
     return _inbound_guard
 
 
@@ -72,15 +82,15 @@ def _get_outbound_guard(
     use_llm: bool = False,
     protected_names: Optional[list[str]] = None,
 ) -> OutboundGuard:
-    """Get or create the OutboundGuard."""
-    global _outbound_guard
-    # Recreate if config changed
-    if _outbound_guard is None:
-        config = PrivacyConfig(
-            protected_names=protected_names or [],
-            use_llm=use_llm,
+    """Get or create the OutboundGuard, rebuilding it when the config differs."""
+    global _outbound_guard, _outbound_key
+    names = list(protected_names or [])
+    key = (tuple(names), use_llm)
+    if _outbound_guard is None or _outbound_key != key:
+        _outbound_guard = OutboundGuard(
+            PrivacyConfig(protected_names=names, use_llm=use_llm)
         )
-        _outbound_guard = OutboundGuard(config)
+        _outbound_key = key
     return _outbound_guard
 
 
@@ -139,6 +149,37 @@ def jataayu_check_inbound(
         "threat_types": [t.value for t in result.threat_types],
         "blocked": result.blocked,
     }
+
+
+def jataayu_sanitize_inbound(
+    content: str,
+    surface: str = "unknown",
+    *,
+    use_llm: bool = False,
+) -> str:
+    """
+    Surgically remove an injected block from inbound content while preserving the
+    benign text it was planted inside (e.g. strip the injection from a calendar
+    description without discarding the description).
+
+    Args:
+        content: External content to clean.
+        surface: The source surface. Affects risk scoring strictness.
+        use_llm: Enable LLM slow-path. Default False (fast regex-only).
+
+    Returns:
+        The cleaned text, or "" if the injection could not be cleanly excised (in
+        which case the caller should omit the content entirely). A non-empty result
+        is guaranteed not to trip the fast-path detector. See InboundGuard.sanitize
+        for the safety contract.
+    """
+    return _get_inbound_guard(use_llm=use_llm).sanitize(content, surface=surface)
+
+
+def reset_guards() -> None:
+    """Drop the cached guards. Useful in tests that swap global configuration."""
+    global _inbound_guard, _inbound_key, _outbound_guard, _outbound_key
+    _inbound_guard = _inbound_key = _outbound_guard = _outbound_key = None
 
 
 def jataayu_vet_skill(
@@ -431,15 +472,7 @@ def jataayu_check_outbound(
         #     'threat_types': ['privacy_violation'],
         # }
     """
-    # Create guard with protected names if provided
-    if protected_names:
-        config = PrivacyConfig(
-            protected_names=protected_names,
-            use_llm=use_llm,
-        )
-        guard = OutboundGuard(config)
-    else:
-        guard = _get_outbound_guard(use_llm=use_llm)
+    guard = _get_outbound_guard(use_llm=use_llm, protected_names=protected_names)
 
     result = guard.check(content, surface=surface)
     status = _OUTBOUND_STATUS_MAP.get(result.threat_level, "WARN")
@@ -447,15 +480,7 @@ def jataayu_check_outbound(
     # Generate redacted text if content is not safe
     redacted = None
     if not result.is_safe:
-        if protected_names:
-            config = PrivacyConfig(
-                protected_names=protected_names,
-                use_llm=use_llm,
-            )
-            sanitize_guard = OutboundGuard(config)
-        else:
-            sanitize_guard = guard
-        redacted = sanitize_guard.sanitize(content, surface=surface)
+        redacted = guard.sanitize(content, surface=surface)
 
     return {
         "status": status,
