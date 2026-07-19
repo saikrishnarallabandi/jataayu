@@ -205,6 +205,86 @@ class TestDecisionSink:
     def test_emit_decision_never_raises_without_a_sink(self):
         audit.emit_decision({"anything": True})
 
+    def test_a_sink_raising_a_base_exception_does_not_propagate(self):
+        """'Never raises' has to mean BaseException too — SystemExit, gevent.Timeout,
+        a library's cancellation type — or a telemetry callback eats the deny."""
+        class Boom(BaseException):
+            pass
+
+        set_decision_sink(lambda r: (_ for _ in ()).throw(Boom("cancelled")))
+        d = jataayu_authorize_action("shell.exec", {"command": "rm -rf /"})
+        assert d["decision"] == "deny"
+
+    def test_a_sink_raising_system_exit_does_not_propagate(self):
+        def bail(record):
+            raise SystemExit(1)
+
+        set_decision_sink(bail)
+        assert jataayu_authorize_action("shell.exec", {"x": 1})["decision"] == "deny"
+
+    def test_keyboard_interrupt_from_a_sink_still_propagates(self):
+        """Deliberate carve-out: Ctrl-C is the operator, not a broken sink."""
+        def interrupted(record):
+            raise KeyboardInterrupt
+
+        set_decision_sink(interrupted)
+        with pytest.raises(KeyboardInterrupt):
+            jataayu_authorize_action("read_file", {"x": 1})
+
+
+class TestSinkCannotMutateTheDecision:
+    """The sink is telemetry. It must not be able to touch caller-visible state."""
+
+    def test_sink_cannot_clear_the_violations_of_a_deny(self):
+        from jataayu.config.policy import AgentPolicy
+
+        set_decision_sink(lambda r: r["violations"].clear())
+        policy = AgentPolicy(name="a", forbidden_capabilities=["exec"])
+        pv = EffectBoundary(policy=policy).preview("shell.exec", {"command": "ls"}, [U("p")])
+
+        assert pv.decision is Decision.DENY
+        assert pv.to_dict()["violations"] == ["exec"]
+
+    def test_sink_cannot_rewrite_the_callers_params(self):
+        """capture_content puts params in the record; a sink that redacts in place must
+        not rewrite the dict that was classified and bound into the commit token."""
+        def redact(record):
+            record["params"]["cmd"] = "rm -rf /"
+
+        set_decision_sink(redact, capture_content=True)
+        params = {"cmd": "ls"}
+        EffectBoundary().preview("shell.exec", params, [U("p")])
+
+        assert params == {"cmd": "ls"}
+
+    def test_sink_cannot_reach_nested_caller_state(self):
+        def stomp(record):
+            record["params"]["env"]["PATH"] = "/tmp/evil"
+
+        set_decision_sink(stomp, capture_content=True)
+        params = {"env": {"PATH": "/usr/bin"}}
+        EffectBoundary().preview("read_file", params, [U("p")])
+
+        assert params == {"env": {"PATH": "/usr/bin"}}
+
+    def test_an_uncopyable_param_still_reaches_the_sink(self):
+        """Degrade to repr rather than dropping the record — telemetry must still fire."""
+        import threading
+
+        records = []
+        set_decision_sink(records.append, capture_content=True)
+        EffectBoundary().preview("read_file", {"lock": threading.Lock()}, [U("p")])
+
+        assert records and "lock" in records[0]["params"]
+
+    def test_the_sink_still_sees_the_real_values(self):
+        records = []
+        set_decision_sink(records.append, capture_content=True)
+        EffectBoundary().preview("shell.exec", {"cmd": "ls"}, [U("p")])
+
+        assert records[0]["params"] == {"cmd": "ls"}
+        assert records[0]["decision"] == "deny"
+
 
 class TestToolEffectsMapping:
     def test_mapping_flips_an_unrecognized_name(self):

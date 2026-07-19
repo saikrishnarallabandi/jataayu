@@ -37,6 +37,10 @@ agents:
     strict_unknown_tools: false    # true = untrusted calls to unknown tool names need approval
     # Your real tool inventory. Overrides the built-in name classifier, so this is
     # also how you fix a false positive on one of your own tool names.
+    # The override also outranks allowed_capabilities/forbidden_capabilities: mapping a
+    # tool to `read` gives it the fs_read capability, so a `forbidden: [exec]` list no
+    # longer applies to that name. Deliberate — the map is your ground truth for the
+    # tools you name — but it means a wrong entry here silently widens the policy.
     # Valid effects: none, read, memory_write, file_write, network, secret_read,
     #                shell, code_eval
     tool_effects:

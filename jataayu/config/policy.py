@@ -327,6 +327,11 @@ class Policy:
             block_threshold=self.defaults.get("block_threshold", 0.9),
             check_credentials=self.defaults.get("check_credentials", True),
             check_high_entropy=self.defaults.get("check_high_entropy", False),
+            # The capability lists are inherited here for the same reason _parse_agent
+            # inherits them: a `defaults:` block that forbids `exec` must not become inert
+            # for an unnamed or misspelled agent — that is the half of the block that denies.
+            allowed_capabilities=list(self.defaults.get("allowed_capabilities", []) or []),
+            forbidden_capabilities=list(self.defaults.get("forbidden_capabilities", []) or []),
             mode=self.defaults.get("mode", "enforce"),
             tool_effects=dict(self.defaults.get("tool_effects", {})),
             strict_unknown_tools=self.defaults.get("strict_unknown_tools", False),
@@ -444,7 +449,13 @@ class PolicyLoader:
         )
 
         agents: dict[str, AgentPolicy] = {}
-        for agent_name, agent_cfg in raw.get("agents", {}).items():
+        for agent_name, agent_cfg in (raw.get("agents", {}) or {}).items():
+            if not isinstance(agent_cfg, dict):
+                raise ValueError(
+                    f"agents.{agent_name}: expected a mapping of settings, got "
+                    f"{type(agent_cfg).__name__} — an agent key with an empty body "
+                    f"configures nothing"
+                )
             agents[agent_name] = PolicyLoader._parse_agent(
                 agent_name, agent_cfg, defaults
             )

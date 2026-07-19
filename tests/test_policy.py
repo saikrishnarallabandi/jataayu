@@ -413,6 +413,10 @@ class TestEffectPolicyValidation:
                 "version: 1\nagents:\n  prod:\n    tool_effects:\n      db.query: shel\n"
             )
 
+    def test_agent_with_an_empty_body_raises_naming_the_agent(self):
+        with pytest.raises(ValueError, match="agents.prod"):
+            self._load("version: 1\nagents:\n  prod:\n")
+
     def test_misspelled_mode_in_defaults_raises(self):
         with pytest.raises(ValueError, match="defaults"):
             self._load("version: 1\ndefaults:\n  mode: obseve\n")
@@ -427,3 +431,119 @@ class TestEffectPolicyValidation:
         assert agent.mode == "enforce"
         assert agent.strict_unknown_tools is False
         assert agent.tool_effects == {}
+
+
+DEFAULTS_FORBID = (
+    "version: 1\n"
+    "defaults:\n"
+    "  forbidden_capabilities: [exec, fs_write]\n"
+    "agents:\n"
+    "  prod: {}\n"
+)
+
+
+class TestDefaultsCapabilityFallback:
+    """A `defaults:` block that FORBIDS must not go inert when no agent matches.
+
+    The fallback propagated only the permissive fields (mode / tool_effects /
+    strict_unknown_tools), so an unnamed or misspelled agent failed open.
+    """
+
+    @pytest.fixture
+    def policy_path(self, tmp_path):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(DEFAULTS_FORBID)
+        return str(p)
+
+    def test_fallback_inherits_forbidden_capabilities(self, policy_path):
+        assert load_policy(policy_path).get_agent_policy("").forbidden_capabilities == [
+            "exec", "fs_write",
+        ]
+
+    @pytest.mark.parametrize("agent", [None, "prod", "prodd"])
+    def test_shell_denies_with_or_without_a_matching_agent(self, policy_path, agent):
+        """Named, unnamed, and typo'd all deny — the typo used to allow."""
+        from jataayu import jataayu_authorize_action
+
+        d = jataayu_authorize_action(
+            "shell.exec", {"command": "ls"}, untrusted=False,
+            policy_file=policy_path, agent=agent,
+        )
+        assert d["decision"] == "deny"
+        assert "exec" in d["violations"]
+
+    def test_fallback_does_not_alias_the_defaults_dict(self, policy_path):
+        policy = load_policy(policy_path)
+        policy.get_agent_policy("").forbidden_capabilities.append("fs_read")
+        assert policy.defaults["forbidden_capabilities"] == ["exec", "fs_write"]
+
+
+class TestPolicyFileHotReload:
+    """observe -> enforce must take effect on an edit, without a process restart."""
+
+    def _write(self, path, mode):
+        path.write_text(
+            f"version: 1\nagents:\n  prod:\n    mode: {mode}\n"
+            f"    tool_effects:\n      internal.run_playbook: shell\n"
+        )
+        # Bump the mtime explicitly: 'observe' and 'enforce' are both 7 bytes, so on a
+        # filesystem with coarse timestamps the edit would be invisible to a stat-based key.
+        st = path.stat()
+        os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+
+    def test_flipping_mode_in_the_file_starts_enforcing(self, tmp_path):
+        from jataayu import jataayu_authorize_action
+
+        p = tmp_path / "jataayu-policy.yml"
+        self._write(p, "observe")
+        first = jataayu_authorize_action(
+            "internal.run_playbook", {"x": 1}, policy_file=str(p), agent="prod",
+        )
+        assert first["decision"] == "allow"
+        assert first["would_decision"] == "deny"
+
+        self._write(p, "enforce")
+        after = jataayu_authorize_action(
+            "internal.run_playbook", {"x": 1}, policy_file=str(p), agent="prod",
+        )
+        assert after["decision"] == "deny"
+
+    def test_tightening_capabilities_in_the_file_takes_effect(self, tmp_path):
+        from jataayu import jataayu_authorize_action
+
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text("version: 1\nagents:\n  prod: {}\n")
+        assert jataayu_authorize_action(
+            "shell.exec", {"x": 1}, untrusted=False, policy_file=str(p), agent="prod",
+        )["decision"] == "allow"
+
+        p.write_text("version: 1\nagents:\n  prod:\n    forbidden_capabilities: [exec]\n")
+        assert jataayu_authorize_action(
+            "shell.exec", {"x": 1}, untrusted=False, policy_file=str(p), agent="prod",
+        )["decision"] == "deny"
+
+    def test_unchanged_file_is_parsed_once(self, tmp_path, monkeypatch):
+        """The cache still has to be a cache — no YAML re-parse per call."""
+        from jataayu import api
+        from jataayu.config import policy as policy_mod
+
+        p = tmp_path / "jataayu-policy.yml"
+        self._write(p, "enforce")
+        api._load_agent_policy_cached.cache_clear()
+
+        calls = []
+        real = policy_mod.PolicyLoader._load_yaml
+        monkeypatch.setattr(
+            policy_mod.PolicyLoader, "_load_yaml",
+            staticmethod(lambda path: (calls.append(path), real(path))[1]),
+        )
+
+        for _ in range(3):
+            api._load_agent_policy(str(p), "prod")
+        assert len(calls) == 1
+
+    def test_missing_file_still_raises(self, tmp_path):
+        from jataayu import api
+
+        with pytest.raises(FileNotFoundError):
+            api._load_agent_policy(str(tmp_path / "nope.yml"), "prod")

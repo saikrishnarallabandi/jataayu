@@ -219,18 +219,45 @@ def jataayu_check_skillset(
 
 
 @functools.lru_cache(maxsize=32)
-def _load_agent_policy(policy_file: str, agent: Optional[str]):
-    """Resolve an AgentPolicy from a policy YAML.
-
-    `get_agent_policy("")` never raises and falls back to the `defaults:` block, so a
-    policy file with no named agent is still load-bearing.
-    """
+def _load_agent_policy_cached(policy_file: str, agent: Optional[str], stamp):
+    """`stamp` is not used — it is in the key so an edited policy file misses the cache."""
     from jataayu.config.policy import load_policy
     return load_policy(policy_file).get_agent_policy(agent or "")
 
 
-# ponytail: cached for process lifetime; edits need a restart — add an mtime check if
-# hot-reload is wanted.
+def _policy_stamp(policy_file: str):
+    """(path, mtime_ns, size) per policy file — the cache key that expires on an edit.
+
+    None when the path cannot be stat'd, which forces a reload so the loader raises the
+    real FileNotFoundError instead of serving a stale hit.
+    """
+    from pathlib import Path
+
+    p = Path(policy_file)
+    try:
+        files = sorted(p.glob("*.y*ml")) if p.is_dir() else [p]
+        return tuple(
+            (str(f), f.stat().st_mtime_ns, f.stat().st_size) for f in files
+        )
+    except OSError:
+        return None
+
+
+def _load_agent_policy(policy_file: str, agent: Optional[str]):
+    """Resolve an AgentPolicy from a policy YAML, re-reading it when the file changes.
+
+    Editing `mode: observe` to `mode: enforce` — the workflow observe mode exists for —
+    must take effect without a process restart, so the parse is cached against the file's
+    mtime and size rather than for the process lifetime.
+
+    `get_agent_policy("")` never raises and falls back to the `defaults:` block, so a
+    policy file with no named agent is still load-bearing.
+    """
+    stamp = _policy_stamp(policy_file)
+    if stamp is None:
+        from jataayu.config.policy import load_policy
+        return load_policy(policy_file).get_agent_policy(agent or "")
+    return _load_agent_policy_cached(policy_file, agent, stamp)
 
 
 def jataayu_authorize_action(

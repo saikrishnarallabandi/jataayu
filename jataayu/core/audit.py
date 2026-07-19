@@ -23,6 +23,7 @@ boundary so severity ordering and capability tags stay consistent.
 """
 from __future__ import annotations
 
+import copy
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
@@ -74,24 +75,49 @@ def capture_content_enabled(override: Optional[bool] = None) -> bool:
     return _capture_content if override is None else override
 
 
-def emit_decision(record: dict, sink: Optional[DecisionSink] = None) -> None:
-    """Deliver `record` to `sink` (per-instance) or the module-level sink. Never raises.
+def _snapshot(record: dict) -> dict:
+    """Deep-copy a decision record so a sink cannot reach caller-visible state.
 
-    A broken telemetry callback must never be why a `deny` fails to reach the caller,
-    so every exception is swallowed and logged.
+    The record shares objects with the live decision (the violations list) and, under
+    capture_content, with the caller's own params dict. A sink that redacts or normalizes
+    in place would otherwise rewrite the very values that were classified. Values that
+    refuse to deepcopy (handles, locks) degrade to their repr rather than dropping the
+    record — telemetry still fires, and still hands out nothing the caller owns.
+    """
+    out = {}
+    for k, v in record.items():
+        try:
+            out[k] = copy.deepcopy(v)
+        except Exception:
+            out[k] = repr(v)
+    return out
+
+
+def emit_decision(record: dict, sink: Optional[DecisionSink] = None) -> None:
+    """Deliver a COPY of `record` to `sink` (per-instance) or the module-level sink.
+
+    Never raises, except for KeyboardInterrupt. A broken telemetry callback must never be
+    why a `deny` fails to reach the caller, so BaseException is swallowed and logged —
+    SystemExit and library cancellation/timeout types included. KeyboardInterrupt alone is
+    re-raised: that is the operator interrupting the process, not the sink failing, and
+    eating it makes Ctrl-C unreliable in any loop that authorizes actions.
     """
     target = sink if sink is not None else _sink
     if target is None:
         return
     try:
-        target(record)
-    except Exception:
+        target(_snapshot(record))
+    except KeyboardInterrupt:
+        raise
+    except BaseException:
         logging.getLogger("jataayu").exception("decision sink raised; record dropped")
 
 
 from jataayu.guards.effect_boundary import EffectBoundary, EffectClass, Provenance  # noqa: E402
 
-# One shared classifier instance (its vault stays empty — we only use classify()).
+# Fallback classifier for traces built without a boundary (its vault stays empty — we only
+# use classify()). It knows no configured tool_effects, so a trace that must agree with the
+# boundary that actually decided the calls should be given that boundary.
 _CLASSIFIER = EffectBoundary()
 
 # Memory-read tool names (the recall side; the write side lives in effect_boundary).
@@ -195,10 +221,14 @@ class SessionTrace:
                 log.warning(f.explanation)
     """
 
-    def __init__(self, session_id: str = "session"):
+    def __init__(self, session_id: str = "session", *, boundary: Optional[EffectBoundary] = None):
+        """`boundary` supplies the effect classifier. Pass the EffectBoundary that actually
+        authorizes this session's calls, or the audit will classify a tool differently from
+        the guard that decided it whenever `tool_effects` is configured."""
         self.session_id = session_id
         self.events: list[TraceEvent] = []
         self._auto_turn = 0
+        self._boundary = boundary if boundary is not None else _CLASSIFIER
 
     # -- recording --------------------------------------------------------
     def record(
@@ -228,7 +258,7 @@ class SessionTrace:
                 provenance = Provenance.UNTRUSTED if untrusted else Provenance.TRUSTED
 
         if effect_class is None:
-            effect_class = _CLASSIFIER.classify(tool_name)
+            effect_class = self._boundary.classify(tool_name)
 
         if turn is None:
             self._auto_turn += 1
