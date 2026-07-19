@@ -331,6 +331,19 @@ def _resolve(kwarg, policy, field_name: str, default):
     return default if value is None else value
 
 
+def _resolve_bool(kwarg, policy, field_name: str, default: bool, kwarg_name: str) -> bool:
+    """_resolve() for a bool field, rejecting a non-bool rather than coercing it.
+
+    Shares require_bool() with the YAML loader so the kwarg path and the policy-file
+    path cannot disagree about what counts as a bool.
+    """
+    from jataayu.config.policy import require_bool
+
+    if kwarg is not None:
+        return require_bool(kwarg, "EffectBoundary", kwarg_name)
+    return require_bool(_resolve(None, policy, field_name, default), "policy", field_name)
+
+
 def _coerce_effect(tool: str, value) -> EffectClass:
     """Accept an EffectClass or its string value in a tool_effects map.
 
@@ -486,8 +499,14 @@ class EffectBoundary:
         self.mode = _resolve(mode, policy, "mode", "enforce")
         if self.mode not in ("enforce", "observe"):
             raise ValueError(f"invalid mode {self.mode!r} — expected 'enforce' or 'observe'")
-        self.strict = bool(_resolve(strict, policy, "strict_unknown_tools", False))
+        self.strict = _resolve_bool(strict, policy, "strict_unknown_tools", False, "strict=")
         self.sink = sink
+        # None means "defer to the module-level setting", so only a supplied value is checked.
+        # capture_content_enabled() returns this value as-is, so "false" would be truthy there
+        # and record tool params the caller asked it not to keep.
+        if capture_content is not None:
+            from jataayu.config.policy import require_bool
+            require_bool(capture_content, "EffectBoundary", "capture_content=")
         self.capture_content = capture_content
 
         # tool_effects MERGES rather than overrides: the policy file is the org's tool

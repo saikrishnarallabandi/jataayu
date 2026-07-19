@@ -879,3 +879,62 @@ class TestEmptyBodiesRaiseAClearError:
         p.write_text("- version: 1\n")
         with pytest.raises(ValueError, match="mapping"):
             load_policy(str(p))
+
+
+class TestSectionsMustBeMappings:
+    """`agents:`/`surfaces:` written as a YAML sequence must name the offending key.
+
+    Both loader entry points are covered because they kept diverging: from_dir() merges
+    these two sections itself, so a check added to from_dict() alone never ran for a
+    directory load. Three review rounds found this same shape; these four tests are what
+    keeps the fifth from finding it again.
+    """
+
+    @pytest.mark.parametrize("key", ["agents", "surfaces"])
+    def test_from_dict_rejects_a_sequence(self, key):
+        with pytest.raises(ValueError, match=f"{key}: expected a mapping"):
+            PolicyLoader.from_dict({"version": 1, key: ["prod"]})
+
+    @pytest.mark.parametrize("key", ["agents", "surfaces"])
+    def test_from_dir_rejects_a_sequence_and_names_the_file(self, tmp_path, key):
+        (tmp_path / "bad.yml").write_text(f"version: 1\n{key}:\n  - prod\n")
+        with pytest.raises(ValueError, match=rf"bad\.yml: {key}: expected a mapping"):
+            load_policy(str(tmp_path))
+
+    def test_defaults_as_a_sequence_still_raises(self):
+        with pytest.raises(ValueError, match="defaults: expected a mapping"):
+            PolicyLoader.from_dict({"version": 1, "defaults": ["x"]})
+
+
+class TestBoolFieldsAreNotCoerced:
+    """`strict_unknown_tools: "false"` must raise, not evaluate to True.
+
+    bool("false") is True, so the quoted form silently turns the switch ON — the same
+    "reinterprets what you wrote" failure this loader rejects for scalars elsewhere.
+    """
+
+    def test_quoted_false_on_an_agent_raises(self, tmp_path):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text('version: 1\nagents:\n  prod:\n    strict_unknown_tools: "false"\n')
+        with pytest.raises(ValueError, match="agents.prod: strict_unknown_tools must be true or false"):
+            load_policy(str(p))
+
+    def test_quoted_false_in_defaults_raises_at_load(self, tmp_path):
+        """Named `defaults`, and raised at load — not deferred to the first unknown agent."""
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text('version: 1\ndefaults:\n  strict_unknown_tools: "false"\n')
+        with pytest.raises(ValueError, match="defaults: strict_unknown_tools must be true or false"):
+            load_policy(str(p))
+
+    def test_an_int_is_not_a_bool(self, tmp_path):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text("version: 1\nagents:\n  prod:\n    strict_unknown_tools: 1\n")
+        with pytest.raises(ValueError, match="strict_unknown_tools must be true or false"):
+            load_policy(str(p))
+
+    def test_real_bools_still_load(self, tmp_path):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text("version: 1\nagents:\n  prod:\n    strict_unknown_tools: true\n  dev: {}\n")
+        policy = load_policy(str(p))
+        assert policy.get_agent_policy("prod").strict_unknown_tools is True
+        assert policy.get_agent_policy("dev").strict_unknown_tools is False

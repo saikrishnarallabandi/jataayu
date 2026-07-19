@@ -43,6 +43,10 @@ agents:
     # tools you name — but it means a wrong entry here silently widens the policy.
     # Valid effects: none, read, memory_write, file_write, network, secret_read,
     #                shell, code_eval
+    # `none` is a per-tool opt-out: the tool is treated as having no effect at all, so
+    # the boundary never gates it, not even for untrusted callers under strict mode.
+    # Use it only for a genuinely inert name (a health check, a no-op stub) that the
+    # classifier misreads as a sink — never to quiet a tool that really does something.
     tool_effects:
       jira.create_issue: network
       internal.run_playbook: shell

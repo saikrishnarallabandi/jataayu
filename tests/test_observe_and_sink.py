@@ -595,3 +595,39 @@ class TestFromDirAgentOverwriteWarning:
             r for r in caplog.records if "replace" in r.message.lower()
         ]
         assert overwrite_warnings == []
+
+
+class TestBoolKwargsAreNotCoerced:
+    """A non-bool must raise instead of being coerced.
+
+    bool("false") is True, so `strict="false"` silently turned strict ON (fails closed —
+    surprising, not dangerous) and `capture_content="false"` silently turned content
+    capture ON (fails open — records params the caller asked it not to keep).
+    """
+
+    def test_strict_string_raises_instead_of_enabling_strict(self):
+        with pytest.raises(ValueError, match="strict= must be true or false"):
+            EffectBoundary(strict="false")
+
+    def test_strict_from_policy_names_the_policy_field(self):
+        from jataayu.config.policy import AgentPolicy
+
+        policy = AgentPolicy(name="a")
+        policy.strict_unknown_tools = "false"   # bypasses the loader, e.g. built in code
+        with pytest.raises(ValueError, match="strict_unknown_tools must be true or false"):
+            EffectBoundary(policy=policy)
+
+    def test_capture_content_string_raises(self):
+        with pytest.raises(ValueError, match="capture_content= must be true or false"):
+            EffectBoundary(capture_content="false")
+
+    def test_set_decision_sink_capture_content_string_raises(self):
+        """The process-wide setter is the other door to the same flag."""
+        with pytest.raises(ValueError, match="capture_content= must be true or false"):
+            set_decision_sink(lambda r: None, capture_content="false")
+        assert audit.capture_content_enabled() is False
+
+    def test_real_bools_still_work(self):
+        assert EffectBoundary(strict=True).strict is True
+        assert EffectBoundary(strict=False).strict is False
+        assert EffectBoundary(capture_content=False).capture_content is False

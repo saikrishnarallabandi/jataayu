@@ -66,7 +66,12 @@ def set_decision_sink(sink: Optional[DecisionSink], *, capture_content: bool = F
 
     Flat snake_case keys, not dotted, so a CSV/DB/Slack emitter needs no re-modelling.
     """
+    from jataayu.config.policy import require_bool
+
     global _sink, _capture_content
+    # A truthy non-bool ("false") here would switch content capture on process-wide for
+    # every guard, which is the opposite of what was written.
+    require_bool(capture_content, "set_decision_sink", "capture_content=")
     _sink = sink
     _capture_content = capture_content
 

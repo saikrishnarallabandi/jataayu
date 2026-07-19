@@ -268,6 +268,52 @@ class AgentPolicy:
 VALID_MODES = ("enforce", "observe")
 
 
+_SECTION_NOUNS = {
+    "agents": "agent names",
+    "surfaces": "surface names",
+    "defaults": "settings",
+}
+
+
+def _mapping_section(raw: dict, key: str, where: str = "") -> dict:
+    """The body of a top-level policy section, checked to be a mapping.
+
+    An empty body (`agents:` with nothing under it) parses as None, not {}.
+
+    from_dir() merges `agents:`/`surfaces:` out of every file BEFORE from_dict() ever
+    sees them, so a check that lives only in from_dict() cannot cover the from_dir path.
+    Both entry points route through here for exactly that reason: this is the third
+    review round to find these two loaders diverging on the same section keys.
+    """
+    value = raw.get(key) or {}
+    if not isinstance(value, dict):
+        prefix = f"{where}: " if where else ""
+        raise ValueError(
+            f"{prefix}{key}: expected a mapping of {_SECTION_NOUNS[key]}, got "
+            f"{type(value).__name__}"
+        )
+    return value
+
+
+def require_bool(value: Any, where: str, key: str) -> bool:
+    """Reject a non-bool where a bool is required, rather than coercing it.
+
+    bool("false") is True, so a quoted YAML scalar turns the switch ON. For
+    strict_unknown_tools that fails CLOSED (more approval gating than was asked for —
+    surprising, not dangerous); for capture_content it fails OPEN, recording tool
+    params the operator asked it not to keep. Either way the config silently means
+    something other than what was written, which is what this loader exists to prevent.
+
+    int is rejected too: `strict_unknown_tools: 1` is not a bool, and accepting it
+    reopens the same guess-what-they-meant hole one type over.
+    """
+    if not isinstance(value, bool):
+        raise ValueError(
+            f"{where}: {key} must be true or false, got {type(value).__name__} {value!r}"
+        )
+    return value
+
+
 def _string_list(value: Any, where: str, key: str) -> list[str]:
     """Coerce a policy list field to a fresh list of str, rejecting a bare scalar.
 
@@ -473,8 +519,7 @@ class PolicyLoader:
                     f"{yaml_file}: policy must be a mapping at the top level, got "
                     f"{type(raw).__name__}"
                 )
-            # `agents:` with an empty body parses as None, not {} — same guard as from_dict.
-            for agent, cfg in (raw.get("agents") or {}).items():
+            for agent, cfg in _mapping_section(raw, "agents", str(yaml_file)).items():
                 if agent in merged["agents"]:
                     _logger.warning(
                         "Policy directory %s: agent %r is defined in multiple files — "
@@ -485,7 +530,7 @@ class PolicyLoader:
                     )
                 merged["agents"][agent] = cfg
             # Merge surface overrides
-            for surf, cfg in (raw.get("surfaces") or {}).items():
+            for surf, cfg in _mapping_section(raw, "surfaces", str(yaml_file)).items():
                 merged["surfaces"][surf] = cfg
             # Use first file's defaults
             if "defaults" not in merged and "defaults" in raw:
@@ -508,19 +553,8 @@ class PolicyLoader:
             raise ValueError(
                 f"policy must be a mapping at the top level, got {type(raw).__name__}"
             )
-        # An empty `defaults:` / `surfaces:` body parses as None; both are dereferenced
-        # later (get_agent_policy, get_surface_profile) and would fail there, not here.
-        defaults = raw.get("defaults") or {}
-        global_surfaces = raw.get("surfaces") or {}
-        if not isinstance(defaults, dict):
-            raise ValueError(
-                f"defaults: expected a mapping of settings, got {type(defaults).__name__}"
-            )
-        if not isinstance(global_surfaces, dict):
-            raise ValueError(
-                f"surfaces: expected a mapping of surface names, got "
-                f"{type(global_surfaces).__name__}"
-            )
+        defaults = _mapping_section(raw, "defaults")
+        global_surfaces = _mapping_section(raw, "surfaces")
 
         # The defaults block feeds get_agent_policy()'s fallback for unknown agents,
         # so it is a config path in its own right and gets the same validation —
@@ -534,9 +568,11 @@ class PolicyLoader:
         )
         for key in _INHERITED_LIST_KEYS:
             _string_list(defaults.get(key), "defaults", key)
+        if "strict_unknown_tools" in defaults:
+            require_bool(defaults["strict_unknown_tools"], "defaults", "strict_unknown_tools")
 
         agents: dict[str, AgentPolicy] = {}
-        for agent_name, agent_cfg in (raw.get("agents", {}) or {}).items():
+        for agent_name, agent_cfg in _mapping_section(raw, "agents").items():
             if not isinstance(agent_cfg, dict):
                 raise ValueError(
                     f"agents.{agent_name}: expected a mapping of settings, got "
@@ -594,6 +630,14 @@ class PolicyLoader:
                 return _string_list(cfg[key], f"agents.{name}", key)
             return _string_list(defaults.get(key), "defaults", key)
 
+        def inherited_bool(key: str, default: bool) -> bool:
+            """inherited_list() for a bool field, naming whichever block is malformed."""
+            if key in cfg:
+                return require_bool(cfg[key], f"agents.{name}", key)
+            if key in defaults:
+                return require_bool(defaults[key], "defaults", key)
+            return default
+
         mode = cfg.get("mode", defaults.get("mode", "enforce"))
         # Validate BEFORE coercing: dict() on a list raises its own opaque ValueError,
         # which would hide which key is actually wrong.
@@ -626,9 +670,7 @@ class PolicyLoader:
             forbidden_capabilities=inherited_list("forbidden_capabilities"),
             mode=mode,
             tool_effects=tool_effects,
-            strict_unknown_tools=bool(
-                cfg.get("strict_unknown_tools", defaults.get("strict_unknown_tools", False))
-            ),
+            strict_unknown_tools=inherited_bool("strict_unknown_tools", False),
             extra={k: v for k, v in cfg.items()
                    if k not in ("allowed_surfaces", "surface_overrides", "protected_names",
                                 "internal_codenames", "gtm_codenames",
