@@ -1,6 +1,7 @@
 """
 Tests for Issue #4 — MCP Gateway before_tool_call hook.
 """
+import asyncio
 import json
 import socket
 import threading
@@ -197,6 +198,18 @@ def _wait_for_bind(gw, thread, timeout=5.0):
     return gw.bound_port
 
 
+async def _await_condition(cond, what, task=None, timeout=5.0):
+    """Poll until cond() holds; fail naming what never happened rather than spin."""
+    deadline = time.monotonic() + timeout
+    while not cond():
+        if task is not None and task.done():
+            task.result()  # re-raise whatever killed the run; a bind failure lands here
+            pytest.fail(f"{what}: the run returned without it")
+        if time.monotonic() > deadline:
+            pytest.fail(f"{what} within {timeout}s")
+        await asyncio.sleep(0.01)
+
+
 def _port_is_free(port, host="127.0.0.1"):
     """True once nothing is listening on the port (SO_REUSEADDR-free bind probe)."""
     with socket.socket() as s:
@@ -218,13 +231,15 @@ def running_gateway():
     )
     thread = threading.Thread(target=gw.start, daemon=True)
     thread.start()
+    try:
+        # Inside the try: a failed bind wait must still stop the thread, or the
+        # port stays bound for the rest of the session.
+        port = _wait_for_bind(gw, thread)
+        yield gw, thread
+    finally:
+        gw.stop()
+        thread.join(timeout=5.0)
 
-    port = _wait_for_bind(gw, thread)
-
-    yield gw, thread
-
-    gw.stop()
-    thread.join(timeout=5.0)
     assert not thread.is_alive(), "gateway did not shut down after stop()"
     assert _port_is_free(port), "gateway kept the listening socket after stop()"
 
@@ -280,8 +295,6 @@ class TestLifecycle:
         hangs and the listening socket stays bound. The sleep widens that window
         so the test is deterministic; the race is real without it.
         """
-        import asyncio
-
         gw = JataayuMCPGateway(
             upstream_url="http://127.0.0.1:9999", bind_port=0, use_llm=False,
         )
@@ -298,8 +311,10 @@ class TestLifecycle:
 
         thread = threading.Thread(target=gw.start, daemon=True)
         thread.start()
-        time.sleep(0.25)  # inside the window: bound, but not yet waiting
-        gw.stop()
+        try:
+            time.sleep(0.25)  # inside the window: bound, but not yet waiting
+        finally:
+            gw.stop()
 
         thread.join(timeout=5.0)
         assert not thread.is_alive(), "stop() was dropped; serve loop hung"
@@ -317,9 +332,11 @@ class TestLifecycle:
 
         thread = threading.Thread(target=gw.start, daemon=True)
         thread.start()
-        first_port = _wait_for_bind(gw, thread)
-        gw.stop()
-        thread.join(timeout=5.0)
+        try:
+            first_port = _wait_for_bind(gw, thread)
+        finally:
+            gw.stop()
+            thread.join(timeout=5.0)
         assert not thread.is_alive()
 
         squatter = socket.socket()
@@ -343,49 +360,64 @@ class TestLifecycle:
         own port. With a shared slot, a run finishing while a second run was
         bound-but-not-yet-waiting nulled the live server's port permanently.
         """
-        import asyncio
         import contextlib
 
         async def scenario():
             gw = JataayuMCPGateway(
                 upstream_url="http://127.0.0.1:9999", bind_port=0, use_llm=False,
             )
-            a = asyncio.create_task(gw.serve_forever())
-            while gw.bound_port is None:
-                await asyncio.sleep(0.01)
-            port_a = gw.bound_port
-
             # Hold run B between binding and registering its waiter — the window
             # in which A's exit used to clobber B's published port.
-            original = gw.start_async_server
             released = asyncio.Event()
             b_port = []
 
-            async def slow_to_register():
-                runner = await original()
-                b_port.append(runner.addresses[0][1])
-                await released.wait()
-                return runner
+            a = asyncio.create_task(gw.serve_forever())
+            b = None
+            try:
+                await _await_condition(
+                    lambda: gw.bound_port is not None, "run A never published a bound port",
+                    task=a,
+                )
+                port_a = gw.bound_port
 
-            gw.start_async_server = slow_to_register
-            b = asyncio.create_task(gw.serve_forever())
-            while not b_port:
-                await asyncio.sleep(0.01)
-            assert b_port[0] != port_a
+                original = gw.start_async_server
 
-            a.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await a
-            assert gw.bound_port == b_port[0], "live run's port was cleared by another run"
+                async def slow_to_register():
+                    runner = await original()
+                    b_port.append(runner.addresses[0][1])
+                    await released.wait()
+                    return runner
 
-            released.set()
-            await asyncio.sleep(0)
-            assert gw.bound_port == b_port[0]
+                gw.start_async_server = slow_to_register
+                b = asyncio.create_task(gw.serve_forever())
+                await _await_condition(lambda: bool(b_port), "run B never bound a port", task=b)
+                assert b_port[0] != port_a
 
-            gw.stop()
-            await asyncio.wait_for(b, timeout=5.0)
-            assert gw.bound_port is None
-            assert _port_is_free(port_a) and _port_is_free(b_port[0])
+                a.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await a
+                assert gw.bound_port == b_port[0], "live run's port was cleared by another run"
+
+                released.set()
+                await asyncio.sleep(0)
+                assert gw.bound_port == b_port[0]
+
+                gw.stop()
+                await asyncio.wait_for(b, timeout=5.0)
+                assert gw.bound_port is None
+                assert _port_is_free(port_a) and _port_is_free(b_port[0])
+            finally:
+                # A failed assert above must not leak either listening socket into
+                # the rest of the session. Release B first: cancelling it while it
+                # is parked inside slow_to_register would strand the runner it has
+                # already bound, since serve_forever() never received it to clean up.
+                released.set()
+                gw.stop()
+                for task in (a, b):
+                    if task is None:
+                        continue
+                    with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
+                        await asyncio.wait_for(task, timeout=5.0)
 
         asyncio.run(scenario())
 
@@ -394,20 +426,21 @@ class TestLifecycle:
         start_async_server() hands the runner to the caller; cleaning it up must
         retire the port too, or bound_port advertises a dead listener forever.
         """
-        import asyncio
-
         async def scenario():
             gw = JataayuMCPGateway(
                 upstream_url="http://127.0.0.1:9999", bind_port=0, use_llm=False,
             )
             runner = await gw.start_async_server()
-            port = runner.addresses[0][1]
-            assert gw.bound_port == port
+            try:
+                port = runner.addresses[0][1]
+                assert gw.bound_port == port
 
-            await runner.cleanup()
-            assert gw.bound_port is None, "bound_port kept pointing at a dead port"
-            await runner.cleanup()  # idempotent
-            assert gw.bound_port is None
+                await runner.cleanup()
+                assert gw.bound_port is None, "bound_port kept pointing at a dead port"
+                await runner.cleanup()  # idempotent
+                assert gw.bound_port is None
+            finally:
+                await runner.cleanup()  # a failed assert above must not leak the port
 
         asyncio.run(scenario())
 
