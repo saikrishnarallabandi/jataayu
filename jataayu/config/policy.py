@@ -39,6 +39,15 @@ agents:
     allowed_capabilities: [fs_read, network_read]
     forbidden_capabilities: [exec]
 
+  prod-agent:
+    # Effect-boundary behaviour (see jataayu.guards.effect_boundary).
+    mode: observe                  # "enforce" (block) | "observe" (measure, don't block)
+    strict_unknown_tools: false    # require approval for untrusted calls to unknown names
+    tool_effects:                  # your own tool inventory — overrides the classifier
+      jira.create_issue: network
+      internal.run_playbook: shell
+      db.query: read
+
   github-bot:
     allowed_surfaces: [github-issue, github-pr, github-comment, internal]
     surface_overrides:
@@ -92,10 +101,13 @@ Usage:
 """
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
+
+_logger = logging.getLogger("jataayu")
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -146,6 +158,12 @@ class AgentPolicy:
         use_llm: Whether to use LLM slow path (agent-level default).
         llm_threshold: LLM escalation threshold (agent-level default).
         block_threshold: Block threshold (agent-level default).
+        mode: "enforce" (block) or "observe" (measure only — decisions are reported
+            but not enforced). Default "enforce".
+        tool_effects: Tool name → EffectClass value ("read", "shell", ...). Your own
+            tool inventory; overrides the built-in name classifier.
+        strict_unknown_tools: Require approval for untrusted calls to tool names the
+            classifier does not recognize. Default False.
         extra: Additional custom config fields.
     """
     name: str
@@ -162,6 +180,9 @@ class AgentPolicy:
     block_threshold: float = 0.9
     allowed_capabilities: list[str] = field(default_factory=list)
     forbidden_capabilities: list[str] = field(default_factory=list)
+    mode: str = "enforce"
+    tool_effects: dict[str, str] = field(default_factory=dict)
+    strict_unknown_tools: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
     def is_surface_allowed(self, surface: str) -> bool:
@@ -238,7 +259,128 @@ class AgentPolicy:
             "block_threshold": self.block_threshold,
             "allowed_capabilities": self.allowed_capabilities,
             "forbidden_capabilities": self.forbidden_capabilities,
+            "mode": self.mode,
+            "tool_effects": self.tool_effects,
+            "strict_unknown_tools": self.strict_unknown_tools,
         }
+
+
+VALID_MODES = ("enforce", "observe")
+
+
+_SECTION_NOUNS = {
+    "agents": "agent names",
+    "surfaces": "surface names",
+    "defaults": "settings",
+}
+
+
+def _mapping_section(raw: dict, key: str, where: str = "") -> dict:
+    """The body of a top-level policy section, checked to be a mapping.
+
+    An empty body (`agents:` with nothing under it) parses as None, not {}.
+
+    from_dir() merges `agents:`/`surfaces:` out of every file BEFORE from_dict() ever
+    sees them, so a check that lives only in from_dict() cannot cover the from_dir path.
+    Both entry points route through here for exactly that reason: this is the third
+    review round to find these two loaders diverging on the same section keys.
+    """
+    value = raw.get(key) or {}
+    if not isinstance(value, dict):
+        prefix = f"{where}: " if where else ""
+        raise ValueError(
+            f"{prefix}{key}: expected a mapping of {_SECTION_NOUNS[key]}, got "
+            f"{type(value).__name__}"
+        )
+    return value
+
+
+def require_bool(value: Any, where: str, key: str) -> bool:
+    """Reject a non-bool where a bool is required, rather than coercing it.
+
+    bool("false") is True, so a quoted YAML scalar turns the switch ON. For
+    strict_unknown_tools that fails CLOSED (more approval gating than was asked for —
+    surprising, not dangerous); for capture_content it fails OPEN, recording tool
+    params the operator asked it not to keep. Either way the config silently means
+    something other than what was written, which is what this loader exists to prevent.
+
+    int is rejected too: `strict_unknown_tools: 1` is not a bool, and accepting it
+    reopens the same guess-what-they-meant hole one type over.
+    """
+    if not isinstance(value, bool):
+        raise ValueError(
+            f"{where}: {key} must be true or false, got {type(value).__name__} {value!r}"
+        )
+    return value
+
+
+def _string_list(value: Any, where: str, key: str) -> list[str]:
+    """Coerce a policy list field to a fresh list of str, rejecting a bare scalar.
+
+    `forbidden_capabilities: exec` is a YAML scalar, and list("exec") is
+    ['e','x','e','c'] — which forbids nothing and fails OPEN. Rejecting at parse
+    is the only place that catches it; by the time it reaches
+    is_capability_allowed() it is indistinguishable from an empty policy.
+
+    Elements are checked for the same reason one level down: `[1, 2]` clears the
+    container check, but every consumer compares against a str, so it matches nothing.
+    Note YAML 1.1 folds `[on, off]` to booleans, which is exactly this case.
+
+    The returned list is always a copy: to_dict() and to_privacy_config() hand these
+    lists out past the module boundary, so an aliased `defaults:` list lets one
+    caller's mutation poison every agent.
+    """
+    if value is None:
+        return []
+    if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple, set, frozenset)):
+        raise ValueError(
+            f"{where}: {key} must be a list, got {type(value).__name__} {value!r} — "
+            f"write it as a YAML sequence (e.g. {key}: [{value!r}])"
+        )
+    items = list(value)
+    for item in items:
+        if not isinstance(item, str):
+            raise ValueError(
+                f"{where}: {key} entries must be strings, got "
+                f"{type(item).__name__} {item!r} — quote it (e.g. {key}: [\"{item}\"])"
+            )
+    return items
+
+
+# Every list field an agent block inherits from `defaults:`. get_agent_policy()'s
+# unknown-agent fallback and _parse_agent() both resolve these, so the defaults block
+# is a config path in its own right and is validated at parse time.
+_INHERITED_LIST_KEYS = (
+    "allowed_capabilities",
+    "forbidden_capabilities",
+    "internal_codenames",
+    "gtm_codenames",
+)
+
+
+def _validate_effect_fields(mode: Any, tool_effects: Any, where: str) -> None:
+    """Reject an unparseable mode / tool_effects block, naming the offending key.
+
+    This is a trust boundary: `mode: obseve` silently enforcing, or
+    `tool_effects: {x: shel}` silently ignored, is how a security config fails open.
+    """
+    from jataayu.guards.effect_boundary import EffectClass
+
+    if mode not in VALID_MODES:
+        raise ValueError(
+            f"{where}: invalid mode {mode!r} — expected one of {list(VALID_MODES)}"
+        )
+    if not isinstance(tool_effects, dict):
+        raise ValueError(f"{where}: tool_effects must be a mapping, got {type(tool_effects).__name__}")
+    # 'none' is excluded: mapping a tool to EffectClass.NONE bypasses all provenance-based
+    # denials and forbidden_capabilities checks (no capability tag, not in any effect set).
+    valid = {e.value for e in EffectClass if e is not EffectClass.NONE}
+    for tool, effect in tool_effects.items():
+        if effect not in valid:
+            raise ValueError(
+                f"{where}: tool_effects[{tool!r}] has invalid effect {effect!r} — "
+                f"expected one of {sorted(valid)}"
+            )
 
 
 @dataclass
@@ -272,15 +414,12 @@ class Policy:
         if agent_name in self.agents:
             return self.agents[agent_name]
 
-        # Unknown agent — return policy built from global defaults
-        return AgentPolicy(
-            name=agent_name,
-            use_llm=self.defaults.get("use_llm", False),
-            llm_threshold=self.defaults.get("llm_threshold", 0.35),
-            block_threshold=self.defaults.get("block_threshold", 0.9),
-            check_credentials=self.defaults.get("check_credentials", True),
-            check_high_entropy=self.defaults.get("check_high_entropy", False),
-        )
+        # Unknown agent — an agent with an empty config block IS a defaults-only agent,
+        # so parse one rather than re-deriving the inheritance here. Hand-listing the
+        # inherited fields twice has now diverged twice (capability lists, then the
+        # codename lists), and each divergence meant a misspelled agent name silently
+        # switched off the half of the `defaults:` block that denies.
+        return PolicyLoader._parse_agent(agent_name, {}, self.defaults)
 
     def get_surface_profile(self, surface: str) -> dict:
         """
@@ -351,7 +490,23 @@ class PolicyLoader:
 
     @staticmethod
     def from_dir(directory: str | Path) -> Policy:
-        """Load and merge all *.yml / *.yaml policy files from a directory."""
+        """Load and merge all *.yml / *.yaml policy files from a directory.
+
+        **Merge semantics** (important for security overlays):
+
+        - **Agents** — last file wins, per agent, as a *complete replacement*.
+          A second file that defines ``prod-agent:`` with only ``mode: observe``
+          discards every setting from the first file (``tool_effects``,
+          ``forbidden_capabilities``, etc.) and replaces the whole entry.
+          The intended pattern is one authoritative file per agent; use separate
+          agent names if you need compositional overrides, or a single file.
+          A ``WARNING`` is logged when an agent key is defined in more than one
+          file so the replacement is never silent.
+        - **Surfaces** — same last-file-wins, full replacement per surface key.
+        - **Defaults** — first file wins; subsequent ``defaults:`` blocks are
+          ignored.  Prefix the defaults file ``00-defaults.yml`` to make this
+          predictable.
+        """
         directory = Path(directory)
         if not directory.is_dir():
             raise NotADirectoryError(f"Not a directory: {directory}")
@@ -359,11 +514,23 @@ class PolicyLoader:
         merged: dict[str, Any] = {"version": 1, "agents": {}, "surfaces": {}}
         for yaml_file in sorted(directory.glob("*.y*ml")):
             raw = PolicyLoader._load_yaml(str(yaml_file))
-            # Merge agents
-            for agent, cfg in raw.get("agents", {}).items():
+            if not isinstance(raw, dict):
+                raise ValueError(
+                    f"{yaml_file}: policy must be a mapping at the top level, got "
+                    f"{type(raw).__name__}"
+                )
+            for agent, cfg in _mapping_section(raw, "agents", str(yaml_file)).items():
+                if agent in merged["agents"]:
+                    _logger.warning(
+                        "Policy directory %s: agent %r is defined in multiple files — "
+                        "%s replaces the earlier definition completely. "
+                        "Security settings from the earlier file (tool_effects, "
+                        "forbidden_capabilities, etc.) are discarded.",
+                        directory, agent, yaml_file.name,
+                    )
                 merged["agents"][agent] = cfg
             # Merge surface overrides
-            for surf, cfg in raw.get("surfaces", {}).items():
+            for surf, cfg in _mapping_section(raw, "surfaces", str(yaml_file)).items():
                 merged["surfaces"][surf] = cfg
             # Use first file's defaults
             if "defaults" not in merged and "defaults" in raw:
@@ -382,11 +549,36 @@ class PolicyLoader:
     @staticmethod
     def from_dict(raw: dict, source_path: Optional[str] = None) -> Policy:
         """Parse a policy dict (already loaded from YAML) into a Policy object."""
-        defaults = raw.get("defaults", {})
-        global_surfaces = raw.get("surfaces", {})
+        if not isinstance(raw, dict):
+            raise ValueError(
+                f"policy must be a mapping at the top level, got {type(raw).__name__}"
+            )
+        defaults = _mapping_section(raw, "defaults")
+        global_surfaces = _mapping_section(raw, "surfaces")
+
+        # The defaults block feeds get_agent_policy()'s fallback for unknown agents,
+        # so it is a config path in its own right and gets the same validation —
+        # unconditionally, not only when some agent block happens to omit the key.
+        # Otherwise a defaults-only policy parses clean and raises from
+        # get_agent_policy() on every authorization request instead.
+        _validate_effect_fields(
+            defaults.get("mode", "enforce"),
+            defaults.get("tool_effects", {}) or {},
+            "defaults",
+        )
+        for key in _INHERITED_LIST_KEYS:
+            _string_list(defaults.get(key), "defaults", key)
+        if "strict_unknown_tools" in defaults:
+            require_bool(defaults["strict_unknown_tools"], "defaults", "strict_unknown_tools")
 
         agents: dict[str, AgentPolicy] = {}
-        for agent_name, agent_cfg in raw.get("agents", {}).items():
+        for agent_name, agent_cfg in _mapping_section(raw, "agents").items():
+            if not isinstance(agent_cfg, dict):
+                raise ValueError(
+                    f"agents.{agent_name}: expected a mapping of settings, got "
+                    f"{type(agent_cfg).__name__} — an agent key with an empty body "
+                    f"configures nothing"
+                )
             agents[agent_name] = PolicyLoader._parse_agent(
                 agent_name, agent_cfg, defaults
             )
@@ -403,7 +595,13 @@ class PolicyLoader:
     def _parse_agent(name: str, cfg: dict, defaults: dict) -> AgentPolicy:
         """Parse an agent config dict into an AgentPolicy."""
         surface_overrides: dict[str, SurfacePolicy] = {}
-        for surf_name, surf_cfg in cfg.get("surface_overrides", {}).items():
+        for surf_name, surf_cfg in (cfg.get("surface_overrides") or {}).items():
+            if not isinstance(surf_cfg, dict):
+                raise ValueError(
+                    f"agents.{name}.surface_overrides.{surf_name}: expected a mapping of "
+                    f"settings, got {type(surf_cfg).__name__} — a surface key with an "
+                    f"empty body overrides nothing"
+                )
             surface_overrides[surf_name] = SurfacePolicy(
                 surface=surf_name,
                 block_threshold=surf_cfg.get(
@@ -425,27 +623,61 @@ class PolicyLoader:
                                     "trust_level")},
             )
 
+        def inherited_list(key: str) -> list[str]:
+            """Resolve a list field from the agent block, else `defaults:`, naming whichever
+            one is malformed. Both paths go through the same coercion so they cannot diverge."""
+            if key in cfg:
+                return _string_list(cfg[key], f"agents.{name}", key)
+            return _string_list(defaults.get(key), "defaults", key)
+
+        def inherited_bool(key: str, default: bool) -> bool:
+            """inherited_list() for a bool field, naming whichever block is malformed."""
+            if key in cfg:
+                return require_bool(cfg[key], f"agents.{name}", key)
+            if key in defaults:
+                return require_bool(defaults[key], "defaults", key)
+            return default
+
+        mode = cfg.get("mode", defaults.get("mode", "enforce"))
+        # Validate BEFORE coercing: dict() on a list raises its own opaque ValueError,
+        # which would hide which key is actually wrong.
+        raw_effects = cfg.get("tool_effects", defaults.get("tool_effects", {})) or {}
+        # An empty cfg is the defaults-only fallback from get_agent_policy(); blame the
+        # block the bad value actually came from.
+        _validate_effect_fields(mode, raw_effects, f"agents.{name}" if cfg else "defaults")
+        tool_effects = dict(raw_effects)
+
         return AgentPolicy(
             name=name,
-            allowed_surfaces=cfg.get("allowed_surfaces", []),
+            allowed_surfaces=_string_list(
+                cfg.get("allowed_surfaces"), f"agents.{name}", "allowed_surfaces"
+            ),
             surface_overrides=surface_overrides,
-            protected_names=cfg.get("protected_names", []),
-            internal_codenames=cfg.get("internal_codenames", defaults.get("internal_codenames", [])),
-            gtm_codenames=cfg.get("gtm_codenames", defaults.get("gtm_codenames", [])),
+            protected_names=_string_list(
+                cfg.get("protected_names"), f"agents.{name}", "protected_names"
+            ),
+            internal_codenames=inherited_list("internal_codenames"),
+            gtm_codenames=inherited_list("gtm_codenames"),
             check_credentials=cfg.get("check_credentials", defaults.get("check_credentials", True)),
-            disabled_cred_rules=cfg.get("disabled_cred_rules", []),
+            disabled_cred_rules=_string_list(
+                cfg.get("disabled_cred_rules"), f"agents.{name}", "disabled_cred_rules"
+            ),
             check_high_entropy=cfg.get("check_high_entropy", defaults.get("check_high_entropy", False)),
             use_llm=cfg.get("use_llm", defaults.get("use_llm", False)),
             llm_threshold=cfg.get("llm_threshold", defaults.get("llm_threshold", 0.35)),
             block_threshold=cfg.get("block_threshold", defaults.get("block_threshold", 0.9)),
-            allowed_capabilities=cfg.get("allowed_capabilities", defaults.get("allowed_capabilities", [])),
-            forbidden_capabilities=cfg.get("forbidden_capabilities", defaults.get("forbidden_capabilities", [])),
+            allowed_capabilities=inherited_list("allowed_capabilities"),
+            forbidden_capabilities=inherited_list("forbidden_capabilities"),
+            mode=mode,
+            tool_effects=tool_effects,
+            strict_unknown_tools=inherited_bool("strict_unknown_tools", False),
             extra={k: v for k, v in cfg.items()
                    if k not in ("allowed_surfaces", "surface_overrides", "protected_names",
                                 "internal_codenames", "gtm_codenames",
                                 "check_credentials", "disabled_cred_rules", "check_high_entropy",
                                 "use_llm", "llm_threshold", "block_threshold",
-                                "allowed_capabilities", "forbidden_capabilities")},
+                                "allowed_capabilities", "forbidden_capabilities",
+                                "mode", "tool_effects", "strict_unknown_tools")},
         )
 
     @staticmethod

@@ -217,6 +217,33 @@ def jataayu_check_skillset(
     return risk.to_dict()
 
 
+def _load_agent_policy(policy_file: str, agent: Optional[str]):
+    """Resolve an AgentPolicy from a policy YAML — re-read and re-parsed on every call.
+
+    DO NOT CACHE THIS. Three cache variants shipped here and all three failed OPEN,
+    serving `mode: observe` after the file said `enforce`:
+      - lru_cache on the path: an edit never took effect at all.
+      - an (mtime, size) key: `observe` and `enforce` are both 7 bytes and back-to-back
+        saves share an st_mtime_ns, so a same-tick edit was invisible forever.
+      - a content digest hashed by a read separate from the parse: the file changes
+        between the two, and the entry is poisoned for the process lifetime.
+    The re-parse is not free and the number is not a guess: measured over 1000 calls,
+    jataayu_authorize_action(policy_file=...) costs ~0.76ms/call re-parsing versus
+    ~0.05ms/call cached, against ~0.04ms with no policy file at all. So the YAML parse
+    IS ~95% of this call, and deleting the cache cost ~0.71ms/call — a deliberate trade,
+    made after three fail-open bugs, of ~1300 authorizations/sec/core for a policy that
+    is always the one on disk. That is the wrong trade to buy back HERE: if you need the
+    throughput, load the policy yourself, build ONE EffectBoundary and reuse it, and own
+    the reload explicitly. Do not put the cache back inside a convenience function whose
+    whole contract is that it reflects what is on disk right now.
+
+    `get_agent_policy("")` never raises and falls back to the `defaults:` block, so a
+    policy file with no named agent is still load-bearing.
+    """
+    from jataayu.config.policy import load_policy
+    return load_policy(policy_file).get_agent_policy(agent or "")
+
+
 def jataayu_authorize_action(
     tool_name: str,
     params: dict,
@@ -224,6 +251,9 @@ def jataayu_authorize_action(
     untrusted: bool = True,
     policy_file: Optional[str] = None,
     agent: Optional[str] = None,
+    mode: Optional[str] = None,
+    tool_effects: Optional[dict] = None,
+    strict: Optional[bool] = None,
 ) -> dict:
     """
     Authorize a tool call at the EFFECT BOUNDARY — by the harm of the action, not the text.
@@ -245,20 +275,33 @@ def jataayu_authorize_action(
                    (tool returns, web pages, issues, memory). Default True (assume untrusted).
         policy_file: Optional path to a Jataayu policy YAML for capability isolation.
         agent: Agent name to resolve in the policy.
+        mode: 'enforce' (default) or 'observe'. In observe mode the verdict is REPORTED
+              but not enforced: `decision` is 'allow' and a commit token is issued, while
+              `would_decision` carries the truthful verdict. Use it to measure your own
+              false-positive rate against production traffic before turning on blocking.
+        tool_effects: Your own tool inventory — {tool_name: effect_class}, e.g.
+              {"jira.create_issue": "network"}. Overrides the built-in name classifier,
+              and merges with any `tool_effects` in the policy file (this wins per key).
+        strict: Require approval for untrusted calls to tool names the classifier does not
+              recognize (default False — unrecognized names fall back to READ).
 
     Returns:
         dict: tool_name, effect_class, provenance, decision ('allow'|'deny'|'needs_approval'),
-              reason, violations, commit_token.
+              reason, violations, commit_token. In observe mode only, three keys are ADDED:
+              mode, would_decision, tripwire_triggered. Enforce-mode output is unchanged.
+
+    To record every decision, install a process-wide sink::
+
+        from jataayu import set_decision_sink
+        set_decision_sink(lambda record: log.info(record))
     """
     from jataayu.guards.effect_boundary import EffectBoundary, Value, Provenance
 
-    policy = None
-    if policy_file:
-        from jataayu.config.policy import load_policy
-        loaded = load_policy(policy_file)
-        policy = loaded.get_agent_policy(agent) if agent else None
+    policy = _load_agent_policy(policy_file, agent) if policy_file else None
 
-    boundary = EffectBoundary(policy=policy)
+    boundary = EffectBoundary(
+        policy=policy, mode=mode, tool_effects=tool_effects, strict=strict,
+    )
     prov = Provenance.UNTRUSTED if untrusted else Provenance.TRUSTED
     values = [Value(str(params), prov)]
     return boundary.preview(tool_name, params, values).to_dict()

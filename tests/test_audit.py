@@ -156,3 +156,17 @@ class TestProfileAndSerialize:
         assert d["session_id"] == "s1"
         assert d["audit"]["risk"] == "high"
         assert len(d["events"]) == 1
+
+    def test_trace_classifies_with_the_given_boundary(self):
+        """Without the boundary, the audit disagrees with the guard that decided the call."""
+        from jataayu.guards.effect_boundary import EffectBoundary
+
+        boundary = EffectBoundary(tool_effects={"internal.run_playbook": "shell"})
+        t = SessionTrace(boundary=boundary)
+        e = t.record("internal.run_playbook", untrusted=True)
+        assert e.effect_class is EffectClass.SHELL
+        assert t.audit().risk == AuditRisk.HIGH
+
+        assert SessionTrace().record(
+            "internal.run_playbook", untrusted=True,
+        ).effect_class is EffectClass.READ

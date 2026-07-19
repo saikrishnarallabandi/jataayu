@@ -33,10 +33,17 @@ llm = [
 ollama = [
     "ollama>=0.1",
 ]
+gateway = [
+    "aiohttp>=3.9",
+]
 dev = [
     "pytest>=7",
+    "pytest-timeout>=2.1",
     "ruff",
     "black",
+    # the MCP gateway's server tests drive a real aiohttp server; without this
+    # they cannot run, which is how the gateway once shipped unable to serve.
+    "aiohttp>=3.9",
 ]
 
 [project.scripts]
@@ -57,3 +64,12 @@ target-version = "py310"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Slowest test is 0.50s locally; the slowest legitimate path is a gateway test
+# exhausting its own 5s bind wait plus a 5s join. 60s clears that by 4x on a
+# cold CI runner and still fails ~10x inside the job's timeout-minutes, so a
+# hang produces a stack trace instead of a silent 6-hour burn. The thread
+# method (not signal) is required: signal cannot interrupt a thread blocked in
+# a socket call, and thread dumps every thread's stack, which is where the
+# gateway tests would wedge.
+timeout = 60
+timeout_method = "thread"

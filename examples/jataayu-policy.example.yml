@@ -23,6 +23,35 @@ defaults:
 # Per-agent policies
 agents:
 
+  # Effect-boundary configuration — measure before you enforce.
+  #
+  #   from jataayu import jataayu_authorize_action
+  #   jataayu_authorize_action("shell.exec", {...}, policy_file="jataayu-policy.yml",
+  #                            agent="prod-agent")
+  #
+  # In observe mode the returned `decision` is 'allow' (nothing is blocked) while
+  # `would_decision` carries the truthful verdict — so you can measure your own
+  # false-positive rate on real traffic, then flip mode to `enforce`.
+  prod-agent:
+    mode: observe                  # "enforce" (block) | "observe" (measure only)
+    strict_unknown_tools: false    # true = untrusted calls to unknown tool names need approval
+    # Your real tool inventory. Overrides the built-in name classifier, so this is
+    # also how you fix a false positive on one of your own tool names.
+    # The override also outranks allowed_capabilities/forbidden_capabilities: mapping a
+    # tool to `read` gives it the fs_read capability, so a `forbidden: [exec]` list no
+    # longer applies to that name. Deliberate — the map is your ground truth for the
+    # tools you name — but it means a wrong entry here silently widens the policy.
+    # Valid effects: read, memory_write, file_write, network, secret_read,
+    #                shell, code_eval
+    # `none` is deliberately NOT accepted here. It carries no capability tag and sits
+    # outside every critical/approval set, so mapping a tool to it would disable the
+    # boundary for that name entirely — including forbidden_capabilities. `read` is the
+    # least restrictive value you can set, and it still applies capability checks.
+    tool_effects:
+      jira.create_issue: network
+      internal.run_playbook: shell
+      db.query: read
+
   # A coding agent (Cline, Claude Code, Cursor, etc.)
   # These agents read GitHub issues, PRs, and web pages — high Clinejection risk
   coding-agent:

@@ -23,13 +23,185 @@ boundary so severity ordering and capability tags stay consistent.
 """
 from __future__ import annotations
 
+import asyncio
+import copy
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Callable, Optional
 
-from jataayu.guards.effect_boundary import EffectBoundary, EffectClass, Provenance
+# ---------------------------------------------------------------------------
+# Decision sink — "which decisions did Jataayu make?"
+#
+# Defined ABOVE the effect_boundary import on purpose: effect_boundary imports
+# emit_decision back out of this module, so anything it needs must exist before
+# this module's own imports run.
+# ---------------------------------------------------------------------------
 
-# One shared classifier instance (its vault stays empty — we only use classify()).
+DecisionSink = Callable[[dict], None]
+
+_sink: Optional[DecisionSink] = None
+_capture_content: bool = False
+
+
+def require_sink(sink, where: str, key: str):
+    """Reject a non-callable sink where it is installed, rather than where it is called.
+
+    emit_decision() swallows everything a sink raises, so telemetry can never change a
+    verdict. That is deliberate, but it means a non-callable sink costs every record and
+    reports itself only as a logged traceback per decision — never at the line that set
+    it. None stays valid: it clears the module-level sink, and on an instance it means
+    "defer to the module-level one".
+    """
+    if sink is not None and not callable(sink):
+        raise ValueError(
+            f"{where}: {key} must be callable or None, got {type(sink).__name__} {sink!r}"
+        )
+    return sink
+
+
+def set_decision_sink(sink: Optional[DecisionSink], *, capture_content: bool = False) -> None:
+    """Install a process-wide callback receiving one dict per Jataayu decision.
+
+    The sink is telemetry: it can never change a verdict. Exceptions raised inside it
+    are caught and logged once to the 'jataayu' logger, never propagated.
+
+    capture_content=False (default) emits metadata only. True includes tool params /
+    scanned text. Opt in explicitly — decision records are frequently shipped off-host.
+
+    Pass sink=None to uninstall.
+
+    Record keys map onto NeMo Guardrails' vocabulary as::
+
+        jataayu             NeMo
+        -------             ----
+        rail_type           rail.type
+        decision            rail.status (what was enforced)
+        reason              rail.reason
+        tool_name           action.name
+
+    Flat snake_case keys, not dotted, so a CSV/DB/Slack emitter needs no re-modelling.
+    """
+    from jataayu.config.policy import require_bool
+
+    global _sink, _capture_content
+    # Both arguments are checked before either global moves, so a rejected call leaves
+    # the previously installed sink intact rather than half-replacing it.
+    # A truthy non-bool ("false") here would switch content capture on process-wide for
+    # every guard, which is the opposite of what was written.
+    require_bool(capture_content, "set_decision_sink", "capture_content=")
+    require_sink(sink, "set_decision_sink", "sink=")
+    _sink = sink
+    _capture_content = capture_content
+
+
+def capture_content_enabled(override: Optional[bool] = None) -> bool:
+    """Resolve capture_content: per-instance override, else the module-level setting."""
+    return _capture_content if override is None else override
+
+
+# Depth cap for the per-leaf fallback below. deepcopy handles cycles; the manual walk
+# that runs after it fails does not, so a cyclic record containing a lock would recurse
+# forever. Decision records are flat-ish; 20 is far past anything real.
+_MAX_SNAPSHOT_DEPTH = 20
+
+
+def _repr_or_placeholder(value) -> str:
+    """A __repr__ that itself raises must not cost the record."""
+    try:
+        return repr(value)
+    except Exception:
+        return f"<unreprable {type(value).__name__}>"
+
+
+def _safe_copy(value, depth: int = 0):
+    """Deep-copy `value`, degrading to repr PER LEAF rather than wholesale.
+
+    Applying the fallback to a whole top-level value would turn `params` into a str
+    the moment one leaf is a lock, so a structured sink (JSON schema, DB column) gets
+    an object for every call but a string for that one. The structure has to survive.
+    """
+    try:
+        return copy.deepcopy(value)
+    except Exception:
+        pass
+    if depth >= _MAX_SNAPSHOT_DEPTH:
+        return _repr_or_placeholder(value)
+    if isinstance(value, dict):
+        try:
+            items = [
+                (_safe_copy(k, depth + 1), _safe_copy(v, depth + 1))
+                for k, v in value.items()
+            ]
+            copied = dict(items)
+            # Two distinct keys can degrade to the SAME repr, and dict() would then drop
+            # one entry from the audit record with nothing to say it happened. Keeping
+            # the whole dict as text loses the structure but never loses an entry.
+            if len(copied) != len(items):
+                return _repr_or_placeholder(value)
+            return copied
+        except Exception:
+            return _repr_or_placeholder(value)
+    if isinstance(value, (list, tuple, set, frozenset)):
+        try:
+            # type(...) preserves tuple/set; a subclass with a different signature
+            # (namedtuple) raises and falls through to repr.
+            orig_len = len(value)
+            copied = type(value)(_safe_copy(v, depth + 1) for v in value)
+            # For sets and frozensets two distinct elements can degrade to the same
+            # repr string, causing the reconstructed set to be smaller than the
+            # original — an entry is silently dropped, the same failure mode that
+            # the dict path guards against with its len() check.
+            if isinstance(copied, (set, frozenset)) and len(copied) != orig_len:
+                return _repr_or_placeholder(value)
+            return copied
+        except Exception:
+            return _repr_or_placeholder(value)
+    return _repr_or_placeholder(value)
+
+
+def _snapshot(record: dict) -> dict:
+    """Deep-copy a decision record so a sink cannot reach caller-visible state.
+
+    The record shares objects with the live decision (the violations list) and, under
+    capture_content, with the caller's own params dict. A sink that redacts or normalizes
+    in place would otherwise rewrite the very values that were classified. Values that
+    refuse to deepcopy (handles, locks) degrade to their repr rather than dropping the
+    record — telemetry still fires, and still hands out nothing the caller owns.
+    """
+    return {k: _safe_copy(v) for k, v in record.items()}
+
+
+def emit_decision(record: dict, sink: Optional[DecisionSink] = None) -> None:
+    """Deliver a COPY of `record` to `sink` (per-instance) or the module-level sink.
+
+    Never raises, except for KeyboardInterrupt and asyncio.CancelledError. A broken
+    telemetry callback must never be why a `deny` fails to reach the caller, so
+    BaseException is swallowed and logged — SystemExit and library timeout types included.
+
+    Those two are re-raised because neither is the sink failing: they are control flow
+    aimed at the surrounding process/task. Eating KeyboardInterrupt makes Ctrl-C
+    unreliable in any loop that authorizes actions; eating CancelledError makes a
+    cancelled task refuse to unwind, and the event loop then sees a task that ignored
+    its cancellation. A sink that raises CancelledError spuriously is indistinguishable
+    from a genuinely cancelled one, and the safe reading of "cancelled" is to unwind.
+    """
+    target = sink if sink is not None else _sink
+    if target is None:
+        return
+    try:
+        target(_snapshot(record))
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        raise
+    except BaseException:
+        logging.getLogger("jataayu").exception("decision sink raised; record dropped")
+
+
+from jataayu.guards.effect_boundary import EffectBoundary, EffectClass, Provenance  # noqa: E402
+
+# Fallback classifier for traces built without a boundary (its vault stays empty — we only
+# use classify()). It knows no configured tool_effects, so a trace that must agree with the
+# boundary that actually decided the calls should be given that boundary.
 _CLASSIFIER = EffectBoundary()
 
 # Memory-read tool names (the recall side; the write side lives in effect_boundary).
@@ -133,10 +305,14 @@ class SessionTrace:
                 log.warning(f.explanation)
     """
 
-    def __init__(self, session_id: str = "session"):
+    def __init__(self, session_id: str = "session", *, boundary: Optional[EffectBoundary] = None):
+        """`boundary` supplies the effect classifier. Pass the EffectBoundary that actually
+        authorizes this session's calls, or the audit will classify a tool differently from
+        the guard that decided it whenever `tool_effects` is configured."""
         self.session_id = session_id
         self.events: list[TraceEvent] = []
         self._auto_turn = 0
+        self._boundary = boundary if boundary is not None else _CLASSIFIER
 
     # -- recording --------------------------------------------------------
     def record(
@@ -166,7 +342,7 @@ class SessionTrace:
                 provenance = Provenance.UNTRUSTED if untrusted else Provenance.TRUSTED
 
         if effect_class is None:
-            effect_class = _CLASSIFIER.classify(tool_name)
+            effect_class = self._boundary.classify(tool_name)
 
         if turn is None:
             self._auto_turn += 1
