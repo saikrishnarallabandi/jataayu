@@ -23,7 +23,7 @@ Usage:
         bind_port=8001,
         use_llm=False,  # fast-path only in production
     )
-    await gateway.start()
+    gateway.start()  # blocks; or `await gateway.serve_forever()` inside a loop
 
     # Or as a drop-in via CLI:
     python -m jataayu.integrations.mcp_gateway \
@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from typing import Any, Optional
 from urllib.parse import urljoin
 
@@ -123,6 +124,21 @@ class JataayuMCPGateway:
         self.inspect_returns = inspect_returns
         self.return_surface = return_surface
 
+        # Realized ports of the live listeners, one entry per run (see the
+        # bound_port property). Distinct from bind_port, which stays the caller's
+        # configuration (0 = "pick an ephemeral port", and it must keep meaning
+        # that on restart).
+        self._bound_ports: list[int] = []
+
+        # stop() may land before serve_forever() has registered its waiter — the
+        # bound_port readiness signal is published earlier — so stop requests are
+        # counted, not just signalled: a run samples the count before binding and
+        # exits immediately if it changed by the time it registers. A counter
+        # rather than a flag so concurrent runs can't clear each other's request.
+        self._lock = threading.Lock()
+        self._stop_epoch = 0
+        self._waiters: list[tuple[Any, Any]] = []
+
         # Lazy imports — don't require aiohttp/fastapi unless gateway is used
         from jataayu.guards.inbound import InboundGuard
         self.guard = InboundGuard(use_llm=use_llm, llm_threshold=llm_threshold)
@@ -132,6 +148,17 @@ class JataayuMCPGateway:
             self.taint_tracker: Optional[Any] = TaintTracker()
         else:
             self.taint_tracker = None
+
+    @property
+    def bound_port(self) -> Optional[int]:
+        """
+        The port the kernel actually gave us — the readiness signal — or None
+        while nothing is bound. With concurrent runs on one gateway this is the
+        most recently bound *live* listener: a run retires only its own port when
+        its runner is cleaned up, so runs can't clear each other's.
+        """
+        with self._lock:
+            return self._bound_ports[-1] if self._bound_ports else None
 
     # Sink risk scores — used even without taint to assess inherent danger of tools
     _SINK_BASE_SCORES: dict[str, float] = {
@@ -449,8 +476,19 @@ class JataayuMCPGateway:
 
                 return resp.status, resp_headers, resp_body
 
-    async def start_async_server(self) -> None:
-        """Start the async HTTP proxy server using aiohttp."""
+    async def start_async_server(self) -> Any:
+        """
+        Bind and start the async HTTP proxy server using aiohttp.
+
+        Non-blocking: returns as soon as the listener is bound, so callers that
+        manage their own event loop can start the gateway alongside other work.
+        Use `start()` for a blocking server, or await `serve_forever()` from an
+        existing loop.
+
+        Returns:
+            The aiohttp AppRunner — the caller owns it and must `await
+            runner.cleanup()` to release the socket.
+        """
         try:
             from aiohttp import web
         except ImportError:
@@ -483,20 +521,89 @@ class JataayuMCPGateway:
         app = web.Application()
         app.router.add_route("*", "/{path_info:.*}", handle_request)
 
-        runner = web.AppRunner(app)
+        class _GatewayRunner(web.AppRunner):
+            # The realized port belongs to this listener, not to the gateway:
+            # releasing the socket is what retires the port, whether that is
+            # serve_forever or a caller cleaning up the runner it was handed.
+            _jataayu_port: Optional[int] = None
+
+            async def cleanup(self) -> None:
+                with gateway._lock:
+                    port = self._jataayu_port
+                    self._jataayu_port = None
+                    if port is not None:
+                        gateway._bound_ports.remove(port)
+                await super().cleanup()
+
+        runner = _GatewayRunner(app)
         await runner.setup()
-        site = web.TCPSite(runner, self.bind_host, self.bind_port)
-        await site.start()
+        try:
+            site = web.TCPSite(runner, self.bind_host, self.bind_port)
+            await site.start()
+            # bind_port may be 0 (ephemeral); the kernel's choice is published on
+            # bound_port so the configured value survives for the next bind.
+            port = runner.addresses[0][1]
+        except BaseException:
+            await runner.cleanup()
+            raise
+
+        with self._lock:
+            self._bound_ports.append(port)
+            runner._jataayu_port = port
 
         logger.info(
             "Jataayu MCP Gateway listening on http://%s:%d → %s",
-            self.bind_host, self.bind_port, self.upstream_url,
+            self.bind_host, port, self.upstream_url,
         )
+        return runner
+
+    async def serve_forever(self) -> None:
+        """
+        Start the server and serve until `stop()` is called or the task is
+        cancelled. Releases the listening socket on the way out.
+        """
+        import asyncio
+
+        with self._lock:
+            # Stops requested before this point belong to a previous run.
+            epoch = self._stop_epoch
+
+        runner = await self.start_async_server()
+        waiter = (asyncio.get_running_loop(), asyncio.Event())
+        with self._lock:
+            self._waiters.append(waiter)
+            stop_already_requested = self._stop_epoch != epoch
+        if stop_already_requested:
+            waiter[1].set()
+        try:
+            await waiter[1].wait()
+        finally:
+            with self._lock:
+                self._waiters.remove(waiter)
+            await runner.cleanup()
+
+    def stop(self) -> None:
+        """
+        Ask every running `start()` / `serve_forever()` on this gateway to shut
+        down. Thread-safe, and safe to call before the server is up — the request
+        is latched, so a serve_forever() still binding will exit as soon as it is.
+        """
+        with self._lock:
+            self._stop_epoch += 1
+            waiters = list(self._waiters)
+        for loop, shutdown in waiters:
+            try:
+                loop.call_soon_threadsafe(shutdown.set)
+            except RuntimeError:
+                pass  # loop already closed; that run is over anyway
 
     def start(self) -> None:
         """Start the gateway (blocking, runs asyncio event loop)."""
         import asyncio
-        asyncio.run(self.start_async_server())
+        try:
+            asyncio.run(self.serve_forever())
+        except KeyboardInterrupt:
+            logger.info("Jataayu MCP Gateway shutting down")
 
     @staticmethod
     def _params_to_text(params: Any, depth: int = 0) -> str:
