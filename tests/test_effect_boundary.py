@@ -5,11 +5,14 @@ The property under test (the CaMeL / arXiv:2606.09549 guarantee): an attacker wh
 still cannot COMMIT an unauthorized or post-authorization-mutated high-effect action, because the
 decision is made on (effect severity x value provenance x capability policy), not on the string.
 """
+import hashlib
+
 import pytest
 
 from jataayu.config.policy import AgentPolicy
 from jataayu.guards.effect_boundary import (
     EffectBoundary, Value, Provenance, EffectClass, Decision, CommitRejected,
+    _canonical,
 )
 
 
@@ -313,3 +316,100 @@ class TestReadConfinement:
         secret = "sk-ant-12345"
         handle = boundary.confine_read(secret, source="env")
         assert boundary.dereference(handle) == secret
+
+
+class TestCanonicalization:
+    """
+    `_canonical` feeds the commit token, so it has two jobs and they pull against each other:
+    it must never raise on caller-supplied params (a crash here is a DoS on the guard, reachable
+    from tool arguments), and it must stay injective (a collision is an attacker swapping params
+    past an authorization check, which is worse than the crash).
+    """
+
+    # An ordinary string-keyed JSON params dict — the form ~every real call takes. This literal is
+    # the pre-fix output; if it changes, every commit token already in flight is silently voided.
+    ORDINARY = {"path": "/tmp/x", "n": 1, "ok": True, "z": None, "l": [1, {"a": 2}], "f": 1.5}
+    ORDINARY_CANONICAL = (
+        '{"params":{"f":1.5,"l":[1,{"a":2}],"n":1,"ok":true,"path":"/tmp/x","z":null},'
+        '"tool":"read_file"}'
+    )
+
+    def test_ordinary_params_are_byte_for_byte_unchanged(self):
+        assert _canonical("read_file", self.ORDINARY) == self.ORDINARY_CANONICAL
+
+    def test_ordinary_params_token_unchanged(self, boundary):
+        pv = boundary.preview("read_file", self.ORDINARY, [T("x")])
+        assert pv.commit_token == hashlib.sha256(self.ORDINARY_CANONICAL.encode()).hexdigest()
+
+    @pytest.mark.parametrize("params", [
+        {1: "a"},                          # int key
+        {1.5: "a"},                        # float key
+        {True: "a"},                       # bool key
+        {None: "a"},                       # null key
+        {(1, 2): "a"},                     # tuple key — json raises TypeError
+        {object(): "a"},                   # arbitrary object key — json raises TypeError
+        {1: "a", "b": 2},                  # mixed key types — sort_keys raises, separate failure
+        {"outer": [{"ok": 1}, {2: "b"}]},  # bad key nested inside a list of dicts
+        {"a": {"b": {(): 1}}},             # bad key several levels down
+    ])
+    def test_preview_survives_unencodable_keys(self, boundary, params):
+        pv = boundary.preview("read_file", params, [T("x")])
+        assert pv.decision is Decision.ALLOW
+        assert boundary.commit(pv, params, lambda: "ran") == "ran"
+
+    @pytest.mark.parametrize("a,b", [
+        ({1: "a"}, {"1": "a"}),            # json coerces int keys to strings — the silent collide
+        ({True: "x"}, {1: "x"}),           # True == 1 as a dict key, but they are not the same key
+        ({None: "x"}, {"None": "x"}),
+        ({None: "x"}, {"null": "x"}),
+        ({1.0: "x"}, {1: "x"}),
+        ({(1,): "x"}, {"(1,)": "x"}),
+        ({1: "a"}, {"\x00i:1": "a"}),      # a literal key spelled like the tag must not collide
+        ({"\x00s:1": "a"}, {"\x00i:1": "a"}),
+    ])
+    def test_materially_different_params_never_share_a_canonical_form(self, a, b):
+        assert _canonical("t", a) != _canonical("t", b)
+
+    def test_distinct_objects_with_equal_str_do_not_collide(self):
+        class Same:
+            def __str__(self): return "same"
+            __repr__ = __str__
+
+        assert _canonical("t", {Same(): 1}) != _canonical("t", {Same(): 1})
+
+    def test_key_whose_str_raises_does_not_escape(self, boundary):
+        class Hostile:
+            def __str__(self): raise RuntimeError("boom")
+            def __repr__(self): raise RuntimeError("boom")
+            def __hash__(self): return 1
+            def __eq__(self, other): return self is other
+
+        key = Hostile()
+        pv = boundary.preview("read_file", {key: "a"}, [T("x")])
+        assert pv.decision is Decision.ALLOW
+        assert boundary.commit(pv, {key: "a"}, lambda: "ran") == "ran"
+
+    def test_self_referential_params_terminate(self, boundary):
+        params = {"a": 1}
+        params["self"] = params
+        pv = boundary.preview("read_file", params, [T("x")])
+        assert pv.decision is Decision.ALLOW
+        assert boundary.commit(pv, params, lambda: "ran") == "ran"
+
+    def test_self_referential_list_terminates(self):
+        items = [1]
+        items.append(items)
+        assert _canonical("t", {"l": items})
+
+    def test_repeated_sibling_is_not_mistaken_for_a_cycle(self):
+        """Cycle tracking is per-path; the same dict twice as siblings is a DAG, not a loop."""
+        shared = {"x": 1}
+        assert _canonical("t", {"a": shared, "b": shared}) == _canonical(
+            "t", {"a": {"x": 1}, "b": {"x": 1}})
+
+    def test_mutation_still_rejected_with_unencodable_keys(self, boundary):
+        pv = boundary.preview("read_file", {1: "a"}, [T("x")])
+        with pytest.raises(CommitRejected):
+            boundary.commit(pv, {1: "b"}, lambda: "ran")
+        with pytest.raises(CommitRejected):
+            boundary.commit(pv, {"1": "a"}, lambda: "ran")
