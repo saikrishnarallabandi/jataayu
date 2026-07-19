@@ -12,6 +12,15 @@ import requests
 
 from jataayu.integrations.mcp_gateway import JataayuMCPGateway, _jsonrpc_error, _jsonrpc_ok
 
+# The server tests below drive a real aiohttp server. aiohttp ships in the `dev`
+# extra precisely so CI runs them — the gateway once shipped unable to serve a
+# single request because only the in-process hook was covered. Skip rather than
+# fail for a contributor who installed without it.
+needs_aiohttp = pytest.mark.skipif(
+    __import__("importlib.util", fromlist=["util"]).find_spec("aiohttp") is None,
+    reason="aiohttp not installed; pip install -e '.[dev]' to run the server tests",
+)
+
 
 @pytest.fixture
 def gateway():
@@ -244,6 +253,7 @@ def running_gateway():
     assert _port_is_free(port), "gateway kept the listening socket after stop()"
 
 
+@needs_aiohttp
 class TestRealServer:
     """
     Drives the actual HTTP server, not handle_jsonrpc in-process — start()
@@ -287,6 +297,7 @@ class TestRealServer:
             assert resp.json()["error"]["code"] == JataayuMCPGateway.JSONRPC_SECURITY_ERROR
 
 
+@needs_aiohttp
 class TestLifecycle:
     def test_stop_before_serve_loop_is_ready(self):
         """

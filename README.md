@@ -80,10 +80,13 @@ pip install "jataayu[llm] @ git+https://github.com/saikrishnarallabandi/jataayu.
 
 # With Ollama (local, free slow path)
 pip install "jataayu[ollama] @ git+https://github.com/saikrishnarallabandi/jataayu.git"
+
+# To run the MCP gateway proxy (needs aiohttp)
+pip install "jataayu[gateway] @ git+https://github.com/saikrishnarallabandi/jataayu.git"
 ```
 
 Requires Python ≥ 3.10. The only hard dependencies are `requests` and `pyyaml` (policy files);
-LLM backends are optional extras.
+LLM backends and the gateway's `aiohttp` are optional extras.
 
 ---
 
