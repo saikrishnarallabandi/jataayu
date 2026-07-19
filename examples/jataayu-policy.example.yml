@@ -41,12 +41,12 @@ agents:
     # tool to `read` gives it the fs_read capability, so a `forbidden: [exec]` list no
     # longer applies to that name. Deliberate — the map is your ground truth for the
     # tools you name — but it means a wrong entry here silently widens the policy.
-    # Valid effects: none, read, memory_write, file_write, network, secret_read,
+    # Valid effects: read, memory_write, file_write, network, secret_read,
     #                shell, code_eval
-    # `none` is a per-tool opt-out: the tool is treated as having no effect at all, so
-    # the boundary never gates it, not even for untrusted callers under strict mode.
-    # Use it only for a genuinely inert name (a health check, a no-op stub) that the
-    # classifier misreads as a sink — never to quiet a tool that really does something.
+    # `none` is deliberately NOT accepted here. It carries no capability tag and sits
+    # outside every critical/approval set, so mapping a tool to it would disable the
+    # boundary for that name entirely — including forbidden_capabilities. `read` is the
+    # least restrictive value you can set, and it still applies capability checks.
     tool_effects:
       jira.create_issue: network
       internal.run_playbook: shell
