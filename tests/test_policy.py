@@ -486,10 +486,6 @@ class TestPolicyFileHotReload:
             f"version: 1\nagents:\n  prod:\n    mode: {mode}\n"
             f"    tool_effects:\n      internal.run_playbook: shell\n"
         )
-        # Bump the mtime explicitly: 'observe' and 'enforce' are both 7 bytes, so on a
-        # filesystem with coarse timestamps the edit would be invisible to a stat-based key.
-        st = path.stat()
-        os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
 
     def test_flipping_mode_in_the_file_starts_enforcing(self, tmp_path):
         from jataayu import jataayu_authorize_action
@@ -507,6 +503,69 @@ class TestPolicyFileHotReload:
             "internal.run_playbook", {"x": 1}, policy_file=str(p), agent="prod",
         )
         assert after["decision"] == "deny"
+
+    def test_edit_within_one_mtime_tick_still_takes_effect(self, tmp_path):
+        """The reload must not depend on the filesystem's clock granularity.
+
+        'observe' and 'enforce' are both 7 bytes, and back-to-back saves on ext4 share an
+        st_mtime_ns ~95% of the time — so a (mtime, size) cache key serves the stale
+        observe policy PERMANENTLY. Pinning both stats identical makes that deterministic.
+        """
+        from jataayu import jataayu_authorize_action
+
+        p = tmp_path / "jataayu-policy.yml"
+        self._write(p, "observe")
+        st = p.stat()
+        assert jataayu_authorize_action(
+            "internal.run_playbook", {"x": 1}, policy_file=str(p), agent="prod",
+        )["decision"] == "allow"
+
+        self._write(p, "enforce")
+        os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns))
+        assert p.stat().st_mtime_ns == st.st_mtime_ns
+        assert p.stat().st_size == st.st_size
+
+        for _ in range(2):   # ...and stays enforcing, not just on the first re-read
+            assert jataayu_authorize_action(
+                "internal.run_playbook", {"x": 1}, policy_file=str(p), agent="prod",
+            )["decision"] == "deny"
+
+    def test_a_policy_file_deleted_after_a_hit_raises(self, tmp_path):
+        """A cached hit must not outlive the file it was parsed from."""
+        from jataayu import api
+
+        p = tmp_path / "jataayu-policy.yml"
+        self._write(p, "enforce")
+        assert api._load_agent_policy(str(p), "prod").mode == "enforce"
+
+        p.unlink()
+        with pytest.raises(FileNotFoundError):
+            api._load_agent_policy(str(p), "prod")
+
+    def test_a_policy_file_replaced_by_rename_takes_effect(self, tmp_path):
+        """The atomic-save pattern (write temp, os.replace) is how editors save."""
+        from jataayu import api
+
+        p = tmp_path / "jataayu-policy.yml"
+        self._write(p, "observe")
+        assert api._load_agent_policy(str(p), "prod").mode == "observe"
+
+        tmp = tmp_path / "staged.yml"
+        self._write(tmp, "enforce")
+        os.replace(tmp, p)
+        assert api._load_agent_policy(str(p), "prod").mode == "enforce"
+
+    def test_a_policy_directory_reloads_on_an_edit(self, tmp_path):
+        from jataayu import api
+
+        d = tmp_path / "policy.d"
+        d.mkdir()
+        self._write(d / "a.yml", "observe")
+        assert api._load_agent_policy(str(d), "prod").mode == "observe"
+
+        self._write(d / "a.yml", "enforce")
+        os.utime(d / "a.yml", ns=(0, 0))
+        assert api._load_agent_policy(str(d), "prod").mode == "enforce"
 
     def test_tightening_capabilities_in_the_file_takes_effect(self, tmp_path):
         from jataayu import jataayu_authorize_action
@@ -547,3 +606,129 @@ class TestPolicyFileHotReload:
 
         with pytest.raises(FileNotFoundError):
             api._load_agent_policy(str(tmp_path / "nope.yml"), "prod")
+
+
+class TestScalarListFieldsAreRejected:
+    """`forbidden_capabilities: exec` is a scalar. list("exec") is ['e','x','e','c'],
+    which forbids nothing — a fail-open that no other validation catches."""
+
+    def _load(self, text, tmp_path):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(text)
+        return load_policy(str(p))
+
+    def test_scalar_forbidden_capabilities_on_an_agent_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="forbidden_capabilities"):
+            self._load(
+                "version: 1\nagents:\n  prod:\n    forbidden_capabilities: exec\n", tmp_path
+            )
+
+    def test_scalar_forbidden_capabilities_in_defaults_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="defaults"):
+            self._load(
+                "version: 1\ndefaults:\n  forbidden_capabilities: exec\n"
+                "agents:\n  prod: {}\n",
+                tmp_path,
+            )
+
+    def test_scalar_in_defaults_raises_on_the_fallback_path_too(self):
+        """get_agent_policy() is reachable without the loader — the same rule applies."""
+        policy = Policy(defaults={"forbidden_capabilities": "exec"})
+        with pytest.raises(ValueError, match="forbidden_capabilities"):
+            policy.get_agent_policy("unknown")
+
+    @pytest.mark.parametrize("agent", [None, "prod", "prodd"])
+    def test_a_scalar_never_silently_shreds_into_characters(self, tmp_path, agent):
+        """The failure this replaces: named agent denied, typo'd agent allowed."""
+        from jataayu import jataayu_authorize_action
+
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(
+            "version: 1\ndefaults:\n  forbidden_capabilities: exec\nagents:\n  prod: {}\n"
+        )
+        with pytest.raises(ValueError):
+            jataayu_authorize_action(
+                "shell.exec", {"command": "ls"}, untrusted=False,
+                policy_file=str(p), agent=agent,
+            )
+
+    def test_scalar_allowed_surfaces_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="allowed_surfaces"):
+            self._load(
+                "version: 1\nagents:\n  prod:\n    allowed_surfaces: internal\n", tmp_path
+            )
+
+    def test_a_real_list_still_loads(self, tmp_path):
+        p = self._load(
+            "version: 1\nagents:\n  prod:\n    forbidden_capabilities: [exec]\n", tmp_path
+        )
+        assert p.get_agent_policy("prod").forbidden_capabilities == ["exec"]
+
+
+class TestPolicyListsAreNotAliased:
+    """Policies are cached and long-lived, and to_dict()/to_privacy_config() hand these
+    lists out past the module boundary — one caller's mutation must not poison the rest."""
+
+    @pytest.fixture
+    def policy(self, tmp_path):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(
+            "version: 1\n"
+            "defaults:\n  forbidden_capabilities: [exec]\n"
+            "agents:\n  a: {}\n  b: {}\n"
+        )
+        return load_policy(str(p))
+
+    def test_a_named_agent_does_not_alias_the_defaults_list(self, policy):
+        agent = policy.agents["a"]
+        assert agent.forbidden_capabilities is not policy.defaults["forbidden_capabilities"]
+
+    def test_two_agents_do_not_share_one_list(self, policy):
+        assert policy.agents["a"].forbidden_capabilities is not (
+            policy.agents["b"].forbidden_capabilities
+        )
+
+    def test_mutating_one_agent_leaves_the_others_intact(self, policy):
+        policy.agents["a"].forbidden_capabilities.clear()
+        assert policy.agents["b"].forbidden_capabilities == ["exec"]
+        assert policy.defaults["forbidden_capabilities"] == ["exec"]
+        assert policy.get_agent_policy("unknown").forbidden_capabilities == ["exec"]
+
+    def test_inherited_codenames_are_not_aliased(self, tmp_path):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(
+            "version: 1\n"
+            "defaults:\n  internal_codenames: [Bluebird]\n"
+            "agents:\n  a: {}\n  b: {}\n"
+        )
+        policy = load_policy(str(p))
+        policy.agents["a"].to_privacy_config().internal_codenames.append("Leaked")
+        assert policy.agents["b"].internal_codenames == ["Bluebird"]
+
+
+class TestEmptyBodiesRaiseAClearError:
+    def test_empty_agents_body_in_a_directory_loads(self, tmp_path):
+        """`agents:` with no body is zero agents, exactly as from_dict already treats it —
+        not an opaque AttributeError from .items() on None."""
+        (tmp_path / "a.yml").write_text("version: 1\nagents:\n")
+        assert load_policy(str(tmp_path)).list_agents() == []
+
+    def test_empty_agent_body_in_a_directory(self, tmp_path):
+        (tmp_path / "a.yml").write_text("version: 1\nagents:\n  prod:\n")
+        with pytest.raises(ValueError, match="agents.prod"):
+            load_policy(str(tmp_path))
+
+    def test_empty_surfaces_body_in_a_directory(self, tmp_path):
+        (tmp_path / "a.yml").write_text("version: 1\nsurfaces:\n")
+        assert load_policy(str(tmp_path)).get_surface_profile("github-issue")
+
+    def test_empty_defaults_body(self, tmp_path):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text("version: 1\ndefaults:\n")
+        assert load_policy(str(p)).get_agent_policy("anyone").mode == "enforce"
+
+    def test_a_top_level_list_raises(self, tmp_path):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text("- version: 1\n")
+        with pytest.raises(ValueError, match="mapping"):
+            load_policy(str(p))

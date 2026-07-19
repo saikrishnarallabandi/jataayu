@@ -31,6 +31,7 @@ Example::
 from __future__ import annotations
 
 import functools
+import hashlib
 from typing import Optional
 
 from jataayu.guards.inbound import InboundGuard
@@ -219,28 +220,37 @@ def jataayu_check_skillset(
 
 
 @functools.lru_cache(maxsize=32)
-def _load_agent_policy_cached(policy_file: str, agent: Optional[str], stamp):
-    """`stamp` is not used — it is in the key so an edited policy file misses the cache."""
+def _load_agent_policy_cached(policy_file: str, agent: Optional[str], digest):
+    """`digest` is not used — it is in the key so an edited policy file misses the cache."""
     from jataayu.config.policy import load_policy
     return load_policy(policy_file).get_agent_policy(agent or "")
 
 
-def _policy_stamp(policy_file: str):
-    """(path, mtime_ns, size) per policy file — the cache key that expires on an edit.
+def _policy_digest(policy_file: str):
+    """Hash of the policy file(s)' bytes — the cache key that expires on an edit.
 
-    None when the path cannot be stat'd, which forces a reload so the loader raises the
-    real FileNotFoundError instead of serving a stale hit.
+    Not the file's stat: mtime granularity is coarse (measured at 4-13ms on ext4, worse
+    on HFS+/NFS), and `observe` and `enforce` are both 7 bytes, so an edit within one
+    clock tick leaves an identical (mtime, size) and the stale policy is served forever.
+    Reading a small YAML is far cheaper than re-parsing it, which is what the cache is for.
+
+    None when the path cannot be read — deleted, unreadable, or replaced mid-call — which
+    forces a reload so the loader raises the real error instead of serving a stale hit.
     """
     from pathlib import Path
 
     p = Path(policy_file)
+    h = hashlib.sha256()
     try:
         files = sorted(p.glob("*.y*ml")) if p.is_dir() else [p]
-        return tuple(
-            (str(f), f.stat().st_mtime_ns, f.stat().st_size) for f in files
-        )
+        for f in files:
+            data = f.read_bytes()
+            # Length-prefixed so no rename/split of content across files collides.
+            h.update(f"{f}\0{len(data)}\0".encode("utf-8", "surrogateescape"))
+            h.update(data)
     except OSError:
         return None
+    return h.hexdigest()
 
 
 def _load_agent_policy(policy_file: str, agent: Optional[str]):
@@ -248,16 +258,16 @@ def _load_agent_policy(policy_file: str, agent: Optional[str]):
 
     Editing `mode: observe` to `mode: enforce` — the workflow observe mode exists for —
     must take effect without a process restart, so the parse is cached against the file's
-    mtime and size rather than for the process lifetime.
+    CONTENT rather than for the process lifetime.
 
     `get_agent_policy("")` never raises and falls back to the `defaults:` block, so a
     policy file with no named agent is still load-bearing.
     """
-    stamp = _policy_stamp(policy_file)
-    if stamp is None:
+    digest = _policy_digest(policy_file)
+    if digest is None:
         from jataayu.config.policy import load_policy
         return load_policy(policy_file).get_agent_policy(agent or "")
-    return _load_agent_policy_cached(policy_file, agent, stamp)
+    return _load_agent_policy_cached(policy_file, agent, digest)
 
 
 def jataayu_authorize_action(

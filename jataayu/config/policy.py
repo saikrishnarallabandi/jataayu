@@ -265,6 +265,28 @@ class AgentPolicy:
 VALID_MODES = ("enforce", "observe")
 
 
+def _string_list(value: Any, where: str, key: str) -> list[str]:
+    """Coerce a policy list field to a fresh list, rejecting a bare scalar.
+
+    `forbidden_capabilities: exec` is a YAML scalar, and list("exec") is
+    ['e','x','e','c'] — which forbids nothing and fails OPEN. Rejecting at parse
+    is the only place that catches it; by the time it reaches
+    is_capability_allowed() it is indistinguishable from an empty policy.
+
+    The returned list is always a copy: policies are cached and shared, and both
+    to_dict() and to_privacy_config() hand these lists out past the module boundary,
+    so an aliased `defaults:` list lets one caller's mutation poison every agent.
+    """
+    if value is None:
+        return []
+    if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple, set, frozenset)):
+        raise ValueError(
+            f"{where}: {key} must be a list, got {type(value).__name__} {value!r} — "
+            f"write it as a YAML sequence (e.g. {key}: [{value!r}])"
+        )
+    return list(value)
+
+
 def _validate_effect_fields(mode: Any, tool_effects: Any, where: str) -> None:
     """Reject an unparseable mode / tool_effects block, naming the offending key.
 
@@ -330,8 +352,12 @@ class Policy:
             # The capability lists are inherited here for the same reason _parse_agent
             # inherits them: a `defaults:` block that forbids `exec` must not become inert
             # for an unnamed or misspelled agent — that is the half of the block that denies.
-            allowed_capabilities=list(self.defaults.get("allowed_capabilities", []) or []),
-            forbidden_capabilities=list(self.defaults.get("forbidden_capabilities", []) or []),
+            allowed_capabilities=_string_list(
+                self.defaults.get("allowed_capabilities"), "defaults", "allowed_capabilities"
+            ),
+            forbidden_capabilities=_string_list(
+                self.defaults.get("forbidden_capabilities"), "defaults", "forbidden_capabilities"
+            ),
             mode=self.defaults.get("mode", "enforce"),
             tool_effects=dict(self.defaults.get("tool_effects", {})),
             strict_unknown_tools=self.defaults.get("strict_unknown_tools", False),
@@ -414,11 +440,11 @@ class PolicyLoader:
         merged: dict[str, Any] = {"version": 1, "agents": {}, "surfaces": {}}
         for yaml_file in sorted(directory.glob("*.y*ml")):
             raw = PolicyLoader._load_yaml(str(yaml_file))
-            # Merge agents
-            for agent, cfg in raw.get("agents", {}).items():
+            # `agents:` with an empty body parses as None, not {} — same guard as from_dict.
+            for agent, cfg in (raw.get("agents") or {}).items():
                 merged["agents"][agent] = cfg
             # Merge surface overrides
-            for surf, cfg in raw.get("surfaces", {}).items():
+            for surf, cfg in (raw.get("surfaces") or {}).items():
                 merged["surfaces"][surf] = cfg
             # Use first file's defaults
             if "defaults" not in merged and "defaults" in raw:
@@ -437,8 +463,23 @@ class PolicyLoader:
     @staticmethod
     def from_dict(raw: dict, source_path: Optional[str] = None) -> Policy:
         """Parse a policy dict (already loaded from YAML) into a Policy object."""
-        defaults = raw.get("defaults", {})
-        global_surfaces = raw.get("surfaces", {})
+        if not isinstance(raw, dict):
+            raise ValueError(
+                f"policy must be a mapping at the top level, got {type(raw).__name__}"
+            )
+        # An empty `defaults:` / `surfaces:` body parses as None; both are dereferenced
+        # later (get_agent_policy, get_surface_profile) and would fail there, not here.
+        defaults = raw.get("defaults") or {}
+        global_surfaces = raw.get("surfaces") or {}
+        if not isinstance(defaults, dict):
+            raise ValueError(
+                f"defaults: expected a mapping of settings, got {type(defaults).__name__}"
+            )
+        if not isinstance(global_surfaces, dict):
+            raise ValueError(
+                f"surfaces: expected a mapping of surface names, got "
+                f"{type(global_surfaces).__name__}"
+            )
 
         # The defaults block feeds get_agent_policy()'s fallback for unknown agents,
         # so it is a config path in its own right and gets the same validation.
@@ -472,7 +513,13 @@ class PolicyLoader:
     def _parse_agent(name: str, cfg: dict, defaults: dict) -> AgentPolicy:
         """Parse an agent config dict into an AgentPolicy."""
         surface_overrides: dict[str, SurfacePolicy] = {}
-        for surf_name, surf_cfg in cfg.get("surface_overrides", {}).items():
+        for surf_name, surf_cfg in (cfg.get("surface_overrides") or {}).items():
+            if not isinstance(surf_cfg, dict):
+                raise ValueError(
+                    f"agents.{name}.surface_overrides.{surf_name}: expected a mapping of "
+                    f"settings, got {type(surf_cfg).__name__} — a surface key with an "
+                    f"empty body overrides nothing"
+                )
             surface_overrides[surf_name] = SurfacePolicy(
                 surface=surf_name,
                 block_threshold=surf_cfg.get(
@@ -494,6 +541,13 @@ class PolicyLoader:
                                     "trust_level")},
             )
 
+        def inherited_list(key: str) -> list[str]:
+            """Resolve a list field from the agent block, else `defaults:`, naming whichever
+            one is malformed. Both paths go through the same coercion so they cannot diverge."""
+            if key in cfg:
+                return _string_list(cfg[key], f"agents.{name}", key)
+            return _string_list(defaults.get(key), "defaults", key)
+
         mode = cfg.get("mode", defaults.get("mode", "enforce"))
         # Validate BEFORE coercing: dict() on a list raises its own opaque ValueError,
         # which would hide which key is actually wrong.
@@ -503,19 +557,25 @@ class PolicyLoader:
 
         return AgentPolicy(
             name=name,
-            allowed_surfaces=cfg.get("allowed_surfaces", []),
+            allowed_surfaces=_string_list(
+                cfg.get("allowed_surfaces"), f"agents.{name}", "allowed_surfaces"
+            ),
             surface_overrides=surface_overrides,
-            protected_names=cfg.get("protected_names", []),
-            internal_codenames=cfg.get("internal_codenames", defaults.get("internal_codenames", [])),
-            gtm_codenames=cfg.get("gtm_codenames", defaults.get("gtm_codenames", [])),
+            protected_names=_string_list(
+                cfg.get("protected_names"), f"agents.{name}", "protected_names"
+            ),
+            internal_codenames=inherited_list("internal_codenames"),
+            gtm_codenames=inherited_list("gtm_codenames"),
             check_credentials=cfg.get("check_credentials", defaults.get("check_credentials", True)),
-            disabled_cred_rules=cfg.get("disabled_cred_rules", []),
+            disabled_cred_rules=_string_list(
+                cfg.get("disabled_cred_rules"), f"agents.{name}", "disabled_cred_rules"
+            ),
             check_high_entropy=cfg.get("check_high_entropy", defaults.get("check_high_entropy", False)),
             use_llm=cfg.get("use_llm", defaults.get("use_llm", False)),
             llm_threshold=cfg.get("llm_threshold", defaults.get("llm_threshold", 0.35)),
             block_threshold=cfg.get("block_threshold", defaults.get("block_threshold", 0.9)),
-            allowed_capabilities=cfg.get("allowed_capabilities", defaults.get("allowed_capabilities", [])),
-            forbidden_capabilities=cfg.get("forbidden_capabilities", defaults.get("forbidden_capabilities", [])),
+            allowed_capabilities=inherited_list("allowed_capabilities"),
+            forbidden_capabilities=inherited_list("forbidden_capabilities"),
             mode=mode,
             tool_effects=tool_effects,
             strict_unknown_tools=bool(

@@ -268,14 +268,78 @@ class TestSinkCannotMutateTheDecision:
         assert params == {"env": {"PATH": "/usr/bin"}}
 
     def test_an_uncopyable_param_still_reaches_the_sink(self):
-        """Degrade to repr rather than dropping the record — telemetry must still fire."""
+        """Degrade to repr PER LEAF — the record must keep its shape.
+
+        Asserted structurally on purpose: `"lock" in record["params"]` is also true when
+        the whole params dict has collapsed into a repr string, because "lock" is a
+        substring of it. A structured sink (JSON schema, DB column, Splunk field) that
+        gets a dict for every other call must not get a str for this one.
+        """
         import threading
 
         records = []
         set_decision_sink(records.append, capture_content=True)
-        EffectBoundary().preview("read_file", {"lock": threading.Lock()}, [U("p")])
+        params = {"path": "/etc/passwd", "lock": threading.Lock()}
+        EffectBoundary().preview("read_file", params, [U("p")])
 
-        assert records and "lock" in records[0]["params"]
+        got = records[0]["params"]
+        assert isinstance(got, dict)
+        assert got["path"] == "/etc/passwd"
+        assert isinstance(got["lock"], str)
+        assert got["lock"] is not params["lock"]
+
+    def test_an_uncopyable_leaf_nested_deeper_keeps_its_structure(self):
+        import threading
+
+        records = []
+        set_decision_sink(records.append, capture_content=True)
+        EffectBoundary().preview(
+            "read_file",
+            {"env": {"PATH": "/usr/bin", "handle": threading.Lock()}, "argv": ["a", "b"]},
+            [U("p")],
+        )
+
+        got = records[0]["params"]
+        assert got["env"]["PATH"] == "/usr/bin"
+        assert isinstance(got["env"]["handle"], str)
+        assert got["argv"] == ["a", "b"]
+
+    def test_a_repr_that_raises_does_not_drop_the_record(self):
+        class Hostile:
+            def __deepcopy__(self, memo):
+                raise RuntimeError("no")
+
+            def __repr__(self):
+                raise RuntimeError("no repr either")
+
+        records = []
+        set_decision_sink(records.append, capture_content=True)
+        EffectBoundary().preview("read_file", {"x": 1, "bad": Hostile()}, [U("p")])
+
+        assert records[0]["params"]["x"] == 1
+        assert isinstance(records[0]["params"]["bad"], str)
+
+    def test_the_sink_cannot_mutate_a_surviving_structure(self):
+        """The per-leaf fallback must not hand back any container the caller owns."""
+        import threading
+
+        params = {"env": {"PATH": "/usr/bin"}, "lock": threading.Lock()}
+        set_decision_sink(lambda r: r["params"]["env"].update(PATH="/tmp/evil"),
+                          capture_content=True)
+        EffectBoundary().preview("read_file", params, [U("p")])
+
+        assert params["env"] == {"PATH": "/usr/bin"}
+
+    def test_a_cancelled_sink_propagates_the_cancellation(self):
+        import asyncio
+
+        from jataayu.core.audit import emit_decision
+
+        def cancelled(_record):
+            raise asyncio.CancelledError
+
+        with pytest.raises(asyncio.CancelledError):
+            emit_decision({"decision": "deny"}, cancelled)
 
     def test_the_sink_still_sees_the_real_values(self):
         records = []

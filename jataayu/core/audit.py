@@ -23,6 +23,7 @@ boundary so severity ordering and capability tags stay consistent.
 """
 from __future__ import annotations
 
+import asyncio
 import copy
 import logging
 from dataclasses import dataclass, field
@@ -75,6 +76,50 @@ def capture_content_enabled(override: Optional[bool] = None) -> bool:
     return _capture_content if override is None else override
 
 
+# Depth cap for the per-leaf fallback below. deepcopy handles cycles; the manual walk
+# that runs after it fails does not, so a cyclic record containing a lock would recurse
+# forever. Decision records are flat-ish; 20 is far past anything real.
+_MAX_SNAPSHOT_DEPTH = 20
+
+
+def _repr_or_placeholder(value) -> str:
+    """A __repr__ that itself raises must not cost the record."""
+    try:
+        return repr(value)
+    except Exception:
+        return f"<unreprable {type(value).__name__}>"
+
+
+def _safe_copy(value, depth: int = 0):
+    """Deep-copy `value`, degrading to repr PER LEAF rather than wholesale.
+
+    Applying the fallback to a whole top-level value would turn `params` into a str
+    the moment one leaf is a lock, so a structured sink (JSON schema, DB column) gets
+    an object for every call but a string for that one. The structure has to survive.
+    """
+    try:
+        return copy.deepcopy(value)
+    except Exception:
+        pass
+    if depth >= _MAX_SNAPSHOT_DEPTH:
+        return _repr_or_placeholder(value)
+    if isinstance(value, dict):
+        try:
+            return {
+                _safe_copy(k, depth + 1): _safe_copy(v, depth + 1) for k, v in value.items()
+            }
+        except Exception:
+            return _repr_or_placeholder(value)
+    if isinstance(value, (list, tuple, set, frozenset)):
+        try:
+            # type(...) preserves tuple/set; a subclass with a different signature
+            # (namedtuple) raises and falls through to repr.
+            return type(value)(_safe_copy(v, depth + 1) for v in value)
+        except Exception:
+            return _repr_or_placeholder(value)
+    return _repr_or_placeholder(value)
+
+
 def _snapshot(record: dict) -> dict:
     """Deep-copy a decision record so a sink cannot reach caller-visible state.
 
@@ -84,30 +129,29 @@ def _snapshot(record: dict) -> dict:
     refuse to deepcopy (handles, locks) degrade to their repr rather than dropping the
     record — telemetry still fires, and still hands out nothing the caller owns.
     """
-    out = {}
-    for k, v in record.items():
-        try:
-            out[k] = copy.deepcopy(v)
-        except Exception:
-            out[k] = repr(v)
-    return out
+    return {k: _safe_copy(v) for k, v in record.items()}
 
 
 def emit_decision(record: dict, sink: Optional[DecisionSink] = None) -> None:
     """Deliver a COPY of `record` to `sink` (per-instance) or the module-level sink.
 
-    Never raises, except for KeyboardInterrupt. A broken telemetry callback must never be
-    why a `deny` fails to reach the caller, so BaseException is swallowed and logged —
-    SystemExit and library cancellation/timeout types included. KeyboardInterrupt alone is
-    re-raised: that is the operator interrupting the process, not the sink failing, and
-    eating it makes Ctrl-C unreliable in any loop that authorizes actions.
+    Never raises, except for KeyboardInterrupt and asyncio.CancelledError. A broken
+    telemetry callback must never be why a `deny` fails to reach the caller, so
+    BaseException is swallowed and logged — SystemExit and library timeout types included.
+
+    Those two are re-raised because neither is the sink failing: they are control flow
+    aimed at the surrounding process/task. Eating KeyboardInterrupt makes Ctrl-C
+    unreliable in any loop that authorizes actions; eating CancelledError makes a
+    cancelled task refuse to unwind, and the event loop then sees a task that ignored
+    its cancellation. A sink that raises CancelledError spuriously is indistinguishable
+    from a genuinely cancelled one, and the safe reading of "cancelled" is to unwind.
     """
     target = sink if sink is not None else _sink
     if target is None:
         return
     try:
         target(_snapshot(record))
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
         raise
     except BaseException:
         logging.getLogger("jataayu").exception("decision sink raised; record dropped")

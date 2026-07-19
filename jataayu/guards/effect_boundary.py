@@ -344,10 +344,19 @@ def _coerce_effect(tool: str, value) -> EffectClass:
         ) from None
 
 
+def _json_default(value) -> str:
+    """Stringify a param json cannot encode. A __str__ that raises must not take the
+    authorization decision down with it — the token only needs a stable stand-in."""
+    try:
+        return str(value)
+    except Exception:
+        return f"<unstringable {type(value).__name__} at {id(value):#x}>"
+
+
 def _canonical(tool_name: str, params: dict) -> str:
     """Deterministic, normalized serialization of an action for binding the commit token."""
     return json.dumps({"tool": tool_name.strip().lower(), "params": params},
-                      sort_keys=True, separators=(",", ":"), default=str)
+                      sort_keys=True, separators=(",", ":"), default=_json_default)
 
 
 class EffectBoundary:
