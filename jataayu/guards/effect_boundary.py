@@ -353,91 +353,82 @@ def _json_default(value) -> str:
         return f"<unstringable {type(value).__name__} at {id(value):#x}>"
 
 
-# Prefix marking a dict key that `_normalize` rewrote. A key that already starts with it is
-# rewritten too (see `_normalize`), so the rewritten and pass-through forms can never coincide.
-_KEY_TAG = "\x00"
+class UncanonicalParams(ValueError):
+    """`params` cannot be serialized to a canonical form, so no token can bind them."""
 
 
-def _tag_key(key) -> str:
-    """
-    A type-qualified string form of a dict key.
-
-    json.dumps silently coerces int/float/bool/None keys to strings, so `{1: "a"}` and
-    `{"1": "a"}` canonicalize identically today — and a collision here is an attacker swapping
-    params between PREVIEW and COMMIT while the token still validates. The type code is what
-    keeps them apart. Note `{True: "x"}` and `{1: "x"}` are equal dicts to Python (True == 1
-    hashes as the same key), so the bool check must precede the int one.
-    """
+def _describe(key) -> str:
+    """A repr of a rejected key for the reason string. A __repr__ that raises must not take the
+    authorization decision down with it — same posture as _json_default."""
     try:
-        if isinstance(key, str):
-            return _KEY_TAG + "s:" + key
-        if isinstance(key, bool):
-            return f"{_KEY_TAG}b:{key!r}"
-        if isinstance(key, int):
-            return f"{_KEY_TAG}i:{key!r}"
-        if isinstance(key, float):
-            return f"{_KEY_TAG}f:{key!r}"
-        if key is None:
-            return _KEY_TAG + "n:"
-        if isinstance(key, tuple):
-            return f"{_KEY_TAG}t:[{','.join(_tag_key(el) for el in key)}]"
+        return repr(key)
     except Exception:
-        pass
-    # Anything else is identified, not stringified: two distinct objects sharing a __str__ must
-    # not collapse onto one key, and __str__/__repr__ may raise (same posture as _json_default).
-    # A rebuilt key object gets a new id and so fails the token check — fail-closed, which is the
-    # correct direction when the alternative is a silent collision.
-    return f"{_KEY_TAG}o:{type(key).__name__}:{id(key):#x}"
+        return f"<unreprable {type(key).__name__}>"
 
 
-def _normalize(value, seen: set[int]):
+def _check_keys(value, path: str, seen: set[int]) -> None:
     """
-    Rewrite `value` so json.dumps(sort_keys=True) cannot fail on it.
+    Reject params that json.dumps(sort_keys=True) cannot faithfully serialize.
 
-    Two failure modes it removes: a key json cannot encode at all (tuple, object), and mixed key
-    types that `sort_keys` cannot order. `default=` does not help — it only ever sees values.
+    Two things make canonicalization non-injective, and a collision here is an attacker swapping
+    params between PREVIEW and COMMIT with the token still validating:
 
-    Anything already JSON-clean is returned unchanged (by identity), so the canonical form of
-    ordinary string-keyed params — and every commit token in flight — is byte-for-byte what it
-    was before. `seen` holds the ids on the current path, so a self-referential params dict
-    terminates instead of recursing forever (json's own encoder tracks cycles the same way).
+      - non-string dict keys. json silently coerces int/float/bool/None keys to strings, so
+        {1: "a"} and {"1": "a"} canonicalize identically, and raises outright on a tuple/object
+        key or on mixed key types that sort_keys cannot order. `default=` does not help; it only
+        ever sees values. Encoding these injectively means hand-rolling an escape scheme over
+        arbitrary Python objects, which is how the previous attempt shipped a bypass. params at
+        this boundary come from JSON tool arguments, which have string keys only, so the case is
+        unreachable in production: reject it.
+
+      - reference cycles. json raises on them; `seen` holds the ids on the current path (not the
+        whole traversal, so sibling references to one dict stay a DAG) and rejects them here with
+        a reason instead.
     """
     if isinstance(value, dict):
         if id(value) in seen:
-            return f"{_KEY_TAG}cycle:{id(value):#x}"
+            raise UncanonicalParams(f"params{path} contains a reference cycle")
         seen.add(id(value))
         try:
-            # Tag every key or none: a dict where only the bad keys were tagged could coincide
-            # with a pass-through dict that literally holds the tagged spelling.
-            tag = any(not isinstance(k, str) or str.startswith(k, _KEY_TAG) for k in value)
-            out, changed = {}, tag
             for k, v in value.items():
-                nv = _normalize(v, seen)
-                changed = changed or nv is not v
-                out[_tag_key(k) if tag else k] = nv
-            return out if changed else value
+                if not isinstance(k, str):
+                    raise UncanonicalParams(
+                        f"params keys must be strings; params{path} has key "
+                        f"{_describe(k)} of type {type(k).__name__}"
+                    )
+                _check_keys(v, f"{path}[{k!r}]", seen)
         finally:
             seen.discard(id(value))
-
-    if isinstance(value, (list, tuple)):
+    elif isinstance(value, (list, tuple)):
         if id(value) in seen:
-            return f"{_KEY_TAG}cycle:{id(value):#x}"
+            raise UncanonicalParams(f"params{path} contains a reference cycle")
         seen.add(id(value))
         try:
-            items = [_normalize(v, seen) for v in value]
-            if all(a is b for a, b in zip(items, value)):
-                return value
-            return items
+            for i, v in enumerate(value):
+                _check_keys(v, f"{path}[{i}]", seen)
         finally:
             seen.discard(id(value))
-
-    return value
 
 
 def _canonical(tool_name: str, params: dict) -> str:
-    """Deterministic, normalized serialization of an action for binding the commit token."""
-    return json.dumps({"tool": tool_name.strip().lower(), "params": _normalize(params, set())},
-                      sort_keys=True, separators=(",", ":"), default=_json_default)
+    """
+    Deterministic serialization of an action for binding the commit token.
+
+    Raises UncanonicalParams when no faithful canonical form exists. Callers must treat that as
+    fail-closed (preview -> DENY, commit -> CommitRejected); it must never become an ALLOW.
+    """
+    try:
+        _check_keys(params, "", set())
+        return json.dumps({"tool": tool_name.strip().lower(), "params": params},
+                          sort_keys=True, separators=(",", ":"), default=_json_default)
+    except UncanonicalParams:
+        raise
+    except RecursionError:
+        raise UncanonicalParams("params nest too deeply to canonicalize") from None
+    except (TypeError, ValueError) as exc:
+        # Nothing known reaches here (keys are checked, cycles are checked, values go through
+        # _json_default), but a guard that crashes is an availability bug, so residuals deny.
+        raise UncanonicalParams(f"params are not serializable: {exc}") from None
 
 
 class EffectBoundary:
@@ -641,17 +632,24 @@ class EffectBoundary:
         else:
             provenance = Provenance.UNTRUSTED if self.default_untrusted else Provenance.TRUSTED
 
-        decision, reason, violations = self._decide(effect, provenance, recognized)
-        canonical = _canonical(tool_name, params)
-
         would_decision = None
-        if self.mode == "observe":
-            # Observe mode reports the truthful verdict but enforces ALLOW, so a token is
-            # issued and commit() runs. That is the whole point of the mode, and it is opt-in.
-            would_decision = decision
-            if decision is not Decision.ALLOW:
-                reason = f"observe mode: would {decision.value} — {reason}"
-                decision = Decision.ALLOW
+        try:
+            canonical = _canonical(tool_name, params)
+        except UncanonicalParams as exc:
+            # No canonical form means no token can bind this action, so ALLOW would authorize
+            # something we cannot pin down. Deny in every mode — observe mode downgrades policy
+            # verdicts, not the integrity of the authorization itself.
+            canonical = ""
+            decision, reason, violations = Decision.DENY, str(exc), []
+        else:
+            decision, reason, violations = self._decide(effect, provenance, recognized)
+            if self.mode == "observe":
+                # Observe mode reports the truthful verdict but enforces ALLOW, so a token is
+                # issued and commit() runs. That is the whole point of the mode, and it is opt-in.
+                would_decision = decision
+                if decision is not Decision.ALLOW:
+                    reason = f"observe mode: would {decision.value} — {reason}"
+                    decision = Decision.ALLOW
 
         token = None
         if decision is Decision.ALLOW:
@@ -691,12 +689,17 @@ class EffectBoundary:
         """
         Execute `executor` iff `preview` authorized exactly this action.
 
-        Rejects when: the preview was not ALLOW, no token was issued, or the action's canonical
-        form changed since preview (an attacker mutating the call after authorization).
+        Rejects when: the preview was not ALLOW, no token was issued, the action has no canonical
+        form, or its canonical form changed since preview (an attacker mutating the call after
+        authorization).
         """
         if preview.decision is not Decision.ALLOW or not preview.commit_token:
             raise CommitRejected(f"not authorized: {preview.decision.value} — {preview.reason}")
-        expected = hashlib.sha256(_canonical(preview.tool_name, params).encode()).hexdigest()
+        try:
+            canonical = _canonical(preview.tool_name, params)
+        except UncanonicalParams as exc:
+            raise CommitRejected(f"action cannot be canonicalized: {exc}") from None
+        expected = hashlib.sha256(canonical.encode()).hexdigest()
         if expected != preview.commit_token:
             raise CommitRejected("action was mutated after authorization (commit token mismatch)")
         return executor()

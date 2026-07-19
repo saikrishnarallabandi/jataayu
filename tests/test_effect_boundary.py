@@ -12,7 +12,7 @@ import pytest
 from jataayu.config.policy import AgentPolicy
 from jataayu.guards.effect_boundary import (
     EffectBoundary, Value, Provenance, EffectClass, Decision, CommitRejected,
-    _canonical,
+    UncanonicalParams, _canonical,
 )
 
 
@@ -318,21 +318,47 @@ class TestReadConfinement:
         assert boundary.dereference(handle) == secret
 
 
+
+
+class Hostile:
+    """A key whose repr raises — the reason string must not take the guard down with it."""
+    def __str__(self): raise RuntimeError("boom")
+    def __repr__(self): raise RuntimeError("boom")
+    def __hash__(self): return 1
+    def __eq__(self, other): return self is other
+
+
+def _cyclic_dict():
+    d = {"a": 1}
+    d["self"] = d
+    return d
+
+
+def _cyclic_list():
+    items = [1]
+    items.append(items)
+    return {"l": items}
+
+
 class TestCanonicalization:
     """
-    `_canonical` feeds the commit token, so it has two jobs and they pull against each other:
-    it must never raise on caller-supplied params (a crash here is a DoS on the guard, reachable
-    from tool arguments), and it must stay injective (a collision is an attacker swapping params
-    past an authorization check, which is worse than the crash).
+    `_canonical` feeds the commit token, so a collision in it is an attacker swapping params past
+    an authorization check. json.dumps is not injective over non-string keys (it coerces
+    int/float/bool/None to strings) and raises outright on tuple/object/mixed keys, and encoding
+    those injectively means hand-rolling an escape scheme over arbitrary Python objects. params
+    here come from JSON tool arguments, which are string-keyed, so the answer is to reject them:
+    preview() stays total and returns DENY, commit() raises CommitRejected. Never ALLOW.
     """
 
-    # An ordinary string-keyed JSON params dict — the form ~every real call takes. This literal is
-    # the pre-fix output; if it changes, every commit token already in flight is silently voided.
+    # An ordinary string-keyed JSON params dict — the form ~every real call takes. This literal
+    # and the digest below are the pre-8f49dba output; if they change, every commit token already
+    # in flight is silently voided.
     ORDINARY = {"path": "/tmp/x", "n": 1, "ok": True, "z": None, "l": [1, {"a": 2}], "f": 1.5}
     ORDINARY_CANONICAL = (
         '{"params":{"f":1.5,"l":[1,{"a":2}],"n":1,"ok":true,"path":"/tmp/x","z":null},'
         '"tool":"read_file"}'
     )
+    ORDINARY_SHA256 = "c3b0b9e0e8df068bbe2d778943ea27782a9aef7a7a602711ad3bbf839f7278e1"
 
     def test_ordinary_params_are_byte_for_byte_unchanged(self):
         assert _canonical("read_file", self.ORDINARY) == self.ORDINARY_CANONICAL
@@ -340,66 +366,99 @@ class TestCanonicalization:
     def test_ordinary_params_token_unchanged(self, boundary):
         pv = boundary.preview("read_file", self.ORDINARY, [T("x")])
         assert pv.commit_token == hashlib.sha256(self.ORDINARY_CANONICAL.encode()).hexdigest()
+        assert pv.commit_token == self.ORDINARY_SHA256
 
-    @pytest.mark.parametrize("params", [
-        {1: "a"},                          # int key
-        {1.5: "a"},                        # float key
-        {True: "a"},                       # bool key
-        {None: "a"},                       # null key
-        {(1, 2): "a"},                     # tuple key — json raises TypeError
-        {object(): "a"},                   # arbitrary object key — json raises TypeError
-        {1: "a", "b": 2},                  # mixed key types — sort_keys raises, separate failure
-        {"outer": [{"ok": 1}, {2: "b"}]},  # bad key nested inside a list of dicts
-        {"a": {"b": {(): 1}}},             # bad key several levels down
-    ])
-    def test_preview_survives_unencodable_keys(self, boundary, params):
+    def test_string_key_holding_the_old_tag_prefix_passes_through(self):
+        """8f49dba rewrote any key starting with \\x00; pre-8f49dba behavior is that it does not."""
+        assert _canonical("t", {"\x00k": 1}) == '{"params":{"\\u0000k":1},"tool":"t"}'
+
+    BAD_PARAMS = {
+        "int": {1: "a"},
+        "float": {1.5: "a"},
+        "bool": {True: "a"},
+        "none": {None: "a"},
+        "tuple": {(1, 2): "a"},
+        "object": {object(): "a"},
+        "mixed": {1: "a", "b": 2},                       # sort_keys cannot order these
+        "nested_in_list": {"outer": [{"ok": 1}, {2: "b"}]},
+        "deeply_nested": {"a": {"b": {(): 1}}},
+        "hostile_repr": {Hostile(): "a"},
+        "cyclic_dict": _cyclic_dict(),
+        "cyclic_list": _cyclic_list(),
+    }
+
+    @pytest.mark.parametrize("params", BAD_PARAMS.values(), ids=list(BAD_PARAMS))
+    def test_canonical_rejects(self, params):
+        with pytest.raises(UncanonicalParams):
+            _canonical("read_file", params)
+
+    @pytest.mark.parametrize("params", BAD_PARAMS.values(), ids=list(BAD_PARAMS))
+    def test_preview_denies_and_issues_no_token(self, boundary, params):
         pv = boundary.preview("read_file", params, [T("x")])
-        assert pv.decision is Decision.ALLOW
-        assert boundary.commit(pv, params, lambda: "ran") == "ran"
+        assert pv.decision is Decision.DENY
+        assert pv.commit_token is None
 
-    @pytest.mark.parametrize("a,b", [
-        ({1: "a"}, {"1": "a"}),            # json coerces int keys to strings — the silent collide
-        ({True: "x"}, {1: "x"}),           # True == 1 as a dict key, but they are not the same key
-        ({None: "x"}, {"None": "x"}),
-        ({None: "x"}, {"null": "x"}),
-        ({1.0: "x"}, {1: "x"}),
-        ({(1,): "x"}, {"(1,)": "x"}),
-        ({1: "a"}, {"\x00i:1": "a"}),      # a literal key spelled like the tag must not collide
-        ({"\x00s:1": "a"}, {"\x00i:1": "a"}),
-    ])
-    def test_materially_different_params_never_share_a_canonical_form(self, a, b):
-        assert _canonical("t", a) != _canonical("t", b)
-
-    def test_distinct_objects_with_equal_str_do_not_collide(self):
-        class Same:
-            def __str__(self): return "same"
-            __repr__ = __str__
-
-        assert _canonical("t", {Same(): 1}) != _canonical("t", {Same(): 1})
-
-    def test_key_whose_str_raises_does_not_escape(self, boundary):
-        class Hostile:
-            def __str__(self): raise RuntimeError("boom")
-            def __repr__(self): raise RuntimeError("boom")
-            def __hash__(self): return 1
-            def __eq__(self, other): return self is other
-
-        key = Hostile()
-        pv = boundary.preview("read_file", {key: "a"}, [T("x")])
-        assert pv.decision is Decision.ALLOW
-        assert boundary.commit(pv, {key: "a"}, lambda: "ran") == "ran"
-
-    def test_self_referential_params_terminate(self, boundary):
-        params = {"a": 1}
-        params["self"] = params
+    @pytest.mark.parametrize("params", BAD_PARAMS.values(), ids=list(BAD_PARAMS))
+    def test_commit_never_executes(self, boundary, params):
         pv = boundary.preview("read_file", params, [T("x")])
-        assert pv.decision is Decision.ALLOW
-        assert boundary.commit(pv, params, lambda: "ran") == "ran"
+        with pytest.raises(CommitRejected):
+            boundary.commit(pv, params, lambda: pytest.fail("executor ran"))
 
-    def test_self_referential_list_terminates(self):
-        items = [1]
-        items.append(items)
-        assert _canonical("t", {"l": items})
+    @pytest.mark.parametrize("params", BAD_PARAMS.values(), ids=list(BAD_PARAMS))
+    def test_observe_mode_does_not_downgrade_to_allow(self, params):
+        """Observe mode relaxes the policy verdict, never the integrity of the authorization."""
+        pv = EffectBoundary(mode="observe").preview("read_file", params, [T("x")])
+        assert pv.decision is Decision.DENY
+        assert pv.commit_token is None
+
+    def test_reason_names_the_rule_and_the_key(self, boundary):
+        pv = boundary.preview("read_file", {"a": {"b": {(1, 2): 1}}}, [T("x")])
+        assert "params keys must be strings" in pv.reason
+        assert "(1, 2)" in pv.reason and "tuple" in pv.reason
+        assert "['a']['b']" in pv.reason
+
+    def test_hostile_repr_reason_is_still_produced(self, boundary):
+        pv = boundary.preview("read_file", {Hostile(): "a"}, [T("x")])
+        assert "params keys must be strings" in pv.reason
+        assert "Hostile" in pv.reason
+
+    def test_cycle_reason_says_so(self, boundary):
+        pv = boundary.preview("read_file", _cyclic_dict(), [T("x")])
+        assert "reference cycle" in pv.reason
+
+    def test_commit_on_a_valid_preview_with_bad_params_is_rejected(self, boundary):
+        """The preview is legitimately ALLOW; commit is then handed uncanonicalizable params."""
+        pv = boundary.preview("read_file", {"a": 1}, [T("x")])
+        assert pv.decision is Decision.ALLOW
+        with pytest.raises(CommitRejected):
+            boundary.commit(pv, {1: "a"}, lambda: pytest.fail("executor ran"))
+
+    def test_tuple_key_separator_bypass(self, boundary):
+        """
+        Regression, 8f49dba: the `t:[a,b]` tuple encoding did not escape its own separator, so
+        {("a","b"): "ok"} and {("a,\\x00s:b",): "ok"} shared a canonical form — an ALLOW on the
+        first authorized a commit of the second.
+        """
+        preview_params = {("a", "b"): "ok"}
+        commit_params = {("a,\x00s:b",): "ok"}
+        assert preview_params != commit_params
+
+        pv = boundary.preview("read_file", preview_params, [T("x")])
+        assert pv.decision is Decision.DENY
+        assert pv.commit_token is None
+        with pytest.raises(CommitRejected):
+            boundary.commit(pv, commit_params, lambda: pytest.fail("executor ran"))
+
+    def test_repr_controlled_int_key_bypass(self, boundary):
+        """Regression, 8f49dba: int keys were tagged via f"{key!r}", so a subclass overriding
+        __repr__ chose its own tag and {Evil(1): "x"} canonicalized as {2: "x"}."""
+        class Evil(int):
+            __repr__ = lambda self: "2"
+
+        pv = boundary.preview("read_file", {Evil(1): "x"}, [T("x")])
+        assert pv.decision is Decision.DENY
+        with pytest.raises(CommitRejected):
+            boundary.commit(pv, {2: "x"}, lambda: pytest.fail("executor ran"))
 
     def test_repeated_sibling_is_not_mistaken_for_a_cycle(self):
         """Cycle tracking is per-path; the same dict twice as siblings is a DAG, not a loop."""
@@ -407,9 +466,13 @@ class TestCanonicalization:
         assert _canonical("t", {"a": shared, "b": shared}) == _canonical(
             "t", {"a": {"x": 1}, "b": {"x": 1}})
 
-    def test_mutation_still_rejected_with_unencodable_keys(self, boundary):
-        pv = boundary.preview("read_file", {1: "a"}, [T("x")])
+    def test_unserializable_values_still_pass_through_json_default(self, boundary):
+        """The value path is untouched: a non-JSON value is stringified, not rejected."""
+        pv = boundary.preview("read_file", {"v": object()}, [T("x")])
+        assert pv.decision is Decision.ALLOW
+        assert boundary.commit(pv, pv.params, lambda: "ran") == "ran"
+
+    def test_mutation_still_rejected(self, boundary):
+        pv = boundary.preview("read_file", {"a": "x"}, [T("x")])
         with pytest.raises(CommitRejected):
-            boundary.commit(pv, {1: "b"}, lambda: "ran")
-        with pytest.raises(CommitRejected):
-            boundary.commit(pv, {"1": "a"}, lambda: "ran")
+            boundary.commit(pv, {"a": "y"}, lambda: pytest.fail("executor ran"))
