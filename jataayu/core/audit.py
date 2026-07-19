@@ -44,6 +44,22 @@ _sink: Optional[DecisionSink] = None
 _capture_content: bool = False
 
 
+def require_sink(sink, where: str, key: str):
+    """Reject a non-callable sink where it is installed, rather than where it is called.
+
+    emit_decision() swallows everything a sink raises, so telemetry can never change a
+    verdict. That is deliberate, but it means a non-callable sink costs every record and
+    reports itself only as a logged traceback per decision — never at the line that set
+    it. None stays valid: it clears the module-level sink, and on an instance it means
+    "defer to the module-level one".
+    """
+    if sink is not None and not callable(sink):
+        raise ValueError(
+            f"{where}: {key} must be callable or None, got {type(sink).__name__} {sink!r}"
+        )
+    return sink
+
+
 def set_decision_sink(sink: Optional[DecisionSink], *, capture_content: bool = False) -> None:
     """Install a process-wide callback receiving one dict per Jataayu decision.
 
@@ -69,9 +85,12 @@ def set_decision_sink(sink: Optional[DecisionSink], *, capture_content: bool = F
     from jataayu.config.policy import require_bool
 
     global _sink, _capture_content
+    # Both arguments are checked before either global moves, so a rejected call leaves
+    # the previously installed sink intact rather than half-replacing it.
     # A truthy non-bool ("false") here would switch content capture on process-wide for
     # every guard, which is the opposite of what was written.
     require_bool(capture_content, "set_decision_sink", "capture_content=")
+    require_sink(sink, "set_decision_sink", "sink=")
     _sink = sink
     _capture_content = capture_content
 

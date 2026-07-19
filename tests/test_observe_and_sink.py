@@ -631,3 +631,50 @@ class TestBoolKwargsAreNotCoerced:
         assert EffectBoundary(strict=True).strict is True
         assert EffectBoundary(strict=False).strict is False
         assert EffectBoundary(capture_content=False).capture_content is False
+
+
+class TestSinkMustBeCallable:
+    """A non-callable sink must raise where it is installed.
+
+    emit_decision() swallows sink errors by design, so this otherwise costs every record
+    and shows up only as a logged traceback per decision — never at the offending line.
+    """
+
+    def test_effect_boundary_rejects_a_non_callable(self):
+        with pytest.raises(ValueError, match="sink= must be callable or None"):
+            EffectBoundary(sink="not-a-function")
+
+    def test_set_decision_sink_rejects_a_non_callable(self):
+        with pytest.raises(ValueError, match="sink= must be callable or None"):
+            set_decision_sink([])
+
+    def test_a_rejected_call_leaves_the_installed_sink_intact(self):
+        records = []
+        set_decision_sink(records.append)
+        with pytest.raises(ValueError):
+            set_decision_sink("nope")
+        jataayu_authorize_action("db.query", {"q": "select 1"})
+        assert records, "the previously installed sink was dropped by a rejected call"
+
+    def test_none_stays_valid_on_both_doors(self):
+        """None clears the module sink; on an instance it defers to the module one."""
+        records = []
+        set_decision_sink(records.append)
+        EffectBoundary(sink=None).preview("db.query", {"q": "select 1"}, [U("payload")])
+        assert len(records) == 1
+        set_decision_sink(None)
+        EffectBoundary(sink=None).preview("db.query", {"q": "select 1"}, [U("payload")])
+        assert len(records) == 1
+
+    def test_a_callable_object_is_accepted(self):
+        """callable(), not isinstance(FunctionType) — a __call__ object is a valid sink."""
+        class Collector:
+            def __init__(self):
+                self.seen = []
+
+            def __call__(self, record):
+                self.seen.append(record)
+
+        c = Collector()
+        EffectBoundary(sink=c).preview("db.query", {"q": "select 1"}, [U("payload")])
+        assert len(c.seen) == 1

@@ -500,7 +500,10 @@ class EffectBoundary:
         if self.mode not in ("enforce", "observe"):
             raise ValueError(f"invalid mode {self.mode!r} — expected 'enforce' or 'observe'")
         self.strict = _resolve_bool(strict, policy, "strict_unknown_tools", False, "strict=")
-        self.sink = sink
+        # Imported here, not at module scope: jataayu.core.audit imports this module.
+        from jataayu.core.audit import require_sink
+
+        self.sink = require_sink(sink, "EffectBoundary", "sink=")
         # None means "defer to the module-level setting", so only a supplied value is checked.
         # capture_content_enabled() returns this value as-is, so "false" would be truthy there
         # and record tool params the caller asked it not to keep.
