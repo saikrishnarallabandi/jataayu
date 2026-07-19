@@ -88,8 +88,19 @@ Usage:
     threshold = agent_policy.get_block_threshold("github-issue")
 
     # Get outbound guard config
-    from jataayu.guards.outbound import PrivacyConfig
     privacy_cfg = agent_policy.to_privacy_config()
+
+The outbound privacy keys (protected_names, internal_codenames, gtm_codenames,
+check_credentials, disabled_cred_rules, check_high_entropy) are reached from the public
+API without loading anything yourself:
+
+    from jataayu import jataayu_check_outbound
+    jataayu_check_outbound(draft, surface="discord-channel",
+                           policy_file="jataayu-policy.yml", agent="github-bot")
+
+use_llm / llm_threshold / block_threshold are on to_privacy_config() but that path
+deliberately ignores them; a policy file cannot currently retune the outbound guard's
+thresholds or switch on its LLM slow path.
 """
 from __future__ import annotations
 

@@ -3,7 +3,12 @@
 # Place as jataayu-policy.yml in your project root, or point to it with:
 #   JATAAYU_POLICY_FILE=/path/to/jataayu-policy.yml
 #
-# Usage in Python:
+# Usage in Python — the outbound privacy keys below are read straight off this file:
+#   from jataayu import jataayu_check_outbound
+#   jataayu_check_outbound(draft, surface="discord-channel",
+#                          policy_file="jataayu-policy.yml", agent="privacy-bot")
+#
+# Or load it yourself:
 #   from jataayu.config.policy import load_policy
 #   policy = load_policy("jataayu-policy.yml")
 #   agent_policy = policy.get_agent_policy("my-agent")
@@ -12,7 +17,13 @@
 
 version: 1
 
-# Global defaults — applied to all agents unless overridden per-agent
+# Global defaults — applied to all agents unless overridden per-agent, and used on their
+# own when a call names no agent (or names one that is not listed below).
+#
+# NOTE: block_threshold / llm_threshold / use_llm are NOT read by the outbound privacy
+# guard. jataayu_check_outbound() pins those to its own defaults and takes use_llm from
+# its keyword argument, so a policy file cannot switch on its LLM slow path or move its
+# block line. Wiring them is a pending decision. The other keys here are live.
 defaults:
   block_threshold: 0.90       # Block above this score (0.0-1.0)
   llm_threshold: 0.35         # Invoke LLM slow path above this score
