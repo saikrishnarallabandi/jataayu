@@ -335,7 +335,7 @@ def main():
             bnb_4bit_compute_dtype=compute_dtype, bnb_4bit_use_double_quant=True)
         load_kwargs["device_map"] = {"": 0}
     else:
-        load_kwargs["dtype"] = compute_dtype
+        load_kwargs["torch_dtype"] = compute_dtype
         load_kwargs["device_map"] = {"": 0}
 
     # Qwen3.5 ships as a multimodal Qwen3_5ForConditionalGeneration checkpoint; we feed TEXT only.

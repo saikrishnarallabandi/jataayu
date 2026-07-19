@@ -77,11 +77,11 @@ def main():
     from transformers import AutoModelForCausalLM
     dtype = torch.float32 if args.fp32 else (torch.bfloat16 if args.bf16 else torch.float16)
     try:
-        model = AutoModelForCausalLM.from_pretrained(args.base, dtype=dtype,
+        model = AutoModelForCausalLM.from_pretrained(args.base, torch_dtype=dtype,
                                                      device_map={"": 0}, trust_remote_code=True)
     except (ValueError, KeyError):
         from transformers import AutoModelForImageTextToText
-        model = AutoModelForImageTextToText.from_pretrained(args.base, dtype=dtype,
+        model = AutoModelForImageTextToText.from_pretrained(args.base, torch_dtype=dtype,
                                                             device_map={"": 0}, trust_remote_code=True)
     if not args.no_adapter:
         from peft import PeftModel

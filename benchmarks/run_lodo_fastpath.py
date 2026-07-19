@@ -66,11 +66,12 @@ def threshold_at_fpr(y, s, max_fpr):
     ok = np.where(fpr <= max_fpr)[0]
     if len(ok) == 0:
         return None
-    i = ok[-1]
-    # roc_curve prepends a +inf sentinel threshold (predict-nothing). If only that
-    # trivial point meets the budget, there is no usable real threshold.
-    if not np.isfinite(thr[i]):
+    # thr is in descending order; ok[0] is the highest (most restrictive) threshold.
+    # roc_curve prepends a +inf sentinel — skip it to get the highest real threshold.
+    finite_ok = ok[np.isfinite(thr[ok])]
+    if len(finite_ok) == 0:
         return None
+    i = finite_ok[0]
     return float(thr[i]), float(fpr[i]), float(tpr[i])
 
 

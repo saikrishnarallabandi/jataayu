@@ -119,11 +119,11 @@ def load_model(base, adapter, no_adapter, fp32):
     dtype = torch.float32 if fp32 else torch.float16
     from transformers import AutoModelForCausalLM
     try:
-        model = AutoModelForCausalLM.from_pretrained(base, dtype=dtype, device_map={"": 0},
+        model = AutoModelForCausalLM.from_pretrained(base, torch_dtype=dtype, device_map={"": 0},
                                                      trust_remote_code=True)
     except (ValueError, KeyError):
         from transformers import AutoModelForImageTextToText
-        model = AutoModelForImageTextToText.from_pretrained(base, dtype=dtype, device_map={"": 0},
+        model = AutoModelForImageTextToText.from_pretrained(base, torch_dtype=dtype, device_map={"": 0},
                                                             trust_remote_code=True)
     if not no_adapter:
         from peft import PeftModel
