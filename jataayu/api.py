@@ -106,22 +106,16 @@ def _outbound_config(
     direction on a deny list. The codename lists have no kwarg, so policy is their only
     source.
 
-    The policy's `use_llm` / `llm_threshold` / `block_threshold` are deliberately NOT
-    applied: whether a policy file may switch on a network call, or move the block line
-    under an outbound guard, is a separate decision. Until it is made they stay pinned to
-    what this function has always used, so a policy written for the inbound side cannot
-    change outbound behaviour as a side effect.
+    `use_llm` comes from this call's keyword argument and nowhere else. A policy file
+    cannot supply it, nor `llm_threshold`/`block_threshold`: the loader rejects all three
+    as policy keys (see jataayu.config.policy._DEAD_KEYS), so to_privacy_config() leaves
+    them at PrivacyConfig's defaults and a policy written for the inbound side cannot
+    switch on a network call or move the outbound block line as a side effect.
     """
     cfg = policy.to_privacy_config() if policy is not None else PrivacyConfig()
     names = list(cfg.protected_names)
     names += [n for n in (protected_names or []) if n not in names]
-    return replace(
-        cfg,
-        protected_names=names,
-        use_llm=use_llm,
-        llm_threshold=PrivacyConfig.llm_threshold,
-        block_threshold=PrivacyConfig.block_threshold,
-    )
+    return replace(cfg, protected_names=names, use_llm=use_llm)
 
 
 def _get_outbound_guard(
@@ -512,9 +506,9 @@ def jataayu_check_outbound(
                `defaults:` block; an unknown name resolves to `defaults:` too, so a
                typo cannot switch off the half of the policy that denies.
         use_llm: Whether to enable LLM slow-path for rewriting/redaction.
-                 Default False (fast regex-only path). The policy file's `use_llm`,
-                 `llm_threshold` and `block_threshold` are NOT read here — see
-                 `_outbound_config`.
+                 Default False (fast regex-only path). This is the only source of
+                 `use_llm`: a policy file naming it — or `llm_threshold` /
+                 `block_threshold` — is rejected at load.
 
     Returns:
         dict with keys:

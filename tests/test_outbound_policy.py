@@ -466,10 +466,10 @@ class TestTheGuardCacheIsThreadSafe:
 
 
 class TestOutOfScopeKeysAreNotWired:
-    """use_llm / llm_threshold / block_threshold from policy are a separate decision.
-    A policy saying `use_llm: true` must not silently turn on a network call here."""
+    """use_llm / llm_threshold / block_threshold are not policy-settable, and the loader
+    now says so instead of parsing a value this guard would ignore."""
 
-    def test_policy_use_llm_does_not_switch_on_the_llm_path(self, tmp_path):
+    def test_the_policy_file_is_rejected_rather_than_ignored(self, tmp_path):
         policy = write_policy(tmp_path, """
             version: 1
             agents:
@@ -478,9 +478,21 @@ class TestOutOfScopeKeysAreNotWired:
                 llm_threshold: 0.01
                 block_threshold: 0.01
         """)
+        with pytest.raises(ValueError, match="use_llm"):
+            _agent_policy(policy, "bot")
+
+    def test_a_clean_policy_leaves_the_guard_on_its_own_thresholds(self, tmp_path):
+        """Nothing in a policy file can reach them, so the guard keeps its defaults."""
+        policy = write_policy(tmp_path, """
+            version: 1
+            agents:
+              bot:
+                protected_names: [Alice]
+        """)
         guard = _get_outbound_guard(policy=_agent_policy(policy, "bot"))
         assert guard.config.use_llm is False
         assert guard.config.block_threshold == 0.9
+        assert guard.config.llm_threshold == 0.3
 
 
 def _agent_policy(path: str, agent: str):
