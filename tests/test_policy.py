@@ -6,7 +6,15 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from jataayu.config.policy import Policy, PolicyLoader, load_policy, AgentPolicy, SurfacePolicy
+from jataayu.config.policy import (
+    Policy,
+    PolicyLoader,
+    load_policy,
+    AgentPolicy,
+    SurfacePolicy,
+    _INHERITED_BOOL_KEYS,
+    _INHERITED_LIST_KEYS,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -678,11 +686,7 @@ class TestScalarListFieldsAreRejected:
                 {"version": 1, "defaults": {"forbidden_capabilities": "exec"}}
             )
 
-    @pytest.mark.parametrize(
-        "key",
-        ["forbidden_capabilities", "allowed_capabilities",
-         "internal_codenames", "gtm_codenames"],
-    )
+    @pytest.mark.parametrize("key", _INHERITED_LIST_KEYS)
     def test_every_inherited_list_key_is_validated_in_defaults(self, key):
         with pytest.raises(ValueError, match=key):
             PolicyLoader.from_dict({"version": 1, "defaults": {key: "oops"}})
@@ -790,6 +794,82 @@ class TestDefaultsFallbackInheritsEverything:
         assert got.internal_codenames is not policy.defaults["internal_codenames"]
         got.internal_codenames.clear()
         assert policy.defaults["internal_codenames"] == ["Skunkworks"]
+
+
+class TestEveryInheritedKeyActuallyInherits:
+    """Every key on _INHERITED_LIST_KEYS / _INHERITED_BOOL_KEYS must resolve from
+    `defaults:` on ALL THREE paths an AgentPolicy is reached by.
+
+    Parametrized off the tuples themselves, deliberately. The predecessor of this class
+    hand-listed its keys and every case used `internal_codenames` — so
+    `protected_names` and `disabled_cred_rules` were resolved off the agent block alone,
+    a roster written in `defaults:` reached the wire unredacted, and a 16-test suite was
+    green. A test that names its own keys cannot catch the field nobody remembered.
+    """
+
+    # "" is the no-agent call, "prod" the named one, "prodd" the typo.
+    AGENTS = ["", "prod", "prodd"]
+
+    @pytest.mark.parametrize("agent", AGENTS)
+    @pytest.mark.parametrize("key", _INHERITED_LIST_KEYS)
+    def test_list_key_inherits_from_defaults(self, tmp_path, key, agent):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(f"version: 1\ndefaults:\n  {key}: [zephyr]\nagents:\n  prod: {{}}\n")
+        got = load_policy(str(p)).get_agent_policy(agent)
+        assert getattr(got, key) == ["zephyr"], f"{key} did not inherit for agent={agent!r}"
+
+    @pytest.mark.parametrize("agent", AGENTS)
+    @pytest.mark.parametrize("key", _INHERITED_BOOL_KEYS)
+    def test_bool_key_inherits_from_defaults(self, tmp_path, key, agent):
+        """Asserted against the OPPOSITE of the built-in default, so a field that ignores
+        `defaults:` and falls through to its hardcoded value fails here."""
+        builtin = getattr(AgentPolicy(name="x"), key)
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(
+            f"version: 1\ndefaults:\n  {key}: {str(not builtin).lower()}\n"
+            f"agents:\n  prod: {{}}\n"
+        )
+        got = load_policy(str(p)).get_agent_policy(agent)
+        assert getattr(got, key) is (not builtin), f"{key} did not inherit for agent={agent!r}"
+
+    @pytest.mark.parametrize("agent", AGENTS)
+    @pytest.mark.parametrize("key", _INHERITED_LIST_KEYS)
+    def test_the_agent_block_still_wins_over_defaults(self, tmp_path, key, agent):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(
+            f"version: 1\ndefaults:\n  {key}: [zephyr]\n"
+            f"agents:\n  prod:\n    {key}: [tern]\n"
+        )
+        expected = ["tern"] if agent == "prod" else ["zephyr"]
+        assert getattr(load_policy(str(p)).get_agent_policy(agent), key) == expected
+
+    @pytest.mark.parametrize("key", _INHERITED_LIST_KEYS)
+    def test_an_inherited_list_is_never_aliased_to_defaults(self, tmp_path, key):
+        """A copy per agent — one caller's mutation must not poison the next."""
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(f"version: 1\ndefaults:\n  {key}: [zephyr]\nagents:\n  prod: {{}}\n")
+        policy = load_policy(str(p))
+        got = getattr(policy.get_agent_policy("prod"), key)
+        assert got is not policy.defaults[key]
+        got.clear()
+        assert policy.defaults[key] == ["zephyr"]
+
+    def test_every_list_field_on_agentpolicy_is_covered(self):
+        """The tuples are the spec, so they must not silently fall behind the dataclass.
+
+        surface_overrides is the one documented non-inheriting field (see _parse_agent);
+        every other list/bool field must be on a tuple above.
+        """
+        import dataclasses
+
+        listy, booly = set(), set()
+        for f in dataclasses.fields(AgentPolicy):
+            if f.name in ("name", "surface_overrides", "tool_effects", "extra"):
+                continue
+            value = getattr(AgentPolicy(name="x"), f.name)
+            (listy if isinstance(value, list) else booly if isinstance(value, bool) else set()).add(f.name)
+        assert listy == set(_INHERITED_LIST_KEYS)
+        assert booly == set(_INHERITED_BOOL_KEYS)
 
 
 class TestFromDirRejectsANonMapping:
@@ -995,23 +1075,27 @@ class TestBoolFieldsAreNotCoerced:
     "reinterprets what you wrote" failure this loader rejects for scalars elsewhere.
     """
 
-    def test_quoted_false_on_an_agent_raises(self, tmp_path):
+    @pytest.mark.parametrize("key", _INHERITED_BOOL_KEYS)
+    def test_quoted_false_on_an_agent_raises(self, tmp_path, key):
         p = tmp_path / "jataayu-policy.yml"
-        p.write_text('version: 1\nagents:\n  prod:\n    strict_unknown_tools: "false"\n')
-        with pytest.raises(ValueError, match="agents.prod: strict_unknown_tools must be true or false"):
+        p.write_text(f'version: 1\nagents:\n  prod:\n    {key}: "false"\n')
+        with pytest.raises(ValueError, match=f"agents.prod: {key} must be true or false"):
             load_policy(str(p))
 
-    def test_quoted_false_in_defaults_raises_at_load(self, tmp_path):
+    @pytest.mark.parametrize("key", _INHERITED_BOOL_KEYS)
+    def test_quoted_false_in_defaults_raises_at_load(self, tmp_path, key):
         """Named `defaults`, and raised at load — not deferred to the first unknown agent."""
         p = tmp_path / "jataayu-policy.yml"
-        p.write_text('version: 1\ndefaults:\n  strict_unknown_tools: "false"\n')
-        with pytest.raises(ValueError, match="defaults: strict_unknown_tools must be true or false"):
+        p.write_text(f'version: 1\ndefaults:\n  {key}: "false"\n')
+        with pytest.raises(ValueError, match=f"defaults: {key} must be true or false"):
             load_policy(str(p))
 
-    def test_an_int_is_not_a_bool(self, tmp_path):
+    @pytest.mark.parametrize("key", _INHERITED_BOOL_KEYS)
+    def test_an_int_is_not_a_bool(self, tmp_path, key):
+        """`check_credentials: 0` silently switched off the entire credential scan."""
         p = tmp_path / "jataayu-policy.yml"
-        p.write_text("version: 1\nagents:\n  prod:\n    strict_unknown_tools: 1\n")
-        with pytest.raises(ValueError, match="strict_unknown_tools must be true or false"):
+        p.write_text(f"version: 1\nagents:\n  prod:\n    {key}: 0\n")
+        with pytest.raises(ValueError, match=f"{key} must be true or false"):
             load_policy(str(p))
 
     def test_real_bools_still_load(self, tmp_path):

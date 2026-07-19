@@ -31,6 +31,15 @@ defaults:
   check_credentials: true     # Scan outbound content for leaked credentials
   check_high_entropy: false   # Entropy-based secret detection (more FPs)
 
+  # Every key an agent block accepts may be written here EXCEPT surface_overrides,
+  # and an agent that omits it inherits this value. Your org-wide roster and codename
+  # lists belong here — written once, they apply to every agent, to a call that names
+  # no agent, and to a call that misspells one.
+  protected_names: []         # Names that must never appear in outbound content
+  internal_codenames: []      # Blocked on every surface
+  gtm_codenames: []           # Allowed on github/public, held on social surfaces
+  disabled_cred_rules: []     # Credential rule IDs to switch off (e.g. CRED_004)
+
 # Per-agent policies
 agents:
 

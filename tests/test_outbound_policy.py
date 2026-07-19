@@ -264,6 +264,207 @@ class TestEveryRevivedKeyChangesBehaviour:
         assert result["status"] == "BLOCK"
 
 
+class TestDefaultsReachTheWireForEveryOutboundKey:
+    """Each outbound privacy key written in `defaults:` must change what is sent.
+
+    The loader-level cover lives in test_policy.py; these drive the PUBLIC API, because
+    `protected_names` was parsed off the agent block alone and a roster in `defaults:`
+    reached the wire in full while the config-object tests stayed green.
+    """
+
+    @pytest.mark.parametrize("agent", [None, "bot", "bott"])
+    def test_protected_names_in_defaults_are_redacted(self, tmp_path, agent):
+        policy = write_policy(tmp_path, """
+            version: 1
+            defaults:
+              protected_names: [Alice]
+            agents:
+              bot: {}
+        """)
+        result = jataayu_check_outbound(
+            "Alice was there.", surface="discord-channel",
+            policy_file=policy, agent=agent,
+        )
+        assert result["status"] in ("WARN", "BLOCK"), f"Alice reached the wire for agent={agent!r}"
+        assert "Alice" not in (result["redacted"] or "")
+
+    @pytest.mark.parametrize("agent", [None, "bot", "bott"])
+    def test_check_credentials_false_in_defaults_stops_the_scan(self, tmp_path, agent):
+        policy = write_policy(tmp_path, """
+            version: 1
+            defaults:
+              check_credentials: false
+            agents:
+              bot: {}
+        """)
+        secret = "here is the key sk-abcdefghij0123456789abcdefghij0123456789abcd"
+        assert jataayu_check_outbound(secret, surface="discord-channel")["status"] != "SAFE"
+        assert jataayu_check_outbound(
+            secret, surface="discord-channel", policy_file=policy, agent=agent,
+        )["status"] == "SAFE"
+
+    @pytest.mark.parametrize("agent", [None, "bot", "bott"])
+    def test_disabled_cred_rules_in_defaults_silences_the_rule(self, tmp_path, agent):
+        secret = "here is the key sk-abcdefghij0123456789abcdefghij0123456789abcd"
+        rule = _first_cred_rule(jataayu_check_outbound(secret, surface="discord-channel"))
+        policy = write_policy(tmp_path, f"""
+            version: 1
+            defaults:
+              disabled_cred_rules: [{rule}]
+            agents:
+              bot: {{}}
+        """)
+        after = jataayu_check_outbound(
+            secret, surface="discord-channel", policy_file=policy, agent=agent,
+        )
+        assert rule not in after["findings"]
+
+    @pytest.mark.parametrize("agent", [None, "bot", "bott"])
+    def test_check_high_entropy_in_defaults_adds_a_finding(self, tmp_path, agent):
+        policy = write_policy(tmp_path, """
+            version: 1
+            defaults:
+              check_high_entropy: true
+            agents:
+              bot: {}
+        """)
+        blob = "config value: aG9sZHRoaXNzZWNyZXR2YWx1ZWhlcmVub3dwbGVhc2V4eXo"
+        assert jataayu_check_outbound(blob, surface="discord-channel")["status"] == "SAFE"
+        assert jataayu_check_outbound(
+            blob, surface="discord-channel", policy_file=policy, agent=agent,
+        )["status"] != "SAFE"
+
+    @pytest.mark.parametrize("agent", [None, "bot", "bott"])
+    def test_gtm_codenames_in_defaults_are_held(self, tmp_path, agent):
+        policy = write_policy(tmp_path, """
+            version: 1
+            defaults:
+              gtm_codenames: [Skylark]
+            agents:
+              bot: {}
+        """)
+        result = jataayu_check_outbound(
+            "Skylark ships next week.", surface="group-chat",
+            policy_file=policy, agent=agent,
+        )
+        assert result["status"] in ("WARN", "BLOCK")
+
+
+class TestRecoverHonoursThePolicyFile:
+    """`jataayu_recover_outbound` is the send site. A roster moved into the policy file
+    reaching only the check, and not the thing that produces the text actually sent, is
+    the leak wearing a different hat."""
+
+    def test_a_policy_protected_name_is_removed_from_the_recovered_text(self, tmp_path):
+        from jataayu import jataayu_recover_outbound
+
+        policy = write_policy(tmp_path, """
+            version: 1
+            defaults:
+              protected_names: [Alice]
+        """)
+        outcome = jataayu_recover_outbound(
+            "Alice was there.", surface="discord-channel",
+            policy_file=policy, use_llm=False,
+        )
+        assert "Alice" not in outcome["text"]
+
+    def test_without_the_policy_the_same_name_survives(self, tmp_path):
+        from jataayu import jataayu_recover_outbound
+
+        outcome = jataayu_recover_outbound(
+            "Alice was there.", surface="discord-channel", use_llm=False,
+        )
+        assert "Alice" in outcome["text"]
+
+    def test_the_kwarg_still_merges_with_the_policy_roster(self, tmp_path):
+        from jataayu import jataayu_recover_outbound
+
+        policy = write_policy(tmp_path, """
+            version: 1
+            defaults:
+              protected_names: [Alice]
+        """)
+        outcome = jataayu_recover_outbound(
+            "Alice and Bob were there.", surface="discord-channel",
+            protected_names=["Bob"], policy_file=policy, use_llm=False,
+        )
+        assert "Alice" not in outcome["text"] and "Bob" not in outcome["text"]
+
+
+class TestTheGuardCacheIsThreadSafe:
+    """A caller must never be handed a guard built from another thread's config.
+
+    The accessor compared-then-re-read the module global at `return`, so a concurrent
+    swap inside that window served the wrong guard — and the value leaked is the org
+    roster. Measured before the fix: 33 of 12000 public-API calls returned SAFE with the
+    protected name intact.
+    """
+
+    def test_concurrent_callers_each_get_the_config_they_asked_for(self):
+        import sys
+        import threading
+
+        names = ["Alice", "Bob", "Carol", "Dave"]
+        wrong: list[tuple] = []
+
+        def worker(name):
+            for _ in range(3000):
+                guard = _get_outbound_guard(protected_names=[name])
+                if guard.config.protected_names != [name]:
+                    wrong.append((name, list(guard.config.protected_names)))
+                    return
+
+        original = sys.getswitchinterval()
+        sys.setswitchinterval(1e-9)  # widen the window; the race is real at the default too
+        try:
+            threads = [threading.Thread(target=worker, args=(n,)) for n in names]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        finally:
+            sys.setswitchinterval(original)
+
+        assert not wrong, f"guard served with someone else's protected_names: {wrong[:4]}"
+
+    def test_concurrent_policy_files_never_leak_each_others_names(self, tmp_path):
+        import sys
+        import threading
+
+        leaks: list[tuple] = []
+
+        def worker(name):
+            path = write_policy(tmp_path, f"""
+                version: 1
+                agents:
+                  bot:
+                    protected_names: [{name}]
+            """, name=f"{name}.yml")
+            for _ in range(2500):
+                result = jataayu_check_outbound(
+                    f"{name} shipped it", surface="discord-channel",
+                    policy_file=path, agent="bot",
+                )
+                sent = result["redacted"] if result["redacted"] is not None else f"{name} shipped it"
+                if name in sent:
+                    leaks.append((name, sent))
+                    return
+
+        original = sys.getswitchinterval()
+        sys.setswitchinterval(1e-9)
+        try:
+            threads = [threading.Thread(target=worker, args=(n,)) for n in ("Alice", "Bob")]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        finally:
+            sys.setswitchinterval(original)
+
+        assert not leaks, f"a protected name reached the wire: {leaks[:3]}"
+
+
 class TestOutOfScopeKeysAreNotWired:
     """use_llm / llm_threshold / block_threshold from policy are a separate decision.
     A policy saying `use_llm: true` must not silently turn on a network call here."""

@@ -8,13 +8,17 @@ Policy File Format (jataayu-policy.yml):
 -----------------------------------------
 version: 1
 
-# Global defaults applied when no agent-specific rule matches
+# Global defaults. Every key an agent block accepts may be written here EXCEPT
+# surface_overrides, and an agent that omits the key inherits this value — as does a
+# call naming no agent, or naming one that is not listed.
 defaults:
   block_threshold: 0.9
   llm_threshold: 0.35
   use_llm: false
   check_credentials: true
   check_high_entropy: false
+  protected_names: []
+  internal_codenames: []
 
 # Per-agent policies (identified by agent name/ID)
 agents:
@@ -372,11 +376,30 @@ def _string_list(value: Any, where: str, key: str) -> list[str]:
 # Every list field an agent block inherits from `defaults:`. get_agent_policy()'s
 # unknown-agent fallback and _parse_agent() both resolve these, so the defaults block
 # is a config path in its own right and is validated at parse time.
+#
+# EVERY list field in _parse_agent is on this tuple, and every bool field is on the one
+# below. That is the rule, not a coincidence: `protected_names` and `disabled_cred_rules`
+# were resolved off the agent block alone while the docs, the example file and the sibling
+# keys in the same `defaults:` block all said otherwise, so a roster written in `defaults:`
+# reached the wire unredacted. Adding a field here is part of adding it to _parse_agent.
 _INHERITED_LIST_KEYS = (
+    "allowed_surfaces",
     "allowed_capabilities",
     "forbidden_capabilities",
     "internal_codenames",
     "gtm_codenames",
+    "protected_names",
+    "disabled_cred_rules",
+)
+
+# Every bool field an agent block inherits from `defaults:`. All of them go through
+# require_bool on both paths — `check_credentials: 0` silently switching off the whole
+# credential scan is the exact coercion this loader exists to reject.
+_INHERITED_BOOL_KEYS = (
+    "strict_unknown_tools",
+    "check_credentials",
+    "check_high_entropy",
+    "use_llm",
 )
 
 
@@ -590,8 +613,9 @@ class PolicyLoader:
         )
         for key in _INHERITED_LIST_KEYS:
             _string_list(defaults.get(key), "defaults", key)
-        if "strict_unknown_tools" in defaults:
-            require_bool(defaults["strict_unknown_tools"], "defaults", "strict_unknown_tools")
+        for key in _INHERITED_BOOL_KEYS:
+            if key in defaults:
+                require_bool(defaults[key], "defaults", key)
 
         agents: dict[str, AgentPolicy] = {}
         for agent_name, agent_cfg in _mapping_section(raw, "agents").items():
@@ -614,7 +638,15 @@ class PolicyLoader:
 
     @staticmethod
     def _parse_agent(name: str, cfg: dict, defaults: dict) -> AgentPolicy:
-        """Parse an agent config dict into an AgentPolicy."""
+        """Parse an agent config dict into an AgentPolicy.
+
+        Every field inherits from `defaults:` when the agent block omits it, EXCEPT
+        `surface_overrides`. That one is deliberate and not an oversight: merging a
+        defaults-level block of per-surface overrides needs a per-surface merge rule
+        (does a defaults `github-issue` entry merge with or replace the agent's?) that
+        no caller has asked for. Its scalars still inherit — an override that omits
+        block_threshold falls back to the agent block, then to `defaults:`.
+        """
         surface_overrides: dict[str, SurfacePolicy] = {}
         for surf_name, surf_cfg in (cfg.get("surface_overrides") or {}).items():
             if not isinstance(surf_cfg, dict):
@@ -670,21 +702,15 @@ class PolicyLoader:
 
         return AgentPolicy(
             name=name,
-            allowed_surfaces=_string_list(
-                cfg.get("allowed_surfaces"), f"agents.{name}", "allowed_surfaces"
-            ),
+            allowed_surfaces=inherited_list("allowed_surfaces"),
             surface_overrides=surface_overrides,
-            protected_names=_string_list(
-                cfg.get("protected_names"), f"agents.{name}", "protected_names"
-            ),
+            protected_names=inherited_list("protected_names"),
             internal_codenames=inherited_list("internal_codenames"),
             gtm_codenames=inherited_list("gtm_codenames"),
-            check_credentials=cfg.get("check_credentials", defaults.get("check_credentials", True)),
-            disabled_cred_rules=_string_list(
-                cfg.get("disabled_cred_rules"), f"agents.{name}", "disabled_cred_rules"
-            ),
-            check_high_entropy=cfg.get("check_high_entropy", defaults.get("check_high_entropy", False)),
-            use_llm=cfg.get("use_llm", defaults.get("use_llm", False)),
+            check_credentials=inherited_bool("check_credentials", True),
+            disabled_cred_rules=inherited_list("disabled_cred_rules"),
+            check_high_entropy=inherited_bool("check_high_entropy", False),
+            use_llm=inherited_bool("use_llm", False),
             llm_threshold=cfg.get("llm_threshold", defaults.get("llm_threshold", 0.35)),
             block_threshold=cfg.get("block_threshold", defaults.get("block_threshold", 0.9)),
             allowed_capabilities=inherited_list("allowed_capabilities"),

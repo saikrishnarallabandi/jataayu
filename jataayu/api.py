@@ -63,19 +63,33 @@ _OUTBOUND_STATUS_MAP = {
 # Rebuilding is cheap (measured: OutboundGuard.__init__ ~0.012ms vs ~0.29ms for the
 # check it precedes, ~4%), so the cache only ever saves the repeated-same-config case,
 # which is the common one.
-_inbound_guard: Optional[InboundGuard] = None
-_inbound_key: Optional[tuple] = None
+#
+# Each cache is ONE global holding the guard and its key together, and every accessor
+# reads that global exactly once into a local and returns the LOCAL. Both properties are
+# required for thread safety, and neither is decoration:
+#   - Returning the global re-reads it after the compare-and-build, so a concurrent
+#     caller that swapped it in that window hands this caller a guard built from someone
+#     else's config — measured at 33 leaks in 12000 calls, the leaked value being the
+#     policy's protected_names.
+#   - Two globals (guard, key) can be read torn — guard from call A, key from call B —
+#     which makes a mismatched guard look like a cache hit.
+# There is no lock: the cache is best-effort, so two threads racing may each build a
+# guard and one write wins. That costs a redundant ~0.012ms construction; it cannot
+# hand anyone a config they did not ask for.
+_inbound_cache: Optional[tuple[tuple, InboundGuard]] = None
 _outbound_guard: Optional[OutboundGuard] = None
 
 
 def _get_inbound_guard(use_llm: bool = False) -> InboundGuard:
     """Get or create the InboundGuard, rebuilding it when `use_llm` differs."""
-    global _inbound_guard, _inbound_key
+    global _inbound_cache
     key = (use_llm,)
-    if _inbound_guard is None or _inbound_key != key:
-        _inbound_guard = InboundGuard(use_llm=use_llm)
-        _inbound_key = key
-    return _inbound_guard
+    cached = _inbound_cache
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    guard = InboundGuard(use_llm=use_llm)
+    _inbound_cache = (key, guard)
+    return guard
 
 
 def _outbound_config(
@@ -122,12 +136,18 @@ def _get_outbound_guard(
     `protected_names`/`use_llm` would serve policy A's guard to a call naming policy B —
     the same defect this cache was introduced to fix, one layer up. Dataclass equality
     cannot forget a field the way a hand-written tuple can.
+
+    The global is read once into `cached` and the LOCAL is returned — see the note on
+    _inbound_cache for why re-reading it at `return` leaks another caller's roster.
     """
     global _outbound_guard
     cfg = _outbound_config(use_llm, protected_names, policy)
-    if _outbound_guard is None or _outbound_guard.config != cfg:
-        _outbound_guard = OutboundGuard(cfg)
-    return _outbound_guard
+    cached = _outbound_guard
+    if cached is not None and cached.config == cfg:
+        return cached
+    guard = OutboundGuard(cfg)
+    _outbound_guard = guard
+    return guard
 
 
 def jataayu_check_inbound(
@@ -214,8 +234,8 @@ def jataayu_sanitize_inbound(
 
 def reset_guards() -> None:
     """Drop the cached guards. Useful in tests that swap global configuration."""
-    global _inbound_guard, _inbound_key, _outbound_guard
-    _inbound_guard = _inbound_key = _outbound_guard = None
+    global _inbound_cache, _outbound_guard
+    _inbound_cache = _outbound_guard = None
 
 
 def jataayu_vet_skill(
@@ -549,6 +569,8 @@ def jataayu_recover_outbound(
     surface: str = "unknown",
     *,
     protected_names: Optional[list[str]] = None,
+    policy_file: Optional[str] = None,
+    agent: Optional[str] = None,
     llm_backend: Optional[str] = None,
     llm_model: Optional[str] = None,
     llm_url: Optional[str] = None,
@@ -569,6 +591,13 @@ def jataayu_recover_outbound(
         content: The draft the agent wants to send.
         surface: Target surface (drives strictness).
         protected_names: Names that must never appear in outbound content.
+                         MERGES with the policy file's `protected_names`, exactly as in
+                         `jataayu_check_outbound`.
+        policy_file: Optional path to a Jataayu policy YAML. Same keys and same
+                     resolution as `jataayu_check_outbound` — a roster moved into the
+                     policy file must reach the send site too, not only the check.
+        agent: Agent name to resolve in the policy. Omit it, or name one that is not
+               listed, to run on the policy's `defaults:` block.
         llm_backend: Transport — ollama | openai | anthropic | gateway.
         llm_model, llm_url, llm_token: Backend config.
         use_llm: Set False to use deterministic redaction only.
@@ -590,9 +619,12 @@ def jataayu_recover_outbound(
         )
         # {'action': 'send', 'text': 'Done — scaffolding is in foo', ...}
     """
-    config = PrivacyConfig(
-        protected_names=protected_names or [],
-        use_llm=use_llm,
+    config = replace(
+        _outbound_config(
+            use_llm,
+            protected_names,
+            _load_agent_policy(policy_file, agent) if policy_file else None,
+        ),
         llm_backend=llm_backend,
         llm_model=llm_model or PrivacyConfig.llm_model,
         llm_url=llm_url,
