@@ -39,6 +39,15 @@ agents:
     allowed_capabilities: [fs_read, network_read]
     forbidden_capabilities: [exec]
 
+  prod-agent:
+    # Effect-boundary behaviour (see jataayu.guards.effect_boundary).
+    mode: observe                  # "enforce" (block) | "observe" (measure, don't block)
+    strict_unknown_tools: false    # require approval for untrusted calls to unknown names
+    tool_effects:                  # your own tool inventory — overrides the classifier
+      jira.create_issue: network
+      internal.run_playbook: shell
+      db.query: read
+
   github-bot:
     allowed_surfaces: [github-issue, github-pr, github-comment, internal]
     surface_overrides:
@@ -146,6 +155,12 @@ class AgentPolicy:
         use_llm: Whether to use LLM slow path (agent-level default).
         llm_threshold: LLM escalation threshold (agent-level default).
         block_threshold: Block threshold (agent-level default).
+        mode: "enforce" (block) or "observe" (measure only — decisions are reported
+            but not enforced). Default "enforce".
+        tool_effects: Tool name → EffectClass value ("read", "shell", ...). Your own
+            tool inventory; overrides the built-in name classifier.
+        strict_unknown_tools: Require approval for untrusted calls to tool names the
+            classifier does not recognize. Default False.
         extra: Additional custom config fields.
     """
     name: str
@@ -162,6 +177,9 @@ class AgentPolicy:
     block_threshold: float = 0.9
     allowed_capabilities: list[str] = field(default_factory=list)
     forbidden_capabilities: list[str] = field(default_factory=list)
+    mode: str = "enforce"
+    tool_effects: dict[str, str] = field(default_factory=dict)
+    strict_unknown_tools: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
     def is_surface_allowed(self, surface: str) -> bool:
@@ -238,7 +256,36 @@ class AgentPolicy:
             "block_threshold": self.block_threshold,
             "allowed_capabilities": self.allowed_capabilities,
             "forbidden_capabilities": self.forbidden_capabilities,
+            "mode": self.mode,
+            "tool_effects": self.tool_effects,
+            "strict_unknown_tools": self.strict_unknown_tools,
         }
+
+
+VALID_MODES = ("enforce", "observe")
+
+
+def _validate_effect_fields(mode: Any, tool_effects: Any, where: str) -> None:
+    """Reject an unparseable mode / tool_effects block, naming the offending key.
+
+    This is a trust boundary: `mode: obseve` silently enforcing, or
+    `tool_effects: {x: shel}` silently ignored, is how a security config fails open.
+    """
+    from jataayu.guards.effect_boundary import EffectClass
+
+    if mode not in VALID_MODES:
+        raise ValueError(
+            f"{where}: invalid mode {mode!r} — expected one of {list(VALID_MODES)}"
+        )
+    if not isinstance(tool_effects, dict):
+        raise ValueError(f"{where}: tool_effects must be a mapping, got {type(tool_effects).__name__}")
+    valid = {e.value for e in EffectClass}
+    for tool, effect in tool_effects.items():
+        if effect not in valid:
+            raise ValueError(
+                f"{where}: tool_effects[{tool!r}] has invalid effect {effect!r} — "
+                f"expected one of {sorted(valid)}"
+            )
 
 
 @dataclass
@@ -280,6 +327,9 @@ class Policy:
             block_threshold=self.defaults.get("block_threshold", 0.9),
             check_credentials=self.defaults.get("check_credentials", True),
             check_high_entropy=self.defaults.get("check_high_entropy", False),
+            mode=self.defaults.get("mode", "enforce"),
+            tool_effects=dict(self.defaults.get("tool_effects", {})),
+            strict_unknown_tools=self.defaults.get("strict_unknown_tools", False),
         )
 
     def get_surface_profile(self, surface: str) -> dict:
@@ -385,6 +435,14 @@ class PolicyLoader:
         defaults = raw.get("defaults", {})
         global_surfaces = raw.get("surfaces", {})
 
+        # The defaults block feeds get_agent_policy()'s fallback for unknown agents,
+        # so it is a config path in its own right and gets the same validation.
+        _validate_effect_fields(
+            defaults.get("mode", "enforce"),
+            defaults.get("tool_effects", {}) or {},
+            "defaults",
+        )
+
         agents: dict[str, AgentPolicy] = {}
         for agent_name, agent_cfg in raw.get("agents", {}).items():
             agents[agent_name] = PolicyLoader._parse_agent(
@@ -425,6 +483,13 @@ class PolicyLoader:
                                     "trust_level")},
             )
 
+        mode = cfg.get("mode", defaults.get("mode", "enforce"))
+        # Validate BEFORE coercing: dict() on a list raises its own opaque ValueError,
+        # which would hide which key is actually wrong.
+        raw_effects = cfg.get("tool_effects", defaults.get("tool_effects", {})) or {}
+        _validate_effect_fields(mode, raw_effects, f"agents.{name}")
+        tool_effects = dict(raw_effects)
+
         return AgentPolicy(
             name=name,
             allowed_surfaces=cfg.get("allowed_surfaces", []),
@@ -440,12 +505,18 @@ class PolicyLoader:
             block_threshold=cfg.get("block_threshold", defaults.get("block_threshold", 0.9)),
             allowed_capabilities=cfg.get("allowed_capabilities", defaults.get("allowed_capabilities", [])),
             forbidden_capabilities=cfg.get("forbidden_capabilities", defaults.get("forbidden_capabilities", [])),
+            mode=mode,
+            tool_effects=tool_effects,
+            strict_unknown_tools=bool(
+                cfg.get("strict_unknown_tools", defaults.get("strict_unknown_tools", False))
+            ),
             extra={k: v for k, v in cfg.items()
                    if k not in ("allowed_surfaces", "surface_overrides", "protected_names",
                                 "internal_codenames", "gtm_codenames",
                                 "check_credentials", "disabled_cred_rules", "check_high_entropy",
                                 "use_llm", "llm_threshold", "block_threshold",
-                                "allowed_capabilities", "forbidden_capabilities")},
+                                "allowed_capabilities", "forbidden_capabilities",
+                                "mode", "tool_effects", "strict_unknown_tools")},
         )
 
     @staticmethod

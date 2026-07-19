@@ -92,6 +92,9 @@ class JataayuMCPGateway:
         surface: Surface name for InboundGuard. Default: "mcp-tool-call".
         enable_taint: Enable taint tracking integration. Default: False.
         forward_headers: HTTP headers to forward from client to upstream.
+        mode: "enforce" (default, block) or "observe" (measure only — nothing is blocked,
+            but every would-be block is reported on the context, the X-Jataayu-Would-Block
+            header and the decision sink).
     """
 
     JSONRPC_SECURITY_ERROR = -32001  # Custom error code for security blocks
@@ -109,7 +112,15 @@ class JataayuMCPGateway:
         forward_headers: Optional[list[str]] = None,
         inspect_returns: bool = True,
         return_surface: str = "tool-return",
+        mode: str = "enforce",
     ):
+        if mode not in ("enforce", "observe"):
+            raise ValueError(f"invalid mode {mode!r} — expected 'enforce' or 'observe'")
+        self.mode = mode
+        if mode == "observe":
+            # A security proxy silently not blocking is the worst failure here, so say so
+            # at startup as well as per-decision.
+            logger.warning("Jataayu MCP Gateway in OBSERVE MODE — nothing will be blocked")
         self.upstream_url = upstream_url.rstrip("/")
         self.bind_host = bind_host
         self.bind_port = bind_port
@@ -212,11 +223,14 @@ class JataayuMCPGateway:
             effective_score = taint_result.risk_score
 
         blocked = effective_score >= self.block_threshold
+        enforced = blocked and self.mode == "enforce"
 
         context = {
             "tool_name": tool_name,
             "risk_score": effective_score,
-            "blocked": blocked,
+            "blocked": enforced,
+            "would_block": blocked,
+            "mode": self.mode,
             "guard_result": result.to_dict(),
         }
         if taint_result:
@@ -224,7 +238,8 @@ class JataayuMCPGateway:
 
         if blocked:
             logger.warning(
-                "MCP tool call BLOCKED: tool=%s risk=%.2f surface=%s patterns=%s",
+                "MCP tool call %s: tool=%s risk=%.2f surface=%s patterns=%s",
+                "BLOCKED" if enforced else "WOULD BLOCK (observe mode)",
                 tool_name, effective_score, guard_surface, result.matched_patterns[:3],
             )
         elif not result.is_safe:
@@ -233,7 +248,8 @@ class JataayuMCPGateway:
                 tool_name, effective_score, result.explanation,
             )
 
-        return not blocked, context
+        self._emit(tool_name, "call", effective_score, enforced, blocked, result.explanation)
+        return not enforced, context
 
     def after_tool_call(
         self,
@@ -266,18 +282,22 @@ class JataayuMCPGateway:
 
         guard_result = self.guard.check(result_text, surface=self.return_surface)
         blocked = guard_result.risk_score >= self.block_threshold
+        enforced = blocked and self.mode == "enforce"
 
         context = {
             "tool_name": tool_name,
             "risk_score": guard_result.risk_score,
-            "blocked": blocked,
+            "blocked": enforced,
+            "would_block": blocked,
+            "mode": self.mode,
             "direction": "return",
             "guard_result": guard_result.to_dict(),
         }
 
         if blocked:
             logger.warning(
-                "MCP tool RETURN BLOCKED: tool=%s risk=%.2f surface=%s patterns=%s",
+                "MCP tool RETURN %s: tool=%s risk=%.2f surface=%s patterns=%s",
+                "BLOCKED" if enforced else "WOULD BLOCK (observe mode)",
                 tool_name, guard_result.risk_score, self.return_surface,
                 guard_result.matched_patterns[:3],
             )
@@ -287,7 +307,26 @@ class JataayuMCPGateway:
                 tool_name, guard_result.risk_score, guard_result.explanation,
             )
 
-        return not blocked, context
+        self._emit(tool_name, "return", guard_result.risk_score, enforced, blocked,
+                   guard_result.explanation)
+        return not enforced, context
+
+    def _emit(self, tool_name: str, direction: str, risk: float,
+              enforced: bool, would_block: bool, reason: str) -> None:
+        """Report one gateway decision to the sink, alongside effect-boundary decisions."""
+        from jataayu.core.audit import emit_decision
+
+        emit_decision({
+            "rail_type": "inbound",
+            "tool_name": tool_name,
+            "direction": direction,
+            "risk_score": risk,
+            "decision": "deny" if enforced else "allow",
+            "would_decision": "deny" if would_block else "allow",
+            "tripwire_triggered": would_block,
+            "mode": self.mode,
+            "reason": reason,
+        })
 
     def inspect_tool_response(
         self,
@@ -447,6 +486,11 @@ class JataayuMCPGateway:
             ) as resp:
                 resp_body = await resp.read()
                 resp_headers = dict(resp.headers)
+
+                # In observe mode the request was forwarded despite tripping the threshold —
+                # say so on the wire, so the caller can measure without enforcing.
+                if ctx.get("would_block") and not ctx.get("blocked"):
+                    resp_headers["X-Jataayu-Would-Block"] = "true"
 
                 # Add security context header when there are warnings
                 if not ctx.get("blocked") and ctx.get("risk_score", 0) > 0.3:
@@ -661,6 +705,8 @@ def main() -> None:
                         help="Risk score threshold to block (default: 0.7)")
     parser.add_argument("--surface", default="mcp-tool-call", help="Surface name for guard")
     parser.add_argument("--enable-taint", action="store_true", help="Enable taint tracking")
+    parser.add_argument("--observe", action="store_true",
+                        help="Observe mode: report what WOULD be blocked, block nothing")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging")
     args = parser.parse_args()
 
@@ -677,6 +723,7 @@ def main() -> None:
         block_threshold=args.block_threshold,
         surface=args.surface,
         enable_taint=args.enable_taint,
+        mode="observe" if args.observe else "enforce",
     )
 
     print("🛡️  Jataayu MCP Gateway")
@@ -684,6 +731,9 @@ def main() -> None:
     print(f"   Upstream:   {args.upstream}")
     print(f"   Threshold:  {args.block_threshold}")
     print(f"   Taint:      {'enabled' if args.enable_taint else 'disabled'}")
+    print(f"   Mode:       {gateway.mode}")
+    if args.observe:
+        print("   *** OBSERVE MODE — nothing will be blocked ***")
     print()
 
     gateway.start()

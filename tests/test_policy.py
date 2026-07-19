@@ -268,3 +268,162 @@ class TestDefaultPolicy:
         assert "coding-agent" in agents
         assert "github-bot" in agents
         assert "privacy-bot" in agents
+
+
+# ---------------------------------------------------------------------------
+# Effect-boundary policy fields: mode / tool_effects / strict_unknown_tools.
+#
+# This is the test that has never existed in this repo — a policy YAML loaded through
+# load_policy() into EffectBoundary(policy=...) actually CHANGING a verdict. Without it,
+# the loader could silently produce inert config and every other test would still pass.
+# ---------------------------------------------------------------------------
+
+EFFECT_POLICY_YAML = """
+version: 1
+
+defaults:
+  block_threshold: 0.85
+
+agents:
+  prod:
+    mode: observe
+    strict_unknown_tools: true
+    tool_effects:
+      jira.create_issue: network
+      internal.run_playbook: shell
+      db.query: read
+"""
+
+
+@pytest.fixture
+def effect_policy_file():
+    with tempfile.NamedTemporaryFile("w", suffix=".yml", delete=False) as f:
+        f.write(EFFECT_POLICY_YAML)
+        path = f.name
+    yield path
+    os.unlink(path)
+
+
+class TestEffectPolicyWiring:
+    def test_fields_survive_the_yaml_round_trip(self, effect_policy_file):
+        agent = load_policy(effect_policy_file).get_agent_policy("prod")
+        assert agent.mode == "observe"
+        assert agent.strict_unknown_tools is True
+        assert agent.tool_effects["internal.run_playbook"] == "shell"
+
+    def test_yaml_tool_effects_changes_a_verdict(self, effect_policy_file):
+        """The load-bearing assertion: config from a file moves the decision."""
+        from jataayu.guards.effect_boundary import (
+            EffectBoundary, Value, Provenance, EffectClass, Decision,
+        )
+
+        agent = load_policy(effect_policy_file).get_agent_policy("prod")
+        untrusted = [Value("payload", Provenance.UNTRUSTED)]
+
+        # Without the policy this name is unrecognized -> READ -> ALLOW.
+        plain = EffectBoundary().preview("internal.run_playbook", {"x": 1}, untrusted)
+        assert plain.effect_class is EffectClass.READ
+        assert plain.decision is Decision.ALLOW
+
+        # With it, the name is a shell effect. Observe mode reports, does not enforce.
+        pv = EffectBoundary(policy=agent).preview("internal.run_playbook", {"x": 1}, untrusted)
+        assert pv.effect_class is EffectClass.SHELL
+        assert pv.would_decision is Decision.DENY
+        assert pv.decision is Decision.ALLOW
+
+    def test_yaml_strict_flag_changes_a_verdict(self, effect_policy_file):
+        from jataayu.guards.effect_boundary import EffectBoundary, Value, Provenance, Decision
+
+        agent = load_policy(effect_policy_file).get_agent_policy("prod")
+        b = EffectBoundary(policy=agent, mode="enforce")   # isolate strict from observe
+        pv = b.preview("frobnicate.widget", {"x": 1}, [Value("p", Provenance.UNTRUSTED)])
+        assert pv.decision is Decision.NEEDS_APPROVAL
+
+    def test_kwarg_beats_policy_for_mode(self, effect_policy_file):
+        from jataayu.guards.effect_boundary import EffectBoundary
+
+        agent = load_policy(effect_policy_file).get_agent_policy("prod")
+        assert EffectBoundary(policy=agent).mode == "observe"
+        assert EffectBoundary(policy=agent, mode="enforce").mode == "enforce"
+
+    def test_tool_effects_merges_rather_than_replaces(self, effect_policy_file):
+        from jataayu.guards.effect_boundary import EffectBoundary, EffectClass
+
+        agent = load_policy(effect_policy_file).get_agent_policy("prod")
+        b = EffectBoundary(policy=agent, tool_effects={"local.tool": "shell"})
+
+        assert b.classify("local.tool") is EffectClass.SHELL          # from the kwarg
+        assert b.classify("jira.create_issue") is EffectClass.NETWORK  # from the file
+
+    def test_kwarg_wins_per_key_on_conflict(self, effect_policy_file):
+        from jataayu.guards.effect_boundary import EffectBoundary, EffectClass
+
+        agent = load_policy(effect_policy_file).get_agent_policy("prod")
+        b = EffectBoundary(policy=agent, tool_effects={"db.query": "shell"})
+        assert b.classify("db.query") is EffectClass.SHELL
+
+    def test_defaults_block_applies_without_naming_an_agent(self):
+        """`defaults: {mode: observe}` must work even when no agent is named."""
+        yaml_text = "version: 1\ndefaults:\n  mode: observe\n"
+        with tempfile.NamedTemporaryFile("w", suffix=".yml", delete=False) as f:
+            f.write(yaml_text)
+            path = f.name
+        try:
+            assert load_policy(path).get_agent_policy("").mode == "observe"
+        finally:
+            os.unlink(path)
+
+    def test_policy_file_alone_is_load_bearing_through_the_api(self, effect_policy_file):
+        """policy_file without agent= used to resolve to None, making the file inert."""
+        from jataayu import jataayu_authorize_action
+
+        d = jataayu_authorize_action(
+            "internal.run_playbook", {"x": 1},
+            policy_file=effect_policy_file, agent="prod",
+        )
+        assert d["effect_class"] == "shell"
+        assert d["would_decision"] == "deny"
+
+    def test_agent_to_dict_carries_the_new_fields(self, effect_policy_file):
+        d = load_policy(effect_policy_file).get_agent_policy("prod").to_dict()
+        assert d["mode"] == "observe"
+        assert d["strict_unknown_tools"] is True
+        assert d["tool_effects"]["db.query"] == "read"
+
+
+class TestEffectPolicyValidation:
+    """A typo in a security config must fail loudly, not silently fail open."""
+
+    def _load(self, yaml_text):
+        with tempfile.NamedTemporaryFile("w", suffix=".yml", delete=False) as f:
+            f.write(yaml_text)
+            path = f.name
+        try:
+            return load_policy(path)
+        finally:
+            os.unlink(path)
+
+    def test_misspelled_mode_raises_naming_the_agent(self):
+        with pytest.raises(ValueError, match="obseve"):
+            self._load("version: 1\nagents:\n  prod:\n    mode: obseve\n")
+
+    def test_invalid_effect_value_raises_naming_the_tool(self):
+        with pytest.raises(ValueError, match="db.query"):
+            self._load(
+                "version: 1\nagents:\n  prod:\n    tool_effects:\n      db.query: shel\n"
+            )
+
+    def test_misspelled_mode_in_defaults_raises(self):
+        with pytest.raises(ValueError, match="defaults"):
+            self._load("version: 1\ndefaults:\n  mode: obseve\n")
+
+    def test_non_mapping_tool_effects_raises(self):
+        with pytest.raises(ValueError, match="mapping"):
+            self._load("version: 1\nagents:\n  prod:\n    tool_effects: [a, b]\n")
+
+    def test_valid_policy_without_the_new_fields_still_loads(self):
+        p = self._load("version: 1\nagents:\n  prod:\n    check_credentials: true\n")
+        agent = p.get_agent_policy("prod")
+        assert agent.mode == "enforce"
+        assert agent.strict_unknown_tools is False
+        assert agent.tool_effects == {}

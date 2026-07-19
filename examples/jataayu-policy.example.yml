@@ -23,6 +23,27 @@ defaults:
 # Per-agent policies
 agents:
 
+  # Effect-boundary configuration — measure before you enforce.
+  #
+  #   from jataayu import jataayu_authorize_action
+  #   jataayu_authorize_action("shell.exec", {...}, policy_file="jataayu-policy.yml",
+  #                            agent="prod-agent")
+  #
+  # In observe mode the returned `decision` is 'allow' (nothing is blocked) while
+  # `would_decision` carries the truthful verdict — so you can measure your own
+  # false-positive rate on real traffic, then flip mode to `enforce`.
+  prod-agent:
+    mode: observe                  # "enforce" (block) | "observe" (measure only)
+    strict_unknown_tools: false    # true = untrusted calls to unknown tool names need approval
+    # Your real tool inventory. Overrides the built-in name classifier, so this is
+    # also how you fix a false positive on one of your own tool names.
+    # Valid effects: none, read, memory_write, file_write, network, secret_read,
+    #                shell, code_eval
+    tool_effects:
+      jira.create_issue: network
+      internal.run_playbook: shell
+      db.query: read
+
   # A coding agent (Cline, Claude Code, Cursor, etc.)
   # These agents read GitHub issues, PRs, and web pages — high Clinejection risk
   coding-agent:

@@ -289,13 +289,23 @@ class PreviewResult:
     canonical: str
     commit_token: Optional[str] = None
     violations: list[str] = field(default_factory=list)
+    # `decision` always means WHAT WAS ENFORCED, and stays 3-valued — every existing caller
+    # compares it by string. The truthful verdict goes here; None means "same as decision".
+    would_decision: Optional[Decision] = None
+    mode: str = "enforce"
+    unrecognized: bool = False
 
     @property
     def approved(self) -> bool:
         return self.decision is Decision.ALLOW
 
+    @property
+    def tripwire_triggered(self) -> bool:
+        """Whether the truthful verdict was anything other than ALLOW."""
+        return (self.would_decision or self.decision) is not Decision.ALLOW
+
     def to_dict(self) -> dict:
-        return {
+        d = {
             "tool_name": self.tool_name,
             "effect_class": self.effect_class.value,
             "provenance": self.provenance.value,
@@ -304,6 +314,34 @@ class PreviewResult:
             "violations": self.violations,
             "commit_token": self.commit_token,
         }
+        # Keys are ADDED only in observe mode; enforce-mode output stays byte-for-byte
+        # identical to pre-observe releases. That is the compatibility contract.
+        if self.mode != "enforce":
+            d["mode"] = self.mode
+            d["would_decision"] = (self.would_decision or self.decision).value
+            d["tripwire_triggered"] = self.tripwire_triggered
+        return d
+
+
+def _resolve(kwarg, policy, field_name: str, default):
+    """Explicit kwarg (not None) > policy.<field_name> > built-in default."""
+    if kwarg is not None:
+        return kwarg
+    value = getattr(policy, field_name, None)
+    return default if value is None else value
+
+
+def _coerce_effect(tool: str, value) -> EffectClass:
+    """Accept an EffectClass or its string value in a tool_effects map."""
+    if isinstance(value, EffectClass):
+        return value
+    try:
+        return EffectClass(value)
+    except ValueError:
+        raise ValueError(
+            f"tool_effects[{tool!r}]: invalid effect {value!r} — "
+            f"expected one of {sorted(e.value for e in EffectClass)}"
+        ) from None
 
 
 def _canonical(tool_name: str, params: dict) -> str:
@@ -329,35 +367,73 @@ class EffectBoundary:
             log(pv.reason)   # DENY — untrusted data may not reach a shell, regardless of text
     """
 
-    def __init__(self, policy=None, *, default_untrusted: bool = True):
+    def __init__(
+        self,
+        policy=None,
+        *,
+        default_untrusted: bool = True,
+        mode: Optional[str] = None,
+        tool_effects: Optional[dict] = None,
+        strict: Optional[bool] = None,
+        sink: Optional[Callable[[dict], None]] = None,
+        capture_content: Optional[bool] = None,
+    ):
         self.policy = policy
         self.default_untrusted = default_untrusted
         self._vault: dict[str, str] = {}
         self._counter = 0
 
+        # Precedence: explicit kwarg (not None) > policy field > built-in default.
+        self.mode = _resolve(mode, policy, "mode", "enforce")
+        if self.mode not in ("enforce", "observe"):
+            raise ValueError(f"invalid mode {self.mode!r} — expected 'enforce' or 'observe'")
+        self.strict = bool(_resolve(strict, policy, "strict_unknown_tools", False))
+        self.sink = sink
+        self.capture_content = capture_content
+
+        # tool_effects MERGES rather than overrides: the policy file is the org's tool
+        # inventory, the kwarg is a local addition. Kwarg wins per key.
+        merged = dict(getattr(policy, "tool_effects", None) or {})
+        merged.update(tool_effects or {})
+        self.tool_effects: dict[str, EffectClass] = {
+            str(k).strip().lower(): _coerce_effect(k, v) for k, v in merged.items()
+        }
+
     # -- effect classification -------------------------------------------------
     def classify(self, tool_name: str) -> EffectClass:
+        """The effect class of `tool_name`. Signature is load-bearing — many callers."""
+        return self._classify(tool_name)[0]
+
+    def _classify(self, tool_name: str) -> tuple[EffectClass, bool]:
+        """(effect, recognized). `recognized` is False only at the step-4 fallback."""
         t = tool_name.strip().lower()
+        # 0. Caller-supplied inventory wins over everything, so a user can FIX a false
+        #    positive on their own tool name — a fill-gaps-only map could not do that.
+        if t in self.tool_effects:
+            return self.tool_effects[t], True
+
         # 1. Exact whole-string match against the curated sink sets (most specific).
         if t in _CODE_EVAL_TOOLS:
-            return EffectClass.CODE_EVAL
+            return EffectClass.CODE_EVAL, True
         if t in _SHELL_SINK_TOOLS:
-            return EffectClass.SHELL
+            return EffectClass.SHELL, True
         if t in _SECRET_TOOLS:
-            return EffectClass.SECRET_READ
+            return EffectClass.SECRET_READ, True
         if t in _MEMORY_WRITE_TOOLS:
-            return EffectClass.MEMORY_WRITE
+            return EffectClass.MEMORY_WRITE, True
         if t in _FILE_WRITE_TOOLS:
-            return EffectClass.FILE_WRITE
+            return EffectClass.FILE_WRITE, True
         if t in _NETWORK_TOOLS:
-            return EffectClass.NETWORK
+            return EffectClass.NETWORK, True
 
         # 2. Token-level match for namespaced / snake_case / camelCase names that missed the
         #    exact sets. Ordered most-dangerous-first so a critical sink always wins over the
         #    benign READ fallback (e.g. `get_shell` -> SHELL, not READ).
         toks = _name_tokens(tool_name)
         if not toks:
-            return EffectClass.READ
+            # A name with no usable tokens ("", "***") matched nothing — same posture as
+            # the step-4 fallback, so strict mode must gate it rather than wave it through.
+            return EffectClass.READ, False
         tset = set(toks)
         verbs, trailing, head = _verb_tokens(tool_name)
 
@@ -381,10 +457,10 @@ class EffectBoundary:
         yaml_unsafe = ("yaml" in tset) and bool(tset & {"load", "loads"}) and ("safe" not in tset)
         if exec_verb or bare_exec or shell_target or (tset & _RCE_TOKENS) or yaml_unsafe:
             if (shell_obj or trailing in _EXEC_VERBS_TRAILING) and not (tset & _RCE_TOKENS):
-                return EffectClass.SHELL
+                return EffectClass.SHELL, True
             # Interpreter namespace (python.exec), a bare exec/eval verb, or an unsafe
             # deserialization sink.
-            return EffectClass.CODE_EVAL
+            return EffectClass.CODE_EVAL, True
 
         # Secret reads: a strong standalone token, a known secret-store token combo, a qualifier +
         # a generic secret noun, or any read of the environment. Checked before the READ-verb
@@ -398,19 +474,19 @@ class EffectBoundary:
             or ((tset & _SECRET_ENV_TOKENS)
                 and bool(head & (_READ_VERBS | _SECRET_EXTRA_READ_VERBS)))
         ):
-            return EffectClass.SECRET_READ
+            return EffectClass.SECRET_READ, True
 
         # Memory writes (checked before file writes: "write_memory" is a memory write).
         if (tset & _MEMORY_TOKENS) and (tset & _MEMORY_WRITE_VERBS):
-            return EffectClass.MEMORY_WRITE
+            return EffectClass.MEMORY_WRITE, True
 
         # File writes.
         if (tset & _FILE_WRITE_STRONG) or ((tset & _FILE_MUTATE_VERBS) and (tset & _FILE_NOUNS)):
-            return EffectClass.FILE_WRITE
+            return EffectClass.FILE_WRITE, True
 
         # Network / external-effect actions.
         if (tset & _NETWORK_STRONG) or (tset & _NETWORK_VERBS):
-            return EffectClass.NETWORK
+            return EffectClass.NETWORK, True
 
         # 3. Read verb in a verb position -> READ.
         #
@@ -422,7 +498,7 @@ class EffectBoundary:
         # READ (a public cert is not secret); the private-key/cert BUNDLE forms `pkcs12`/`keystore`
         # are strong secret tokens and deny.
         if head & _READ_VERBS:
-            return EffectClass.READ
+            return EffectClass.READ, True
 
         # 4. Nothing matched. Unrecognized names fall back to READ — the pre-existing posture.
         #    Gating them instead (fail-closed on unrecognized) is NOT viable at this classifier's
@@ -430,10 +506,13 @@ class EffectBoundary:
         #    names: `git_diff`, `create_issue`, `add_comment`), so gating it puts ~75% of untrusted
         #    tool calls in front of a human, and a guard that prompts that often gets turned off.
         #    Widen coverage first, track the unrecognized rate, then gate. See PR #21.
-        return EffectClass.READ
+        #    `strict=True` and the `unrecognized` field on every decision record are how a
+        #    caller opts into gating, and how they measure the rate before doing so.
+        return EffectClass.READ, False
 
     # -- the policy decision (deterministic, no LLM) ---------------------------
-    def _decide(self, effect: EffectClass, provenance: Provenance) -> tuple[Decision, str, list[str]]:
+    def _decide(self, effect: EffectClass, provenance: Provenance,
+                recognized: bool = True) -> tuple[Decision, str, list[str]]:
         violations: list[str] = []
 
         # 1. Capability isolation from the agent policy always wins.
@@ -447,6 +526,12 @@ class EffectBoundary:
             if effect in _CRITICAL_EFFECTS:
                 return (Decision.DENY,
                         f"untrusted-derived input may not reach a {effect.value} effect", violations)
+            # Strict fires for UNTRUSTED only: a trusted call has no attacker in the loop, and
+            # the boundary already allows trusted->shell, so gating trusted here would be
+            # stricter than the shell rule. Capability denial above still wins.
+            if self.strict and not recognized:
+                return (Decision.NEEDS_APPROVAL,
+                        "unrecognized tool name; strict mode requires approval", violations)
             if effect in _APPROVAL_EFFECTS:
                 return (Decision.NEEDS_APPROVAL,
                         f"untrusted-derived {effect.value} effect requires human approval", violations)
@@ -457,7 +542,7 @@ class EffectBoundary:
     # -- preview / commit ------------------------------------------------------
     def preview(self, tool_name: str, params: dict,
                 values: Iterable[Value] = ()) -> PreviewResult:
-        effect = self.classify(tool_name)
+        effect, recognized = self._classify(tool_name)
         provs = [v.provenance for v in values]
         if provs:
             provenance = provs[0]
@@ -466,17 +551,51 @@ class EffectBoundary:
         else:
             provenance = Provenance.UNTRUSTED if self.default_untrusted else Provenance.TRUSTED
 
-        decision, reason, violations = self._decide(effect, provenance)
+        decision, reason, violations = self._decide(effect, provenance, recognized)
         canonical = _canonical(tool_name, params)
+
+        would_decision = None
+        if self.mode == "observe":
+            # Observe mode reports the truthful verdict but enforces ALLOW, so a token is
+            # issued and commit() runs. That is the whole point of the mode, and it is opt-in.
+            would_decision = decision
+            if decision is not Decision.ALLOW:
+                reason = f"observe mode: would {decision.value} — {reason}"
+                decision = Decision.ALLOW
+
         token = None
         if decision is Decision.ALLOW:
             token = hashlib.sha256(canonical.encode()).hexdigest()
 
-        return PreviewResult(
+        result = PreviewResult(
             tool_name=tool_name, params=params, effect_class=effect, provenance=provenance,
             decision=decision, reason=reason, canonical=canonical,
             commit_token=token, violations=violations,
+            would_decision=would_decision, mode=self.mode, unrecognized=not recognized,
         )
+
+        # Local import: jataayu.core.audit imports THIS module at its top level, so a
+        # module-level import here is a circular import.
+        from jataayu.core.audit import capture_content_enabled, emit_decision
+
+        record = {
+            "rail_type": "effect_boundary",
+            "tool_name": tool_name,
+            "effect_class": effect.value,
+            "provenance": provenance.value,
+            "decision": result.decision.value,
+            "would_decision": (would_decision or result.decision).value,
+            "tripwire_triggered": result.tripwire_triggered,
+            "mode": self.mode,
+            "reason": result.reason,
+            "violations": violations,
+            "unrecognized": not recognized,
+        }
+        if capture_content_enabled(self.capture_content):
+            record["params"] = params
+        emit_decision(record, self.sink)
+
+        return result
 
     def commit(self, preview: PreviewResult, params: dict, executor: Callable[[], Any]) -> Any:
         """

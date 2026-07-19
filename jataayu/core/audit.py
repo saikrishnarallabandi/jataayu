@@ -23,11 +23,73 @@ boundary so severity ordering and capability tags stay consistent.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Callable, Optional
 
-from jataayu.guards.effect_boundary import EffectBoundary, EffectClass, Provenance
+# ---------------------------------------------------------------------------
+# Decision sink — "which decisions did Jataayu make?"
+#
+# Defined ABOVE the effect_boundary import on purpose: effect_boundary imports
+# emit_decision back out of this module, so anything it needs must exist before
+# this module's own imports run.
+# ---------------------------------------------------------------------------
+
+DecisionSink = Callable[[dict], None]
+
+_sink: Optional[DecisionSink] = None
+_capture_content: bool = False
+
+
+def set_decision_sink(sink: Optional[DecisionSink], *, capture_content: bool = False) -> None:
+    """Install a process-wide callback receiving one dict per Jataayu decision.
+
+    The sink is telemetry: it can never change a verdict. Exceptions raised inside it
+    are caught and logged once to the 'jataayu' logger, never propagated.
+
+    capture_content=False (default) emits metadata only. True includes tool params /
+    scanned text. Opt in explicitly — decision records are frequently shipped off-host.
+
+    Pass sink=None to uninstall.
+
+    Record keys map onto NeMo Guardrails' vocabulary as::
+
+        jataayu             NeMo
+        -------             ----
+        rail_type           rail.type
+        decision            rail.status (what was enforced)
+        reason              rail.reason
+        tool_name           action.name
+
+    Flat snake_case keys, not dotted, so a CSV/DB/Slack emitter needs no re-modelling.
+    """
+    global _sink, _capture_content
+    _sink = sink
+    _capture_content = capture_content
+
+
+def capture_content_enabled(override: Optional[bool] = None) -> bool:
+    """Resolve capture_content: per-instance override, else the module-level setting."""
+    return _capture_content if override is None else override
+
+
+def emit_decision(record: dict, sink: Optional[DecisionSink] = None) -> None:
+    """Deliver `record` to `sink` (per-instance) or the module-level sink. Never raises.
+
+    A broken telemetry callback must never be why a `deny` fails to reach the caller,
+    so every exception is swallowed and logged.
+    """
+    target = sink if sink is not None else _sink
+    if target is None:
+        return
+    try:
+        target(record)
+    except Exception:
+        logging.getLogger("jataayu").exception("decision sink raised; record dropped")
+
+
+from jataayu.guards.effect_boundary import EffectBoundary, EffectClass, Provenance  # noqa: E402
 
 # One shared classifier instance (its vault stays empty — we only use classify()).
 _CLASSIFIER = EffectBoundary()

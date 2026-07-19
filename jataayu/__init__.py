@@ -40,7 +40,9 @@ from jataayu.guards.composition import check_skillset, CompositionRisk
 from jataayu.guards.effect_boundary import (
     EffectBoundary, Value, Provenance, EffectClass, Decision, CommitRejected,
 )
-from jataayu.core.audit import SessionTrace, AuditResult, AuditFinding, AuditRisk, TraceEvent
+from jataayu.core.audit import (
+    SessionTrace, AuditResult, AuditFinding, AuditRisk, TraceEvent, set_decision_sink,
+)
 from jataayu.api import jataayu_authorize_action
 from jataayu.convenience import check_inbound, check_outbound
 
@@ -81,6 +83,8 @@ __all__ = [
     "AuditFinding",
     "AuditRisk",
     "TraceEvent",
+    # Decision telemetry — one record per decision, to your callback
+    "set_decision_sink",
     # Short aliases (tuple return format)
     "check_inbound",
     "check_outbound",
