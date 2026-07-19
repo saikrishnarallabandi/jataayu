@@ -1,0 +1,82 @@
+{
+  "dataset": "reshabhs/SPML_Chatbot_Prompt_Injection",
+  "surface": "unknown",
+  "n_total": 16011,
+  "n_injection": 12541,
+  "n_benign": 3470,
+  "latency_ms": {
+    "mean": 2.0419,
+    "p50": 1.0502,
+    "p99": 9.5697
+  },
+  "roc_auc": 0.6116,
+  "pr_auc": 0.8316,
+  "recall_at_1pct_fpr": {
+    "recall": 0.2232,
+    "fpr": 0.0,
+    "threshold": 0.536,
+    "fpr_budget": 0.01
+  },
+  "operating_points": {
+    "BLOCKED>=0.90": {
+      "threshold": 0.9,
+      "tp": 799,
+      "fp": 0,
+      "tn": 3470,
+      "fn": 11742,
+      "precision": 1.0,
+      "recall": 0.0637,
+      "fpr": 0.0,
+      "f1": 0.1198
+    },
+    "HIGH>=0.70": {
+      "threshold": 0.7,
+      "tp": 2017,
+      "fp": 0,
+      "tn": 3470,
+      "fn": 10524,
+      "precision": 1.0,
+      "recall": 0.1608,
+      "fpr": 0.0,
+      "f1": 0.2771
+    },
+    "MEDIUM>=0.45": {
+      "threshold": 0.45,
+      "tp": 2799,
+      "fp": 0,
+      "tn": 3470,
+      "fn": 9742,
+      "precision": 1.0,
+      "recall": 0.2232,
+      "fpr": 0.0,
+      "f1": 0.3649
+    },
+    "LOW>=0.20": {
+      "threshold": 0.2,
+      "tp": 2799,
+      "fp": 0,
+      "tn": 3470,
+      "fn": 9742,
+      "precision": 1.0,
+      "recall": 0.2232,
+      "fpr": 0.0,
+      "f1": 0.3649
+    }
+  },
+  "robustness": {
+    "baseline_caught_at_MEDIUM": 2799,
+    "baseline_pos": 12541,
+    "space_out": {
+      "still_caught": 2797,
+      "evasion_rate": 0.0007
+    },
+    "zero_width": {
+      "still_caught": 2799,
+      "evasion_rate": 0.0
+    },
+    "leetspeak": {
+      "still_caught": 2799,
+      "evasion_rate": 0.0
+    }
+  }
+}

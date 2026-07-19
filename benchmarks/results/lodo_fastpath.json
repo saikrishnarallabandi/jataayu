@@ -1,0 +1,212 @@
+{
+  "benchmark": "Jataayu inbound fast-path \u2014 Leave-One-Dataset-Out (LODO)",
+  "api": "jataayu_check_inbound (fast path, no LLM)",
+  "surface": "unknown",
+  "fpr_budget": 0.01,
+  "protocol": "threshold fit on POOLED other datasets at the FPR budget, then evaluated on the held-out set; in-distribution reference fits the threshold on the held-out set itself.",
+  "datasets_evaluated": [
+    "deepset/prompt-injections",
+    "xTRam1/safe-guard-prompt-injection",
+    "jackhhao/jailbreak-classification",
+    "reshabhs/SPML_Chatbot_Prompt_Injection",
+    "Lakera/gandalf_ignore_instructions",
+    "hackaprompt/hackaprompt-dataset",
+    "allenai/wildjailbreak"
+  ],
+  "mixed_label_pool": [
+    "deepset/prompt-injections",
+    "xTRam1/safe-guard-prompt-injection",
+    "jackhhao/jailbreak-classification",
+    "reshabhs/SPML_Chatbot_Prompt_Injection",
+    "allenai/wildjailbreak"
+  ],
+  "single_class_eval_only": [
+    "Lakera/gandalf_ignore_instructions",
+    "hackaprompt/hackaprompt-dataset"
+  ],
+  "datasets_skipped": {},
+  "per_held_out": {
+    "deepset/prompt-injections": {
+      "n": 662,
+      "n_pos": 263,
+      "n_neg": 399,
+      "single_class": false,
+      "pooled_from": [
+        "xTRam1/safe-guard-prompt-injection",
+        "jackhhao/jailbreak-classification",
+        "reshabhs/SPML_Chatbot_Prompt_Injection",
+        "allenai/wildjailbreak"
+      ],
+      "roc_auc": 0.596,
+      "in_distribution": {
+        "threshold": 0.6,
+        "recall_at_1pct_fpr": 0.1977,
+        "realized_fpr": 0.005
+      },
+      "ood": {
+        "pooled_threshold": 0.75,
+        "pooled_fit_fpr": 0.0023,
+        "recall": 0.0342,
+        "realized_fpr": 0.005
+      },
+      "ood_gap": {
+        "recall_drop": 0.1635,
+        "fpr_drift": -0.005
+      }
+    },
+    "xTRam1/safe-guard-prompt-injection": {
+      "n": 10296,
+      "n_pos": 3146,
+      "n_neg": 7150,
+      "single_class": false,
+      "pooled_from": [
+        "deepset/prompt-injections",
+        "jackhhao/jailbreak-classification",
+        "reshabhs/SPML_Chatbot_Prompt_Injection",
+        "allenai/wildjailbreak"
+      ],
+      "roc_auc": 0.641,
+      "in_distribution": {
+        "threshold": 0.75,
+        "recall_at_1pct_fpr": 0.1634,
+        "realized_fpr": 0.0024
+      },
+      "ood": {
+        "pooled_threshold": 0.7,
+        "pooled_fit_fpr": 0.0076,
+        "recall": 0.2403,
+        "realized_fpr": 0.0201
+      },
+      "ood_gap": {
+        "recall_drop": -0.0769,
+        "fpr_drift": 0.0101
+      }
+    },
+    "jackhhao/jailbreak-classification": {
+      "n": 1306,
+      "n_pos": 666,
+      "n_neg": 640,
+      "single_class": false,
+      "pooled_from": [
+        "deepset/prompt-injections",
+        "xTRam1/safe-guard-prompt-injection",
+        "reshabhs/SPML_Chatbot_Prompt_Injection",
+        "allenai/wildjailbreak"
+      ],
+      "roc_auc": 0.7531,
+      "in_distribution": {
+        "threshold": 0.8,
+        "recall_at_1pct_fpr": 0.3453,
+        "realized_fpr": 0.0094
+      },
+      "ood": {
+        "pooled_threshold": 0.75,
+        "pooled_fit_fpr": 0.0018,
+        "recall": 0.3483,
+        "realized_fpr": 0.0125
+      },
+      "ood_gap": {
+        "recall_drop": -0.003,
+        "fpr_drift": 0.0025
+      }
+    },
+    "reshabhs/SPML_Chatbot_Prompt_Injection": {
+      "n": 16011,
+      "n_pos": 12541,
+      "n_neg": 3470,
+      "single_class": false,
+      "pooled_from": [
+        "deepset/prompt-injections",
+        "xTRam1/safe-guard-prompt-injection",
+        "jackhhao/jailbreak-classification",
+        "allenai/wildjailbreak"
+      ],
+      "roc_auc": 0.6116,
+      "in_distribution": {
+        "threshold": 0.536,
+        "recall_at_1pct_fpr": 0.2232,
+        "realized_fpr": 0.0
+      },
+      "ood": {
+        "pooled_threshold": 0.75,
+        "pooled_fit_fpr": 0.0033,
+        "recall": 0.0699,
+        "realized_fpr": 0.0
+      },
+      "ood_gap": {
+        "recall_drop": 0.1533,
+        "fpr_drift": -0.01
+      }
+    },
+    "Lakera/gandalf_ignore_instructions": {
+      "n": 1000,
+      "n_pos": 1000,
+      "n_neg": 0,
+      "single_class": true,
+      "pooled_from": [
+        "deepset/prompt-injections",
+        "xTRam1/safe-guard-prompt-injection",
+        "jackhhao/jailbreak-classification",
+        "reshabhs/SPML_Chatbot_Prompt_Injection",
+        "allenai/wildjailbreak"
+      ],
+      "roc_auc": null,
+      "in_distribution": null,
+      "ood": {
+        "pooled_threshold": 0.75,
+        "pooled_fit_fpr": 0.0024,
+        "recall": 0.204,
+        "realized_fpr": null
+      }
+    },
+    "hackaprompt/hackaprompt-dataset": {
+      "n": 20000,
+      "n_pos": 20000,
+      "n_neg": 0,
+      "single_class": true,
+      "pooled_from": [
+        "deepset/prompt-injections",
+        "xTRam1/safe-guard-prompt-injection",
+        "jackhhao/jailbreak-classification",
+        "reshabhs/SPML_Chatbot_Prompt_Injection",
+        "allenai/wildjailbreak"
+      ],
+      "roc_auc": null,
+      "in_distribution": null,
+      "ood": {
+        "pooled_threshold": 0.75,
+        "pooled_fit_fpr": 0.0024,
+        "recall": 0.1001,
+        "realized_fpr": null
+      }
+    },
+    "allenai/wildjailbreak": {
+      "n": 2210,
+      "n_pos": 2000,
+      "n_neg": 210,
+      "single_class": false,
+      "pooled_from": [
+        "deepset/prompt-injections",
+        "xTRam1/safe-guard-prompt-injection",
+        "jackhhao/jailbreak-classification",
+        "reshabhs/SPML_Chatbot_Prompt_Injection"
+      ],
+      "roc_auc": 0.5059,
+      "in_distribution": {
+        "threshold": 0.75,
+        "recall_at_1pct_fpr": 0.0085,
+        "realized_fpr": 0.0048
+      },
+      "ood": {
+        "pooled_threshold": 0.75,
+        "pooled_fit_fpr": 0.0023,
+        "recall": 0.0085,
+        "realized_fpr": 0.0048
+      },
+      "ood_gap": {
+        "recall_drop": 0.0,
+        "fpr_drift": -0.0052
+      }
+    }
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "dataset": "Lakera/gandalf_ignore_instructions",
+  "surface": "unknown",
+  "n_total": 1000,
+  "n_injection": 1000,
+  "n_benign": 0,
+  "latency_ms": {
+    "mean": 0.2447,
+    "p50": 0.1992,
+    "p99": 0.8981
+  },
+  "roc_auc": null,
+  "pr_auc": null,
+  "recall_at_1pct_fpr": null,
+  "operating_points": {
+    "BLOCKED>=0.90": {
+      "threshold": 0.9,
+      "tp": 186,
+      "fp": 0,
+      "tn": 0,
+      "fn": 814,
+      "precision": 1.0,
+      "recall": 0.186,
+      "fpr": 0.0,
+      "f1": 0.3137
+    },
+    "HIGH>=0.70": {
+      "threshold": 0.7,
+      "tp": 337,
+      "fp": 0,
+      "tn": 0,
+      "fn": 663,
+      "precision": 1.0,
+      "recall": 0.337,
+      "fpr": 0.0,
+      "f1": 0.5041
+    },
+    "MEDIUM>=0.45": {
+      "threshold": 0.45,
+      "tp": 526,
+      "fp": 0,
+      "tn": 0,
+      "fn": 474,
+      "precision": 1.0,
+      "recall": 0.526,
+      "fpr": 0.0,
+      "f1": 0.6894
+    },
+    "LOW>=0.20": {
+      "threshold": 0.2,
+      "tp": 527,
+      "fp": 0,
+      "tn": 0,
+      "fn": 473,
+      "precision": 1.0,
+      "recall": 0.527,
+      "fpr": 0.0,
+      "f1": 0.6902
+    }
+  },
+  "robustness": {
+    "baseline_caught_at_MEDIUM": 526,
+    "baseline_pos": 1000,
+    "space_out": {
+      "still_caught": 526,
+      "evasion_rate": 0.0
+    },
+    "zero_width": {
+      "still_caught": 526,
+      "evasion_rate": 0.0
+    },
+    "leetspeak": {
+      "still_caught": 526,
+      "evasion_rate": 0.0
+    }
+  }
+}

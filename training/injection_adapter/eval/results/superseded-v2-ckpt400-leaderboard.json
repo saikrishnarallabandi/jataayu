@@ -1,0 +1,67 @@
+{
+  "tag": "superseded-v2-ckpt400",
+  "adapter": "ckpt/published-v0.1",
+  "n_rows": 4101,
+  "tau": 0.989,
+  "global_benign_fpr": 0.0077,
+  "n_global_benign": 1299,
+  "datasets": {
+    "deepset": {
+      "n_pos": 263,
+      "n_neg": 399,
+      "kind": "mixed",
+      "recall_at_1fpr": 0.5247
+    },
+    "safe-guard": {
+      "n_pos": 300,
+      "n_neg": 300,
+      "kind": "mixed",
+      "recall_at_1fpr": 0.8833
+    },
+    "jackhhao": {
+      "n_pos": 300,
+      "n_neg": 300,
+      "kind": "mixed",
+      "recall_at_1fpr": 0.9
+    },
+    "SPML": {
+      "n_pos": 300,
+      "n_neg": 300,
+      "kind": "mixed",
+      "recall_at_1fpr": 0.9767
+    },
+    "gandalf": {
+      "n_pos": 400,
+      "n_neg": 0,
+      "kind": "attack_only",
+      "recall_at_1fpr": 0.9175
+    },
+    "hackaprompt": {
+      "n_pos": 400,
+      "n_neg": 0,
+      "kind": "attack_only",
+      "recall_at_1fpr": 0.935
+    },
+    "wildjailbreak": {
+      "n_pos": 290,
+      "n_neg": 210,
+      "kind": "contrast",
+      "recall_at_1fpr": 0.431
+    },
+    "NotInject": {
+      "n_pos": 0,
+      "n_neg": 339,
+      "kind": "notinject",
+      "od_acc": 0.9823,
+      "fp": 6
+    }
+  },
+  "mean_recall_at_1fpr": 0.8562,
+  "n_core_sets": 6,
+  "ship_bar": {
+    "mean_recall_at_1fpr>=0.787": true,
+    "notinject_od_acc>=0.95": true,
+    "_reference": "published 0.853 was measured on a suite 41.8% contaminated with its own training data; decontaminated it is 0.827. This model's training set has zero overlap with the suite, so its number is not inflated the same way."
+  },
+  "note": "SUPERSEDED. The 'published-v0.1' tag/adapter path is what this run was called at the time; it is the v2 build's checkpoint-400, NOT the adapter published as v0.1. The published v0.1 adapter is checkpoint-300 (SHA-256 identical) -- see ckpt-300-leaderboard.json, mean_recall_at_1fpr 0.8277. Kept for provenance only; do not quote these numbers as v0.1's."
+}
