@@ -8,7 +8,11 @@ reuses the already-warm model — no second load. Read-only: it forwards text to
 
 Run:  python3 demo_server.py [--host <ip>] [--port 8874] [--sidecar http://127.0.0.1:18902]
 """
-import argparse, json, os, urllib.request, urllib.error
+import argparse
+import json
+import os
+import urllib.request
+import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))

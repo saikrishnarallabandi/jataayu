@@ -35,7 +35,8 @@ OUT = HERE / "results" / "composition_v1.json"
 def load_corpus() -> list[dict]:
     if not CORPUS.exists():
         # Auto-generate if missing (keeps the bench self-contained + reproducible).
-        import subprocess, sys
+        import subprocess
+        import sys
         subprocess.run([sys.executable, str(HERE / "data" / "gen_composition_v1.py")], check=True)
     with CORPUS.open() as f:
         return [json.loads(line) for line in f if line.strip()]

@@ -66,7 +66,6 @@ PROBE_BENIGN = [
 
 
 def load_model(model_id, device):
-    import torch
     from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
     tok = AutoTokenizer.from_pretrained(model_id)

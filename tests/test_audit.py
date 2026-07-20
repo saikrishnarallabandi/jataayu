@@ -6,10 +6,9 @@ exfil chains realized across turns, sleeper memory poisoning, untrusted input
 into a critical effect, and escalating trajectories — plus false-positive
 controls on benign trajectories. No LLM required.
 """
-import pytest
 
 from jataayu.core.audit import SessionTrace, AuditRisk
-from jataayu.guards.effect_boundary import Provenance, EffectClass
+from jataayu.guards.effect_boundary import EffectClass
 
 
 # ---------------------------------------------------------------------------

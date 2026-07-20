@@ -12,7 +12,10 @@ thread pool. Point --host/--model at any ollama endpoint.
 
   python run_slowpath_bench.py --host http://localhost:11434 --model qwen3:8b --workers 6
 """
-import argparse, json, time, os
+import argparse
+import json
+import time
+import os
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 

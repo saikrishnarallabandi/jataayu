@@ -4,7 +4,7 @@ Covers Aguara CRED_001-017 patterns.
 """
 import pytest
 from jataayu.guards.outbound import OutboundGuard, PrivacyConfig
-from jataayu.core.threat import ThreatLevel, ThreatType
+from jataayu.core.threat import ThreatType
 
 
 @pytest.fixture

@@ -14,7 +14,9 @@ honestly-caveated number, including where the guard fails.
 Usage:
   python run_injection_bench.py --dataset deepset/prompt-injections --surface unknown
 """
-import argparse, json, time, os, sys
+import argparse
+import json
+import time
 from pathlib import Path
 
 import numpy as np

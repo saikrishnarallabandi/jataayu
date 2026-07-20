@@ -66,7 +66,7 @@ def main():
         print(f"[dry-run] verdict first-token ids: INJECTION={pos_id} ({tok.decode([pos_id])!r}) "
               f"BENIGN={neg_id} ({tok.decode([neg_id])!r})")
         print(f"[dry-run] score = softmax([logit_{pos_id}, logit_{neg_id}])[0] = P(INJECTION)")
-        print(f"[dry-run] output record schema: {{'id': <str>, 'score': <float in (0,1)>}}")
+        print("[dry-run] output record schema: {'id': <str>, 'score': <float in (0,1)>}")
         for r in rows[:2]:
             print(f"\n--- cache row id={r['id']} label={r['label']} dataset={r['dataset']} ---")
             print("PROMPT (tail 240):", repr(injscore.build_prompt(tok, r["text"])[-240:]))
