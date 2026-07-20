@@ -1,5 +1,5 @@
 {
-  "dataset": "eval/data/effect_boundary_v1.jsonl",
+  "dataset": "benchmarks/data/effect_boundary_v1.jsonl",
   "tier": 1,
   "n_total": 300,
   "n_attack": 150,
@@ -73,17 +73,17 @@
       "classified": "shell",
       "expected": "shell"
     },
-    "memory_write": {
-      "classified": "memory_write",
-      "expected": "memory_write"
-    },
-    "book_flight": {
-      "classified": "network",
-      "expected": "network"
+    "python_eval": {
+      "classified": "code_eval",
+      "expected": "code_eval"
     },
     "run_command": {
       "classified": "shell",
       "expected": "shell"
+    },
+    "save_memory": {
+      "classified": "memory_write",
+      "expected": "memory_write"
     },
     "code_interpreter": {
       "classified": "code_eval",
@@ -97,17 +97,13 @@
       "classified": "file_write",
       "expected": "file_write"
     },
-    "edit_file": {
-      "classified": "file_write",
-      "expected": "file_write"
+    "sh": {
+      "classified": "shell",
+      "expected": "shell"
     },
-    "create_calendar_event": {
-      "classified": "network",
-      "expected": "network"
-    },
-    "post_message": {
-      "classified": "network",
-      "expected": "network"
+    "memory_write": {
+      "classified": "memory_write",
+      "expected": "memory_write"
     },
     "get_weather": {
       "classified": "read",
@@ -129,33 +125,13 @@
       "classified": "network",
       "expected": "network"
     },
-    "python_eval": {
-      "classified": "code_eval",
-      "expected": "code_eval"
+    "edit_file": {
+      "classified": "file_write",
+      "expected": "file_write"
     },
     "write_file": {
       "classified": "file_write",
       "expected": "file_write"
-    },
-    "eval": {
-      "classified": "code_eval",
-      "expected": "code_eval"
-    },
-    "save_memory": {
-      "classified": "memory_write",
-      "expected": "memory_write"
-    },
-    "bash": {
-      "classified": "shell",
-      "expected": "shell"
-    },
-    "share_document": {
-      "classified": "network",
-      "expected": "network"
-    },
-    "send_money": {
-      "classified": "network",
-      "expected": "network"
     },
     "read_env": {
       "classified": "secret_read",
@@ -173,11 +149,23 @@
       "classified": "network",
       "expected": "network"
     },
-    "sh": {
+    "bash": {
       "classified": "shell",
       "expected": "shell"
     },
+    "eval": {
+      "classified": "code_eval",
+      "expected": "code_eval"
+    },
     "curl": {
+      "classified": "network",
+      "expected": "network"
+    },
+    "send_money": {
+      "classified": "network",
+      "expected": "network"
+    },
+    "book_flight": {
       "classified": "network",
       "expected": "network"
     },
@@ -189,9 +177,21 @@
       "classified": "read",
       "expected": "read"
     },
+    "create_calendar_event": {
+      "classified": "network",
+      "expected": "network"
+    },
+    "share_document": {
+      "classified": "network",
+      "expected": "network"
+    },
     "read_file": {
       "classified": "read",
       "expected": "read"
+    },
+    "post_message": {
+      "classified": "network",
+      "expected": "network"
     },
     "web_fetch": {
       "classified": "network",
@@ -201,8 +201,8 @@
   "coverage_gaps": [],
   "attack_slips_due_to_coverage_gap": 0,
   "latency_ms": {
-    "mean": 0.0358,
-    "p50": 0.0345,
-    "p99": 0.0565
+    "mean": 0.0227,
+    "p50": 0.0199,
+    "p99": 0.058
   }
 }

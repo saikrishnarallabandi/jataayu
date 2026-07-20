@@ -18,10 +18,11 @@ and report metrics rather than pass/fail.
 
 - **Injection detection** — `run_injection_bench.py` (fast path vs. public injection datasets),
   `run_slowpath_bench.py` (LLM judge), `run_detector_headtohead.py` (jataayu vs. third-party
-  detectors), `run_lodo_fastpath.py` (leave-one-dataset-out).
+  detectors), `run_lodo_fastpath.py` (leave-one-dataset-out),
+  `run_normalization_ablation.py` (evasion rate with input normalization on vs. off).
 - **Effect boundary** — `run_effect_boundary_bench.py` (Tier 1) plus `_tier2`, `_edges`,
   `_injecagent`, `run_agentharm_effect_boundary.py`, `run_semantic_vs_effect.py`,
-  `run_synthetic_bias_effect.py`.
+  `run_synthetic_bias_effect.py`, `run_sink_overhead_bench.py` (decision-sink telemetry cost).
 - **Egress / privacy** — `run_egress_bench.py`, `run_outbound_privacy_bench.py`.
 - **Memory poisoning** — `run_memory_poison_bench.py`.
 - **Composition** — `run_composition_bench.py` (individually-plausible skill *sets*).

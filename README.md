@@ -20,7 +20,7 @@ The distinction matters, so it is stated once, plainly:
 | Component | Deterministic? | Uses a model? |
 |---|---|---|
 | **Effect boundary** — authorize the action from effect × provenance × capability policy | **Yes.** Pure function of its inputs; same inputs always give the same decision. | **No.** No model, no network call. |
-| **Inbound fast path** — ~68 compiled regex patterns over normalized views | **Yes.** Same text always scores the same. | **No.** |
+| **Inbound fast path** — 71 compiled regex patterns over normalized views | **Yes.** Same text always scores the same. | **No.** |
 | **Inbound slow path** — *optional*, only for mid-confidence scores | No. | Yes — any OpenAI-compatible endpoint you point it at. |
 | **[Jataayu prompt-injection detector](https://huggingface.co/srallaba/Jataayu.promptinjection.v0.1)** — *optional, separate artifact* | No. | Yes — it *is* a model (Qwen3.5-0.8B LoRA). |
 
@@ -204,9 +204,14 @@ r = jataayu_check_egress(
     surface="github-comment",
     context_secrets=[api_key],   # optional: confirm exfil if a known secret rides in the URL
 )
-if r["status"] == "BLOCK":
+if r["status"] in ("WARN", "BLOCK"):
     safe_text = r["redacted"]    # offending URL neutralized, human text kept
 ```
+
+`BLOCK` is reserved for confirmed exfil — a known exfil-beacon host (`webhook.site`, `ngrok`, …)
+or a `context_secrets` value actually riding in the URL. A data-carrying link to any *other*
+external host, like the one above, is `WARN`: the URL is still neutralized in `redacted`. Branch
+on `WARN`/`BLOCK`, not on `BLOCK` alone, or the common case passes through untouched.
 
 Domain allowlisting alone is treated as insufficient — the AgentFlayer bypass routed through Azure
 Blob, a *trusted* host — so request-catchers and abused cloud relays (`webhook.site`,
@@ -261,7 +266,8 @@ jataayu vet-skillset skill_a/ skill_b/ --policy policy.yml --agent my-agent
 jataayu demo            # built-in demos; --outbound for the privacy demo
 ```
 
-Every subcommand accepts `--no-llm` (pattern-only) and `--json` (machine-readable output).
+`check`, `sanitize`, `vet-skill` and `vet-skillset` each accept `--no-llm` (pattern-only) and
+`--json` (machine-readable output). `demo` takes only `--outbound`.
 
 ---
 
@@ -290,18 +296,72 @@ Inbound text ──► Fast path (regex over all normalized views)
                    │  score < 0.35 ─────────────► SAFE
 ```
 
-- **Fast path** (sub-millisecond): 100+ regex patterns (~68 inbound, ~38 outbound).
+- **Fast path** (sub-millisecond): 116 regex patterns — 71 inbound, 45 outbound (17 PII +
+  21 credential + 7 internal-context).
 - **Slow path** (LLM, optional): invoked only on medium-confidence scores; Ollama / OpenAI /
   Anthropic / gateway backends. Untested offline — depends on a live backend.
+
+### Latency — is this fast enough to sit in the agent loop?
+
+Measured on **Intel Core i7-7800X @ 3.50GHz (12 threads), Python 3.10.13, CPU only** — a 2017
+desktop part, so a modern server should do better. Every row is deterministic and uses no LLM
+and no GPU. Each benchmark times one pass over its corpus, so these are **cold** per-call
+numbers, warm-up included; run-to-run spread is real at this scale, so the table reports the
+**median of 10 runs** of each command.
+
+| Guard | mean | p99 | corpus | reproduce |
+|---|---|---|---|---|
+| **Effect boundary** (`jataayu_authorize_action`) | **0.027 ms** | 0.062 ms | 300 actions | `python benchmarks/run_effect_boundary_bench.py --dataset benchmarks/data/effect_boundary_v1.jsonl --baselines none detector effect both --out benchmarks/results/effect_boundary_v1.json` |
+| **Egress channel** (`jataayu_check_egress`) | **0.056 ms** | 0.086 ms | 35 messages | `python benchmarks/run_egress_bench.py --data benchmarks/data/egress_v1.jsonl --surface github-comment --out benchmarks/results/egress_v1.json` |
+| **Outbound privacy** (`jataayu_check_outbound`) | **5.55 ms** | **17.9 ms** | 480 messages, downloaded | `python benchmarks/run_outbound_privacy_bench.py --out benchmarks/results/outbound_privacy_v1.json` |
+
+**Read the outbound row's tail, not its mean.** Its p99 is ~3.2x its own mean and ~290x the
+effect boundary's p99: it runs 45 patterns over long, multilingual documents, so cost scales
+with message length and the tail is where the long documents land. The effect boundary is the
+one on the hot path of every tool call, and it is the cheap one — it hashes and does dictionary
+lookups, it does not scan text. Budget the outbound guard per *outbound message*, not per action.
+
+For scale, Meta's
+[Llama Prompt Guard 2 86M](https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M) card
+publishes 92.4 ms on an A100 at 512 tokens (19.3 ms for the 22M). That is a
+transformer doing a different and harder job than a dictionary lookup, so this is a note on
+where the cost sits in an agent loop, not a quality comparison — the honest comparison to a
+model is [the trained detector below](#the-trained-detector-optional-separate-from-the-regex-tier),
+which is also a model and is *not* what these numbers measure.
+
+The outbound row needs a Hugging Face download. For an offline, fully deterministic number, add
+`--no-hf` to fall back to the 92-message curated corpus: that path measures **0.26 ms mean /
+0.85 ms p99**, much faster only because the curated messages are far shorter than the downloaded
+ones — same code, different text length. That gap is the point of the paragraph above.
+
+**Cost of the decision sink.** `preview()` builds a decision record on every call, whether or not
+a sink is installed. Measured *warm* over 6,000 calls per arm, median of 5 runs of
+`python benchmarks/run_sink_overhead_bench.py`
+([saved result](benchmarks/results/sink_overhead.json)):
+
+| | mean | p99 | vs. no sink |
+|---|---|---|---|
+| no sink installed | 0.0119 ms | 0.027 ms | — |
+| trivial sink (`lambda rec: ...`) | 0.0206 ms | 0.042 ms | +0.009 ms (1.7x) |
+| trivial sink, `capture_content=True` | 0.0225 ms | 0.045 ms | +0.011 ms (1.9x) |
+
+Installing a sink is the largest *relative* cost on this path — it deep-copies the record so a
+sink cannot mutate live decision state — but it is ~9 microseconds, and past that only your
+sink's own body scales. `capture_content=True` adds the params dict to that copy: cheap on these
+small params, but it grows with your parameter size, and it puts tool arguments in your telemetry.
 
 ### Detection performance
 
 Be clear-eyed about the pre-filter: on the public `deepset/prompt-injections` set the fast path is
 a **high-precision, modest-recall** detector (ROC-AUC ≈ 0.596; ~0.5% benign false-block) — good for
-cheap triage, *not* a complete defense. Its strongest measured win is narrow: input normalization
-drops **space-out and leetspeak** evasion from ~0.97/0.92 success to 0.00 on a synthetic set, at
-unchanged precision. This is exactly why the guarantee lives at the effect boundary, not here. Full
-reproducible harness and saved results in [`benchmarks/`](benchmarks/).
+cheap triage, *not* a complete defense. Its strongest measured win is narrow: on the 263 attack
+rows of that set, input normalization drops **space-out** evasion from 0.96 to 0.00 and
+**leetspeak** from 0.88 to 0.00, at an unchanged clean-catch baseline (52 rows either way).
+Zero-width injection is caught at 0.00 with normalization *off* as well, so normalization is not
+what buys that one. This is exactly why the guarantee lives at the effect boundary, not here.
+Reproduce with `python benchmarks/run_normalization_ablation.py`
+([saved result](benchmarks/results/normalization_ablation.json)); full harness in
+[`benchmarks/`](benchmarks/).
 
 #### The trained detector (optional, separate from the regex tier)
 
@@ -312,15 +372,21 @@ Qwen3.5-0.8B that emits a single decision token read as a continuous `P(INJECTIO
 - **Try it:** [live demo Space](https://huggingface.co/spaces/srallaba/Jataayu-promptinjection-demo)
 - **Training data & licensing:** every source MIT / Apache-2.0 / generated in-house; see the model card
 
-Measured on a frozen 4,101-row held-out suite (6 injection datasets + NotInject over-defense),
-with **zero overlap** between training data and the suite:
+Measured on a frozen 4,101-row held-out suite (7 injection datasets + NotInject over-defense),
+with **zero overlap** between training data and the suite. All figures are checkpoint-300, the
+checkpoint published as v0.1 — no metric here is borrowed from a different checkpoint:
 
 | metric | value |
 |---|---|
 | mean Recall@1%FPR (6 sets) | **0.828** |
+| — the 7th set, `wildjailbreak`, excluded from that mean | 0.367 |
 | NotInject over-defense acc | 0.968 (11 FP) |
 | counterfactual paired accuracy (400 pairs) | **0.778** |
 | — authority-framed family | 0.938 |
+
+The headline mean is over 6 of the suite's 7 injection sets; `wildjailbreak` is the excluded one
+and it is also the worst, so the second row states it rather than letting the mean hide it.
+Including it drops the mean to 0.762.
 
 The counterfactual number is the one we care about most: it is the only metric here that
 penalizes *both* the "trigger word ⇒ attack" shortcut and over-defense with a single figure.

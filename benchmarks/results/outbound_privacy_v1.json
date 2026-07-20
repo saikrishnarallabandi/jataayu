@@ -1,7 +1,7 @@
 {
   "benchmark": "Jataayu outbound / PII-privacy \u2014 what-goes-OUT surface",
   "api": "jataayu_check_outbound (fast path, no LLM)",
-  "corpus_source": "ai4privacy/pii-masking-200k (public)",
+  "corpus_source": "gretelai/synthetic_pii_finance_multilingual (Apache-2.0)",
   "hf_unavailable_reason": null,
   "surface": "public",
   "n_total": 480,
@@ -9,20 +9,20 @@
   "n_benign": 50,
   "detection_status_based": {
     "decision": "flagged iff status in {WARN, BLOCK}",
-    "tp": 198,
+    "tp": 277,
     "fp": 0,
     "tn": 50,
-    "fn": 232,
+    "fn": 153,
     "precision": 1.0,
-    "recall": 0.4605,
+    "recall": 0.6442,
     "fpr": 0.0,
-    "f1": 0.6306
+    "f1": 0.7836
   },
   "detection_by_split": {
     "standard_pii": {
       "n": 400,
-      "flagged": 168,
-      "recall": 0.42
+      "flagged": 247,
+      "recall": 0.6175
     },
     "jataayu_native": {
       "n": 30,
@@ -31,85 +31,85 @@
     }
   },
   "detection_in_scope_only": {
-    "n": 228,
-    "flagged": 183,
-    "recall": 0.8026,
+    "n": 313,
+    "flagged": 258,
+    "recall": 0.8243,
     "note": "messages containing >=1 span jataayu is designed to catch"
   },
   "operating_points_by_risk_score": {
     "BLOCK>=0.90": {
       "threshold": 0.9,
-      "tp": 103,
+      "tp": 172,
       "fp": 0,
       "tn": 50,
-      "fn": 327,
+      "fn": 258,
       "precision": 1.0,
-      "recall": 0.2395,
+      "recall": 0.4,
       "fpr": 0.0,
-      "f1": 0.3865
+      "f1": 0.5714
     },
     "WARN/HIGH>=0.70": {
       "threshold": 0.7,
-      "tp": 144,
+      "tp": 222,
       "fp": 0,
       "tn": 50,
-      "fn": 286,
+      "fn": 208,
       "precision": 1.0,
-      "recall": 0.3349,
+      "recall": 0.5163,
       "fpr": 0.0,
-      "f1": 0.5017
+      "f1": 0.681
     },
     "MEDIUM>=0.45": {
       "threshold": 0.45,
-      "tp": 198,
+      "tp": 277,
       "fp": 0,
       "tn": 50,
-      "fn": 232,
+      "fn": 153,
       "precision": 1.0,
-      "recall": 0.4605,
+      "recall": 0.6442,
       "fpr": 0.0,
-      "f1": 0.6306
+      "f1": 0.7836
     },
     "LOW>=0.20": {
       "threshold": 0.2,
-      "tp": 198,
+      "tp": 277,
       "fp": 0,
       "tn": 50,
-      "fn": 232,
+      "fn": 153,
       "precision": 1.0,
-      "recall": 0.4605,
+      "recall": 0.6442,
       "fpr": 0.0,
-      "f1": 0.6306
+      "f1": 0.7836
     }
   },
   "per_category": {
     "address": {
       "in_scope": true,
-      "msgs_with_category": 62,
-      "detection_recall": 0.8065,
-      "spans": 94,
-      "redaction_recall": 0.3511
+      "msgs_with_category": 248,
+      "detection_recall": 0.8185,
+      "spans": 321,
+      "redaction_recall": 0.6573
     },
     "credential": {
       "in_scope": true,
-      "msgs_with_category": 5,
-      "detection_recall": 1.0,
-      "spans": 5,
-      "redaction_recall": 1.0
+      "msgs_with_category": 36,
+      "detection_recall": 0.7778,
+      "spans": 44,
+      "redaction_recall": 0.2045
     },
     "credit_card": {
       "in_scope": true,
-      "msgs_with_category": 23,
-      "detection_recall": 1.0,
-      "spans": 23,
-      "redaction_recall": 1.0
+      "msgs_with_category": 21,
+      "detection_recall": 0.7619,
+      "spans": 26,
+      "redaction_recall": 0.2692
     },
     "email": {
       "in_scope": true,
-      "msgs_with_category": 41,
+      "msgs_with_category": 56,
       "detection_recall": 1.0,
-      "spans": 41,
-      "redaction_recall": 0.0
+      "spans": 105,
+      "redaction_recall": 0.9524
     },
     "financial": {
       "in_scope": true,
@@ -120,17 +120,17 @@
     },
     "financial_account": {
       "in_scope": true,
-      "msgs_with_category": 65,
-      "detection_recall": 0.6462,
-      "spans": 73,
-      "redaction_recall": 0.5205
+      "msgs_with_category": 53,
+      "detection_recall": 0.6604,
+      "spans": 67,
+      "redaction_recall": 0.0896
     },
     "health": {
       "in_scope": true,
       "msgs_with_category": 6,
       "detection_recall": 1.0,
       "spans": 6,
-      "redaction_recall": 0.0
+      "redaction_recall": 1.0
     },
     "minors_info": {
       "in_scope": true,
@@ -148,17 +148,17 @@
     },
     "out_of_scope": {
       "in_scope": false,
-      "msgs_with_category": 388,
-      "detection_recall": 0.4098,
-      "spans": 993,
-      "redaction_recall": 0.0302
+      "msgs_with_category": 394,
+      "detection_recall": 0.6218,
+      "spans": 2317,
+      "redaction_recall": 0.016
     },
     "phone": {
       "in_scope": true,
-      "msgs_with_category": 22,
-      "detection_recall": 0.7727,
-      "spans": 22,
-      "redaction_recall": 0.0455
+      "msgs_with_category": 54,
+      "detection_recall": 1.0,
+      "spans": 66,
+      "redaction_recall": 0.803
     },
     "relationships": {
       "in_scope": true,
@@ -169,10 +169,10 @@
     },
     "ssn": {
       "in_scope": true,
-      "msgs_with_category": 14,
-      "detection_recall": 0.5,
-      "spans": 14,
-      "redaction_recall": 0.3571
+      "msgs_with_category": 15,
+      "detection_recall": 0.8667,
+      "spans": 17,
+      "redaction_recall": 0.6471
     }
   },
   "over_redaction": {
@@ -183,9 +183,9 @@
     "examples": []
   },
   "latency_ms": {
-    "mean": 2.1526,
-    "p50": 0.512,
-    "p99": 13.0526
+    "mean": 5.1892,
+    "p50": 3.5041,
+    "p99": 16.7639
   },
   "notes": [
     "Names are caught only via protected_names; generic personal names, crypto/bank addresses, IPs, IMEIs, VINs, dates and job info are out_of_scope by design and reported separately.",
