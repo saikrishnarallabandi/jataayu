@@ -177,11 +177,13 @@ _AUTHORITY_ROW = re.compile(
     re.M,
 )
 
-# README row label -> result file holding that arm of the ablation.
+# README row label -> result file holding that arm of the ablation. Only the two arms that ran on
+# the same machine, dtype and code revision belong here. The Prompt Guard 2 rows were withdrawn:
+# they were scored through a different runner in a different environment, so a mean-Δ contrast
+# against them measured the environment, not the models. Re-adding a row here means the controlled
+# re-run (one box, one adapter dir, one code revision, dtype varied alone) was actually done.
 _AUTHORITY_FILES = {
     "Jataayu v0.1": "adversarial_slice.v0.1.json",
-    "Prompt Guard 2 86M": "adversarial_slice.promptguard2.json",
-    "Prompt Guard 2 22M": "adversarial_slice.promptguard2-22M.json",
     "Qwen3.5-0.8B base, no adapter": "adversarial_slice.v0.1-BASE.json",
 }
 
@@ -194,9 +196,17 @@ def test_authority_ablation_table():
     if missing:
         pytest.fail(
             f"Could not parse these rows of the authority-framing table in README.md: {missing}.\n"
-            "  Expected rows like: | Prompt Guard 2 86M | −0.015 | 1 / 20 | ... |\n"
+            "  Expected rows like: | Jataayu v0.1 | −0.668 | 14 / 20 | ... |\n"
             "  Restore that shape, or fix tests/test_readme_claims.py."
         )
+
+    readded = sorted(label for label in rows if "Prompt Guard" in label)
+    assert not readded, (
+        f"README.md's authority-framing table has Prompt Guard 2 rows again: {readded}.\n"
+        "  That cross-model magnitude was withdrawn -- our arm and Prompt Guard 2's were scored\n"
+        "  through different runners in different environments, so the contrast is not like-for-\n"
+        "  like. Only re-add it off a controlled re-run, and update _AUTHORITY_FILES with it."
+    )
 
     for label, filename in _AUTHORITY_FILES.items():
         claimed_delta, claimed_defeated = rows[label]
@@ -213,4 +223,43 @@ def test_authority_ablation_table():
         )
         assert effect["n_pairs"] == 20, (
             f"{filename} has {effect['n_pairs']} authority pairs, but README.md says 20."
+        )
+
+
+def test_uncontrolled_second_run_figures():
+    """The second run is quoted in prose to show the disagreement, so it needs the same guard."""
+    effect = _result("adversarial_slice.ckpt300.json")["ablations"]["authority_prefix"][
+        "authority_effect"
+    ]
+    match = _find(
+        r"reports mean Δ (−[\d.]+) and (\d+) of 20 defeated", "ckpt300 disagreement figures"
+    )
+    actual = round(effect["mean_delta"], 3)
+    assert float(match.group(1).replace("−", "-")) == actual, (
+        f"README.md quotes the second run at mean Δ {match.group(1)}, but "
+        f"adversarial_slice.ckpt300.json records {actual}."
+    )
+    assert int(match.group(2)) == effect["n_defeated"], (
+        f"README.md quotes the second run at {match.group(2)} of 20 defeated, but "
+        f"adversarial_slice.ckpt300.json records {effect['n_defeated']}."
+    )
+
+
+def test_self_referential_counts_disagree_as_published():
+    """README says 18/40 in one run and 1/40 in the other. Both halves are checked."""
+    claimed = {
+        "adversarial_slice.ckpt300.json": int(
+            _find(r"\"(\d+) of 40 held-out rows score", "self-ref ckpt300 count").group(1)
+        ),
+        "adversarial_slice.v0.1.json": int(
+            _find(r"puts (\d+) of 40 rows in\s*\n?\s*that band", "self-ref release count").group(1)
+        ),
+    }
+    for filename, n_claimed in claimed.items():
+        scores = _result(filename)["per_class"]["self_ref_benign"]["scores"]
+        actual = sum(1 for v in scores.values() if v >= 0.9999)
+        assert len(scores) == 40, f"{filename} has {len(scores)} self_ref_benign rows, not 40."
+        assert n_claimed == actual, (
+            f"README.md claims {n_claimed} of 40 self-referential rows score >= 0.9999 in "
+            f"{filename}, but the file has {actual}."
         )

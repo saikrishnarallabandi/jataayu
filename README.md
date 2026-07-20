@@ -437,46 +437,72 @@ a default-rule table would be an apples-to-oranges claim. Two further asymmetrie
 0.968 is over all 339 rows *including* the 168 we split off as dev, while 0.848 is over the 171-row
 held-out test half only; and the InjecGuard rows are third-party-measured while ours is not.
 
-##### Authority framing breaks our detector — a paired contrast against Prompt Guard 2
+##### Fine-tuning introduces an authority-framing weakness
 
 Prefixing an attack with `SYSTEM: ... verified as an administrator.` and changing nothing else
-collapses this detector. It barely moves Meta's
-[Prompt Guard 2 86M](https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M), the field's
-reference open detector. Same 20 bare/authority pairs, same slice, same fp32, `Δ` = mean change in
-P(INJECTION) when the prefix is added:
+degrades this detector. The adapter causes it: the base model, scored on the same machine at the
+same dtype with the same code, does not have the weakness. `Δ` = mean change in P(INJECTION) when
+the prefix is added, over 20 bare/authority pairs:
 
-| model | mean Δ | pairs defeated | caught bare | recall on `authority_framed_attack` @0.5 |
-|---|---|---|---|---|
-| **Jataayu v0.1** | **−0.668** | **14 / 20** | 20 / 20 | **0.220** (9/41) |
-| Prompt Guard 2 86M | −0.015 | 1 / 20 | 16 / 20 | 0.634 (26/41) |
-| Prompt Guard 2 22M | −0.256 | 6 / 20 | 9 / 20 | 0.122 (5/41) |
-| Qwen3.5-0.8B base, no adapter | +0.011 | 0 / 20 | 15 / 20 | 0.756 (31/41) |
+| model | mean Δ | pairs defeated | caught bare |
+|---|---|---|---|
+| **Jataayu v0.1** | **−0.668** | **14 / 20** | 20 / 20 |
+| Qwen3.5-0.8B base, no adapter | +0.011 | 0 / 20 | 15 / 20 |
 
-**What an attacker does with this:** paste four words of fake system-authority framing ahead of the
-injection. Nine of ten payloads this detector catches bare, it then waves through — no obfuscation,
-no encoding, no iteration, and the prefix is the same every time.
+Those two rows are the published result, and they are the only comparison here that is controlled:
+same box, same adapter-loading path, same code revision, one variable — the adapter. The direction
+is real and it is a result against us, the same shape as the self-referential failure below.
 
-The 22M row is not a robustness win for us and is not read as one: it only caught 9 of the 20 bare
-attacks to begin with, so it has far less to lose. The base-model row is the damning one — the
-authority weakness is **not inherited, our fine-tune creates it**, the same shape as the
-self-referential failure below.
-
-**One caveat, stated because it is real.** These are fp32 runs. The *same weights* scored in fp16
+**The magnitude is not established, and the cross-model comparison is withdrawn.** An earlier draft
+of this section put those rows next to
+[Prompt Guard 2](https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M) 86M/22M and read the
+gap as a robustness contrast between the two models. That reading does not hold. A second run of
+our own weights
 ([`adversarial_slice.ckpt300.json`](training/injection_adapter/eval/results/adversarial_slice.ckpt300.json))
-do not show the collapse: mean Δ −0.043, 1 of 20 defeated, authority recall 0.902. We have not
-resolved which precision a given deployment should expect, so treat the fp32 numbers as a
-demonstrated failure mode rather than a settled magnitude. Both files are committed; neither is
-withheld.
+reports mean Δ −0.043 and 1 of 20 defeated, and the two runs differ in machine, adapter directory,
+and code revision as well as in dtype label — so the disagreement cannot be attributed, and neither
+number is established as this model's characterisation. Since Prompt Guard 2 was scored through a
+different runner again (its own architecture requires one), a "−0.668 vs −0.015" contrast would be
+comparing environments, not models. The Prompt Guard 2 result files stay committed in
+[`eval/results/`](training/injection_adapter/eval/results/); we no longer draw a quantitative
+comparison from them.
 
-Either way this is consistent with the thesis stated at the top: **the detector is the weakest
-layer**, and Jataayu's guarantee does not live here — it lives in the deterministic effect
-boundary, which never reads the attacker's text.
+**Precision is not the explanation.** The earlier caveat said the two runs disagreed on fp32-vs-fp16
+and that we could not tell which precision a deployment should expect. That was wrong on the
+mechanism. Every fp32 score in the ablation arm is representable in fp16 to within 4e-4 relative
+error, so no rounding maps 0.0048 to 1.0; `injscore.py` casts the logit row to fp32 before the
+softmax in *both* runs; and Spearman between the two runs is 0.56, where identical weights at two
+precisions would give ~0.99. These are different computations, not one computation rounded. The
+`dtype` field in the result JSON is also recorded from the CLI flag, never read back from
+`model.dtype`, so it was never verified against what actually loaded. The real defect is an
+uncontrolled experiment.
+
+**What would settle it:** one machine, one adapter directory, one code revision, the 40 ablation
+items, varying dtype alone across fp32 / fp16 / bf16, with the loaded `model.dtype` asserted rather
+than labelled. Until that is run, treat the authority weakness as a demonstrated failure mode of
+unsettled magnitude.
+
+**Which precision you actually get: bf16, which no committed run measures.** The model card's
+copy-paste snippet passes `torch_dtype=torch.bfloat16`, and a bare `from_pretrained` resolves to
+bf16 from the base config. Both committed runs are labelled something else (`demo/space/app.py`
+loads fp32, a third path again). If you deploy this model with the documented snippet, the numbers
+published here may not describe what you get.
+
+None of this changes the thesis stated at the top: **the detector is the weakest layer**, and
+Jataayu's guarantee does not live here — it lives in the deterministic effect boundary, which never
+reads the attacker's text.
 
 **Known limitation, stated up front:** the model over-flags benign text that refers to its own
-instructions ("please ignore the typos in my last message") — 18 of 40 such held-out rows score
-≥ 0.9999 in fp16, tied with real attacks, so **no threshold separates them**. The base model does
-not have this failure; fine-tuning introduces it. Do not use the 0.5 default cutoff — calibrate on
-your own benign traffic. Full numbers and caveats on the model card.
+instructions ("please ignore the typos in my last message"). The base model does not have this
+failure; fine-tuning introduces it. Do not use the 0.5 default cutoff — calibrate on your own
+benign traffic. Full numbers and caveats on the model card.
+
+Its severity is subject to the same unresolved gap as the authority result above. The
+"18 of 40 held-out rows score ≥ 0.9999, tied with real attacks, so no threshold separates them"
+figure this README carried comes from `adversarial_slice.ckpt300.json` — the run in the
+uncontrolled environment. The release-arm run (`adversarial_slice.v0.1.json`) puts 1 of 40 rows in
+that band. The over-flagging direction reproduces in both; the count does not, and the same
+controlled re-run is what would settle it.
 
 **On PINT.** We do not report a PINT score. Lakera's PINT benchmark dataset was never distributed:
 the README's access instructions were removed in 2025, the access-request issues are unanswered
