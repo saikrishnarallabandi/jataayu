@@ -32,10 +32,10 @@ jobs:
         run: python -m pip install --upgrade pip
       - name: Example from checkout before install
         run: |
-          python -m pip install requests pyyaml
+          python -m pip install "requests>=2.31" "pyyaml>=6"
           python -I examples/quickstart.py
       - name: Install
-        run: pip install -e ".[dev]"
+        run: python -m pip install -e ".[dev]"
       - name: Lint (ruff)
         run: ruff check jataayu tests examples demo benchmarks training
       - name: Format (ruff)
