@@ -65,19 +65,19 @@ def test_fast_path_pattern_breakdown():
     total, inbound, outbound, pii, cred, internal = match.groups()
 
     counts = {
-        "inbound patterns": (inbound, len(INJECTION_PATTERNS), "len(inbound.INJECTION_PATTERNS)"),
-        "outbound PII patterns": (pii, len(_PII_PATTERNS), "len(outbound._PII_PATTERNS)"),
+        "inbound patterns": (inbound, len(INJECTION_PATTERNS), "len(jataayu.guards.inbound.INJECTION_PATTERNS)"),
+        "outbound PII patterns": (pii, len(_PII_PATTERNS), "len(jataayu.guards.outbound._PII_PATTERNS)"),
         "outbound credential patterns": (
-            cred, len(_CREDENTIAL_PATTERNS), "len(outbound._CREDENTIAL_PATTERNS)"),
+            cred, len(_CREDENTIAL_PATTERNS), "len(jataayu.guards.outbound._CREDENTIAL_PATTERNS)"),
         "outbound internal-context patterns": (
             internal, len(_INTERNAL_CONTEXT_PATTERNS),
-            "len(outbound._INTERNAL_CONTEXT_PATTERNS)"),
+            "len(jataayu.guards.outbound._INTERNAL_CONTEXT_PATTERNS)"),
     }
     for label, (claimed, actual, source) in counts.items():
         _assert(label, claimed, actual, source)
 
     live_outbound = len(_PII_PATTERNS) + len(_CREDENTIAL_PATTERNS) + len(_INTERNAL_CONTEXT_PATTERNS)
-    _assert("outbound patterns in total", outbound, live_outbound, "PII + credential + internal")
+    _assert("outbound patterns in total", outbound, live_outbound, "jataayu.guards.outbound: _PII_PATTERNS + _CREDENTIAL_PATTERNS + _INTERNAL_CONTEXT_PATTERNS")
     _assert(
         "regex patterns in total",
         total,
