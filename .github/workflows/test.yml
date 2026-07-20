@@ -43,3 +43,13 @@ jobs:
       # names the failing assertion.
       - name: Example (examples/quickstart.py)
         run: python examples/quickstart.py
+      - name: Package artifact smoke test
+        run: |
+          python -m build
+          python -m venv /tmp/jataayu-wheel-smoke
+          /tmp/jataayu-wheel-smoke/bin/python -m pip install --upgrade pip
+          /tmp/jataayu-wheel-smoke/bin/python -m pip install dist/*.whl
+          /tmp/jataayu-wheel-smoke/bin/python -c "import jataayu; from jataayu import jataayu_authorize_action"
+          /tmp/jataayu-wheel-smoke/bin/jataayu --help
+          cd /tmp
+          /tmp/jataayu-wheel-smoke/bin/python "$GITHUB_WORKSPACE/examples/quickstart.py"
