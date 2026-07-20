@@ -21,6 +21,7 @@ across turns), or an injection-flagged memory write that later feeds a shell.
 Deterministic, no LLM. Reuses `EffectClass` / `Provenance` from the effect
 boundary so severity ordering and capability tags stay consistent.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -129,10 +130,7 @@ def _safe_copy(value, depth: int = 0):
         return _repr_or_placeholder(value)
     if isinstance(value, dict):
         try:
-            items = [
-                (_safe_copy(k, depth + 1), _safe_copy(v, depth + 1))
-                for k, v in value.items()
-            ]
+            items = [(_safe_copy(k, depth + 1), _safe_copy(v, depth + 1)) for k, v in value.items()]
             copied = dict(items)
             # Two distinct keys can degrade to the SAME repr, and dict() would then drop
             # one entry from the audit record with nothing to say it happened. Keeping
@@ -216,14 +214,26 @@ from jataayu.guards.effect_boundary import EffectBoundary, EffectClass, Provenan
 _CLASSIFIER = EffectBoundary()
 
 # Memory-read tool names (the recall side; the write side lives in effect_boundary).
-_MEMORY_READ_TOOLS = frozenset({
-    "memory_read", "recall", "load_memory", "get_memory", "kv_get", "search_memory",
-})
+_MEMORY_READ_TOOLS = frozenset(
+    {
+        "memory_read",
+        "recall",
+        "load_memory",
+        "get_memory",
+        "kv_get",
+        "search_memory",
+    }
+)
 
 # Effects that terminate a kill chain — where exfiltrated/poisoned data does harm.
-_DANGEROUS_EFFECTS = frozenset({
-    EffectClass.SHELL, EffectClass.CODE_EVAL, EffectClass.NETWORK, EffectClass.FILE_WRITE,
-})
+_DANGEROUS_EFFECTS = frozenset(
+    {
+        EffectClass.SHELL,
+        EffectClass.CODE_EVAL,
+        EffectClass.NETWORK,
+        EffectClass.FILE_WRITE,
+    }
+)
 _EGRESS_EFFECTS = frozenset({EffectClass.NETWORK, EffectClass.FILE_WRITE})
 
 
@@ -241,12 +251,13 @@ class AuditRisk(Enum):
 @dataclass
 class TraceEvent:
     """One recorded tool call in a session trajectory."""
+
     index: int
     turn: int
     tool_name: str
     effect_class: EffectClass
     provenance: Provenance
-    inbound_flagged: bool = False   # was this call's input / the tool return flagged by a guard?
+    inbound_flagged: bool = False  # was this call's input / the tool return flagged by a guard?
     is_memory_read: bool = False
     is_memory_write: bool = False
     summary: str = ""
@@ -257,10 +268,14 @@ class TraceEvent:
 
     def to_dict(self) -> dict:
         return {
-            "index": self.index, "turn": self.turn, "tool_name": self.tool_name,
-            "effect_class": self.effect_class.value, "provenance": self.provenance.value,
+            "index": self.index,
+            "turn": self.turn,
+            "tool_name": self.tool_name,
+            "effect_class": self.effect_class.value,
+            "provenance": self.provenance.value,
             "inbound_flagged": self.inbound_flagged,
-            "is_memory_read": self.is_memory_read, "is_memory_write": self.is_memory_write,
+            "is_memory_read": self.is_memory_read,
+            "is_memory_write": self.is_memory_write,
             "summary": self.summary,
         }
 
@@ -268,6 +283,7 @@ class TraceEvent:
 @dataclass
 class AuditFinding:
     """A cross-turn risk pattern surfaced by the trajectory auditor."""
+
     pattern: str
     risk: AuditRisk
     explanation: str
@@ -275,8 +291,10 @@ class AuditFinding:
 
     def to_dict(self) -> dict:
         return {
-            "pattern": self.pattern, "risk": self.risk.value,
-            "explanation": self.explanation, "event_indices": self.event_indices,
+            "pattern": self.pattern,
+            "risk": self.risk.value,
+            "explanation": self.explanation,
+            "event_indices": self.event_indices,
         }
 
 
@@ -284,7 +302,7 @@ class AuditFinding:
 class AuditResult:
     risk: AuditRisk
     findings: list[AuditFinding]
-    capability_profile: dict[str, int]   # effect_class value -> count
+    capability_profile: dict[str, int]  # effect_class value -> count
     event_count: int
 
     @property
@@ -411,21 +429,22 @@ class SessionTrace:
         secret_reads = [e for e in self.events if e.effect_class is EffectClass.SECRET_READ]
         for sr in secret_reads:
             egress = [
-                e for e in self.events
-                if e.effect_class in _EGRESS_EFFECTS and e.turn > sr.turn
+                e for e in self.events if e.effect_class in _EGRESS_EFFECTS and e.turn > sr.turn
             ]
             if egress and (sr.untrusted or any(e.untrusted for e in egress)):
                 first = egress[0]
-                findings.append(AuditFinding(
-                    pattern="cross_turn_exfil_chain",
-                    risk=AuditRisk.HIGH,
-                    explanation=(
-                        f"secret read via '{sr.tool_name}' (turn {sr.turn}) is followed by "
-                        f"a {first.effect_class.value} effect '{first.tool_name}' (turn {first.turn}) "
-                        f"under untrusted influence — a data-exfiltration chain realized across turns"
-                    ),
-                    event_indices=[sr.index, first.index],
-                ))
+                findings.append(
+                    AuditFinding(
+                        pattern="cross_turn_exfil_chain",
+                        risk=AuditRisk.HIGH,
+                        explanation=(
+                            f"secret read via '{sr.tool_name}' (turn {sr.turn}) is followed by "
+                            f"a {first.effect_class.value} effect '{first.tool_name}' (turn {first.turn}) "
+                            f"under untrusted influence — a data-exfiltration chain realized across turns"
+                        ),
+                        event_indices=[sr.index, first.index],
+                    )
+                )
         return findings
 
     def _detect_sleeper_memory(self) -> list[AuditFinding]:
@@ -440,24 +459,27 @@ class SessionTrace:
             later_reads = [e for e in self.events if e.is_memory_read and e.turn > fw.turn]
             for rd in later_reads:
                 dangerous = [
-                    e for e in self.events
+                    e
+                    for e in self.events
                     if e.effect_class in _DANGEROUS_EFFECTS and e.turn >= rd.turn
                 ]
                 if dangerous:
                     dz = dangerous[0]
                     risk = AuditRisk.HIGH if fw.inbound_flagged else AuditRisk.MEDIUM
-                    findings.append(AuditFinding(
-                        pattern="sleeper_memory_poisoning",
-                        risk=risk,
-                        explanation=(
-                            f"memory written under untrusted influence on turn {fw.turn}"
-                            + (" (flagged as injection-shaped)" if fw.inbound_flagged else "")
-                            + f" is recalled on turn {rd.turn} and precedes a "
-                            f"{dz.effect_class.value} effect '{dz.tool_name}' (turn {dz.turn}) — "
-                            f"a delayed/sleeper memory-poisoning pattern"
-                        ),
-                        event_indices=[fw.index, rd.index, dz.index],
-                    ))
+                    findings.append(
+                        AuditFinding(
+                            pattern="sleeper_memory_poisoning",
+                            risk=risk,
+                            explanation=(
+                                f"memory written under untrusted influence on turn {fw.turn}"
+                                + (" (flagged as injection-shaped)" if fw.inbound_flagged else "")
+                                + f" is recalled on turn {rd.turn} and precedes a "
+                                f"{dz.effect_class.value} effect '{dz.tool_name}' (turn {dz.turn}) — "
+                                f"a delayed/sleeper memory-poisoning pattern"
+                            ),
+                            event_indices=[fw.index, rd.index, dz.index],
+                        )
+                    )
                     break  # one finding per poisoned write is enough
         return findings
 
@@ -466,17 +488,21 @@ class SessionTrace:
         findings: list[AuditFinding] = []
         for e in self.events:
             if e.untrusted and e.effect_class in (
-                EffectClass.SHELL, EffectClass.CODE_EVAL, EffectClass.SECRET_READ
+                EffectClass.SHELL,
+                EffectClass.CODE_EVAL,
+                EffectClass.SECRET_READ,
             ):
-                findings.append(AuditFinding(
-                    pattern="untrusted_into_critical_effect",
-                    risk=AuditRisk.HIGH,
-                    explanation=(
-                        f"untrusted-influenced input reached a {e.effect_class.value} effect "
-                        f"'{e.tool_name}' (turn {e.turn}) — should not commit under attacker influence"
-                    ),
-                    event_indices=[e.index],
-                ))
+                findings.append(
+                    AuditFinding(
+                        pattern="untrusted_into_critical_effect",
+                        risk=AuditRisk.HIGH,
+                        explanation=(
+                            f"untrusted-influenced input reached a {e.effect_class.value} effect "
+                            f"'{e.tool_name}' (turn {e.turn}) — should not commit under attacker influence"
+                        ),
+                        event_indices=[e.index],
+                    )
+                )
         return findings
 
     def _detect_escalation(self) -> list[AuditFinding]:
@@ -488,16 +514,18 @@ class SessionTrace:
         # strictly non-decreasing and actually rising from low to consequential
         rising = all(b >= a for a, b in zip(severities, severities[1:]))
         if rising and severities[0] <= 1 and severities[-1] >= 4:
-            return [AuditFinding(
-                pattern="escalating_trajectory",
-                risk=AuditRisk.MEDIUM,
-                explanation=(
-                    "under sustained untrusted influence, effect severity climbs monotonically "
-                    f"from {EffectClass.READ.value} to a severity-{severities[-1]} effect across "
-                    f"{len(untrusted_events)} calls — consistent with progressive lateral movement"
-                ),
-                event_indices=[e.index for e in untrusted_events],
-            )]
+            return [
+                AuditFinding(
+                    pattern="escalating_trajectory",
+                    risk=AuditRisk.MEDIUM,
+                    explanation=(
+                        "under sustained untrusted influence, effect severity climbs monotonically "
+                        f"from {EffectClass.READ.value} to a severity-{severities[-1]} effect across "
+                        f"{len(untrusted_events)} calls — consistent with progressive lateral movement"
+                    ),
+                    event_indices=[e.index for e in untrusted_events],
+                )
+            ]
         return []
 
     def to_dict(self) -> dict:

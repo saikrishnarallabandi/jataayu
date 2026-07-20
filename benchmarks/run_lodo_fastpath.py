@@ -28,6 +28,7 @@ Usage:
   python benchmarks/run_lodo_fastpath.py
   python benchmarks/run_lodo_fastpath.py --datasets deepset/prompt-injections xTRam1/safe-guard-prompt-injection
 """
+
 import argparse
 import json
 import sys
@@ -60,6 +61,7 @@ def threshold_at_fpr(y, s, max_fpr):
     Returns (threshold, realized_fpr, recall_at_that_threshold) or None if the set
     has no benign rows (FPR undefined) or no threshold meets the budget."""
     from sklearn.metrics import roc_curve
+
     if (y == 0).sum() == 0 or (y == 1).sum() == 0:
         return None
     fpr, tpr, thr = roc_curve(y, s)
@@ -94,8 +96,8 @@ def main():
     args = ap.parse_args()
 
     # ---- score every dataset once (cache scores + labels) --------------------
-    cache = {}          # name -> (y_true, scores)
-    skipped = {}        # name -> reason
+    cache = {}  # name -> (y_true, scores)
+    skipped = {}  # name -> reason
     for name in args.datasets:
         try:
             rows = load_binary(name)
@@ -110,7 +112,7 @@ def main():
         y = np.array([lbl for _, lbl in rows])
         scores, _, _ = score_all(rows, args.surface)
         cache[name] = (y, scores)
-        print(f"[ok]   {name}: n={len(rows)} pos={int((y==1).sum())} neg={int((y==0).sum())}")
+        print(f"[ok]   {name}: n={len(rows)} pos={int((y == 1).sum())} neg={int((y == 0).sum())}")
 
     from sklearn.metrics import roc_auc_score
 
@@ -139,17 +141,24 @@ def main():
             "n_neg": int((y_h == 0).sum()),
             "single_class": held not in mixed,
             "pooled_from": others,
-            "roc_auc": (round(float(roc_auc_score(y_h, s_h)), 4)
-                        if (y_h == 0).any() and (y_h == 1).any() else None),
+            "roc_auc": (
+                round(float(roc_auc_score(y_h, s_h)), 4)
+                if (y_h == 0).any() and (y_h == 1).any()
+                else None
+            ),
         }
 
         # IN-DISTRIBUTION reference: threshold fit on the held-out set itself.
         indist_fit = threshold_at_fpr(y_h, s_h, args.fpr_budget)
         entry["in_distribution"] = (
-            {"threshold": round(indist_fit[0], 4),
-             "recall_at_1pct_fpr": round(indist_fit[2], 4),
-             "realized_fpr": round(indist_fit[1], 4)}
-            if indist_fit else None)
+            {
+                "threshold": round(indist_fit[0], 4),
+                "recall_at_1pct_fpr": round(indist_fit[2], 4),
+                "realized_fpr": round(indist_fit[1], 4),
+            }
+            if indist_fit
+            else None
+        )
 
         # OUT-OF-DISTRIBUTION: pooled threshold transferred onto the held-out set.
         if pooled_fit is None:
@@ -168,8 +177,9 @@ def main():
             if indist_fit and ood_recall is not None:
                 entry["ood_gap"] = {
                     "recall_drop": round(indist_fit[2] - ood_recall, 4),
-                    "fpr_drift": (round(ood_fpr - args.fpr_budget, 4)
-                                  if ood_fpr is not None else None),
+                    "fpr_drift": (
+                        round(ood_fpr - args.fpr_budget, 4) if ood_fpr is not None else None
+                    ),
                 }
         per_held_out[held] = entry
 
@@ -178,9 +188,11 @@ def main():
         "api": "jataayu_check_inbound (fast path, no LLM)",
         "surface": args.surface,
         "fpr_budget": args.fpr_budget,
-        "protocol": ("threshold fit on POOLED other datasets at the FPR budget, then "
-                     "evaluated on the held-out set; in-distribution reference fits the "
-                     "threshold on the held-out set itself."),
+        "protocol": (
+            "threshold fit on POOLED other datasets at the FPR budget, then "
+            "evaluated on the held-out set; in-distribution reference fits the "
+            "threshold on the held-out set itself."
+        ),
         "datasets_evaluated": list(cache.keys()),
         "mixed_label_pool": mixed,
         "single_class_eval_only": [n for n in cache if n not in mixed],
@@ -190,16 +202,23 @@ def main():
     Path(args.out).write_text(json.dumps(result, indent=2))
 
     # ---- console table -------------------------------------------------------
-    print(f"\n{'held-out':46} {'ROC-AUC':>8} {'R@1%(in)':>9} {'R(OOD)':>8} "
-          f"{'FPR(OOD)':>9} {'gap':>7}")
+    print(
+        f"\n{'held-out':46} {'ROC-AUC':>8} {'R@1%(in)':>9} {'R(OOD)':>8} {'FPR(OOD)':>9} {'gap':>7}"
+    )
     for name, e in per_held_out.items():
         if "note" in e:
             print(f"{name:46} {e['note']}")
             continue
         auc = "-" if e["roc_auc"] is None else f"{e['roc_auc']:.4f}"
-        rin = "-" if not e["in_distribution"] else f"{e['in_distribution']['recall_at_1pct_fpr']:.4f}"
+        rin = (
+            "-" if not e["in_distribution"] else f"{e['in_distribution']['recall_at_1pct_fpr']:.4f}"
+        )
         rood = "-" if not e["ood"] or e["ood"]["recall"] is None else f"{e['ood']['recall']:.4f}"
-        food = "-" if not e["ood"] or e["ood"]["realized_fpr"] is None else f"{e['ood']['realized_fpr']:.4f}"
+        food = (
+            "-"
+            if not e["ood"] or e["ood"]["realized_fpr"] is None
+            else f"{e['ood']['realized_fpr']:.4f}"
+        )
         gap = "-" if "ood_gap" not in e else f"{e['ood_gap']['recall_drop']:+.4f}"
         print(f"{name:46} {auc:>8} {rin:>9} {rood:>8} {food:>9} {gap:>7}")
     if skipped:

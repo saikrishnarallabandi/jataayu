@@ -25,6 +25,7 @@ Usage:
       --out benchmarks/results/effect_boundary_v1.json --json
   python benchmarks/run_effect_boundary_bench.py --repeat 10   # median-of-10 latency
 """
+
 import argparse
 import json
 import sys
@@ -66,7 +67,8 @@ def decide_detector(row, threshold):
 
 def decide_effect(row):
     d = jataayu_authorize_action(
-        row["tool"], row.get("params", {}),
+        row["tool"],
+        row.get("params", {}),
         untrusted=(row.get("provenance") == "untrusted"),
     )
     return d["decision"]
@@ -132,9 +134,13 @@ def main():
     ap.add_argument("--baselines", nargs="+", default=["none", "detector", "effect", "both"])
     ap.add_argument("--detector-threshold", type=float, default=0.70)  # HIGH operating point
     ap.add_argument("--out", default=str(OUT_DIR / "effect_boundary_v1.json"))
-    ap.add_argument("--repeat", type=int, default=1,
-                    help="time the corpus N times and report the median of the per-run "
-                         "statistics (accuracy is deterministic and unaffected)")
+    ap.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="time the corpus N times and report the median of the per-run "
+        "statistics (accuracy is deterministic and unaffected)",
+    )
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
     if args.repeat < 1:
@@ -142,8 +148,10 @@ def main():
 
     rows = load_dataset(args.dataset)
     n_atk = sum(r["is_attack"] for r in rows)
-    print(f"[effect-boundary] {len(rows)} rows | attack={n_atk} legit={len(rows) - n_atk} "
-          f"| dataset={args.dataset}")
+    print(
+        f"[effect-boundary] {len(rows)} rows | attack={n_atk} legit={len(rows) - n_atk} "
+        f"| dataset={args.dataset}"
+    )
 
     # precompute effect-boundary decisions (also time them for latency); with --repeat the
     # pass is redone for the timing only — the decisions are deterministic, so the last
@@ -179,7 +187,8 @@ def main():
 
     # how many attack slips (effect defense) are attributable to a mis-mapped tool?
     slips_from_gap = sum(
-        1 for r, d in zip(rows, eff_dec)
+        1
+        for r, d in zip(rows, eff_dec)
         if r["is_attack"] and d == ALLOW and any(m["tool"] == r["tool"] for m in mismatches)
     )
 
@@ -201,17 +210,23 @@ def main():
     Path(args.out).write_text(json.dumps(result, indent=2))
 
     # console summary
-    print(f"\n{'defense':10} {'APR':>7} {'a-deny':>7} {'a-appr':>7} {'TUR':>7} {'FBR':>7} "
-          f"{'TUR-tr':>7} {'TUR-un':>7}")
+    print(
+        f"\n{'defense':10} {'APR':>7} {'a-deny':>7} {'a-appr':>7} {'TUR':>7} {'FBR':>7} "
+        f"{'TUR-tr':>7} {'TUR-un':>7}"
+    )
     for s in results:
-        print(f"{s['defense']:10} {s['apr']:>7.3f} {s['attack_deny']:>7.3f} "
-              f"{s['attack_needs_approval']:>7.3f} {s['tur']:>7.3f} {s['false_block_rate']:>7.3f} "
-              f"{s['tur_trusted_legit']:>7.3f} {s['tur_untrusted_legit']:>7.3f}")
+        print(
+            f"{s['defense']:10} {s['apr']:>7.3f} {s['attack_deny']:>7.3f} "
+            f"{s['attack_needs_approval']:>7.3f} {s['tur']:>7.3f} {s['false_block_rate']:>7.3f} "
+            f"{s['tur_trusted_legit']:>7.3f} {s['tur_untrusted_legit']:>7.3f}"
+        )
     print(f"\ncoverage gaps (mis-mapped to READ): {[m['tool'] for m in mismatches]}")
     print(f"attack slips due to coverage gap: {slips_from_gap}")
     over = f" (median of {args.repeat} runs)" if args.repeat > 1 else ""
-    print(f"effect-boundary latency: mean {result['latency_ms']['mean']}ms  "
-          f"p99 {result['latency_ms']['p99']}ms{over}")
+    print(
+        f"effect-boundary latency: mean {result['latency_ms']['mean']}ms  "
+        f"p99 {result['latency_ms']['p99']}ms{over}"
+    )
     print(f"\nwrote {args.out}")
 
     if args.json:

@@ -19,6 +19,7 @@ Usage:
   python benchmarks/run_sink_overhead_bench.py --reps 20 --json
   python benchmarks/run_sink_overhead_bench.py --repeat 6      # median-of-6 latency
 """
+
 import argparse
 import json
 import sys
@@ -67,9 +68,13 @@ def main():
     ap.add_argument("--dataset", default=str(HERE / "data" / "effect_boundary_v1.jsonl"))
     ap.add_argument("--reps", type=int, default=20)
     ap.add_argument("--out", default=str(OUT_DIR / "sink_overhead.json"))
-    ap.add_argument("--repeat", type=int, default=1,
-                    help="repeat the whole measurement N times per arm and report the "
-                         "median of the per-run statistics")
+    ap.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="repeat the whole measurement N times per arm and report the "
+        "median of the per-run statistics",
+    )
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
     if args.repeat < 1:
@@ -77,8 +82,10 @@ def main():
 
     actions = load_actions(args.dataset)
     over = f" x {args.repeat} runs" if args.repeat > 1 else ""
-    print(f"[sink-overhead] {len(actions)} actions x {args.reps} reps "
-          f"= {len(actions) * args.reps} calls per arm{over}")
+    print(
+        f"[sink-overhead] {len(actions)} actions x {args.reps} reps "
+        f"= {len(actions) * args.reps} calls per arm{over}"
+    )
 
     delivered = []
     arms = {}
@@ -92,10 +99,10 @@ def main():
             raise SystemExit("sink never fired — the overhead number would be meaningless")
 
         before = len(delivered)
-        set_decision_sink(lambda record: delivered.append(record["decision"]),
-                          capture_content=True)
-        arms["trivial_sink_capture_content"] = measure(EffectBoundary(), actions, args.reps,
-                                                       args.repeat)
+        set_decision_sink(lambda record: delivered.append(record["decision"]), capture_content=True)
+        arms["trivial_sink_capture_content"] = measure(
+            EffectBoundary(), actions, args.reps, args.repeat
+        )
         if len(delivered) == before:
             raise SystemExit("sink stopped firing under capture_content")
     finally:
@@ -119,11 +126,15 @@ def main():
     }
     Path(args.out).write_text(json.dumps(result, indent=2))
 
-    print(f"\n{'arm':32} {'mean':>8} {'p50':>8} {'p99':>8} {'vs none':>9}"
-          f"{f'   (median of {args.repeat} runs)' if args.repeat > 1 else ''}")
+    print(
+        f"\n{'arm':32} {'mean':>8} {'p50':>8} {'p99':>8} {'vs none':>9}"
+        f"{f'   (median of {args.repeat} runs)' if args.repeat > 1 else ''}"
+    )
     for name, arm in arms.items():
-        print(f"{name:32} {arm['mean']:>8.4f} {arm['p50']:>8.4f} {arm['p99']:>8.4f} "
-              f"{arm['ratio_vs_no_sink']:>8.2f}x")
+        print(
+            f"{name:32} {arm['mean']:>8.4f} {arm['p50']:>8.4f} {arm['p99']:>8.4f} "
+            f"{arm['ratio_vs_no_sink']:>8.2f}x"
+        )
     print(f"\nwrote {args.out}")
 
     if args.json:

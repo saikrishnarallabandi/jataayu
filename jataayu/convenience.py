@@ -16,6 +16,7 @@ Changing it here would silently reclassify content for callers that branch on th
 string, so the difference is preserved and warned about instead. New code should use
 `jataayu.api` and read `result["status"]`.
 """
+
 from __future__ import annotations
 
 import warnings

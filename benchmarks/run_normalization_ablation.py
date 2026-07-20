@@ -20,6 +20,7 @@ Usage:
   python benchmarks/run_normalization_ablation.py --dataset deepset/prompt-injections \
       --out benchmarks/results/normalization_ablation.json --json
 """
+
 import argparse
 import json
 import sys
@@ -43,12 +44,14 @@ def measure_arm(normalize, pos, surface):
     guard = InboundGuard(use_llm=False, normalize=normalize)
     caught = [t for t in pos if guard.check(t, surface=surface).risk_score >= MEDIUM]
     if not caught:
-        raise SystemExit(f"nothing caught at MEDIUM with normalize={normalize}; "
-                         "evasion rate is undefined")
+        raise SystemExit(
+            f"nothing caught at MEDIUM with normalize={normalize}; evasion rate is undefined"
+        )
     arm = {"baseline_caught_at_MEDIUM": len(caught), "transforms": {}}
     for name, transform in TRANSFORMS.items():
-        still = sum(1 for t in caught
-                    if guard.check(transform(t), surface=surface).risk_score >= MEDIUM)
+        still = sum(
+            1 for t in caught if guard.check(transform(t), surface=surface).risk_score >= MEDIUM
+        )
         arm["transforms"][name] = {
             "still_caught": still,
             "evasion_rate": round(1 - still / len(caught), 4),
@@ -67,8 +70,10 @@ def main():
     pos = [t for t, y in load_binary(args.dataset) if y == 1]
     if not pos:
         raise SystemExit(f"no attack rows in {args.dataset}")
-    print(f"[normalization-ablation] {args.dataset} | attack rows={len(pos)} "
-          f"| surface={args.surface} | threshold=MEDIUM({MEDIUM})")
+    print(
+        f"[normalization-ablation] {args.dataset} | attack rows={len(pos)} "
+        f"| surface={args.surface} | threshold=MEDIUM({MEDIUM})"
+    )
 
     result = {
         "benchmark": "Jataayu input-normalization ablation",
@@ -88,10 +93,14 @@ def main():
     on, off = result["arms"]["normalize=True"], result["arms"]["normalize=False"]
     print(f"\n{'transform':14} {'evasion off':>12} {'evasion on':>12}")
     for name in TRANSFORMS:
-        print(f"{name:14} {off['transforms'][name]['evasion_rate']:>12.4f} "
-              f"{on['transforms'][name]['evasion_rate']:>12.4f}")
-    print(f"\nclean-caught baseline: normalize=True {on['baseline_caught_at_MEDIUM']}, "
-          f"normalize=False {off['baseline_caught_at_MEDIUM']}")
+        print(
+            f"{name:14} {off['transforms'][name]['evasion_rate']:>12.4f} "
+            f"{on['transforms'][name]['evasion_rate']:>12.4f}"
+        )
+    print(
+        f"\nclean-caught baseline: normalize=True {on['baseline_caught_at_MEDIUM']}, "
+        f"normalize=False {off['baseline_caught_at_MEDIUM']}"
+    )
     print(f"wrote {args.out}")
 
     if args.json:

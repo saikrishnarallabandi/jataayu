@@ -27,6 +27,7 @@ path (LLM judge) exactly as in run_injecagent_bench.py.
 Usage:
   python3 benchmarks/run_memory_poison_bench.py [--llm] [--workers N] [--limit N]
 """
+
 import argparse
 import json
 import time
@@ -43,17 +44,29 @@ from jataayu.guards.inbound import InboundGuard
 # force think:false so the JSON classifier prompt returns a verdict. (Same patch
 # as run_injecagent_bench.py / run_slowpath_bench.py.)
 _orig_ollama = engine.LLMBackend._call_ollama
+
+
 def _patched_ollama(self, system_prompt, user_message, max_tokens):
     import requests
+
     resp = requests.post(
         f"{self.base_url}/api/chat",
-        json={"model": self.model, "think": False,
-              "messages": [{"role": "system", "content": system_prompt},
-                           {"role": "user", "content": user_message}],
-              "stream": False, "options": {"num_predict": max_tokens}},
-        timeout=180)
+        json={
+            "model": self.model,
+            "think": False,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            "stream": False,
+            "options": {"num_predict": max_tokens},
+        },
+        timeout=180,
+    )
     resp.raise_for_status()
     return resp.json()["message"]["content"].strip()
+
+
 engine.LLMBackend._call_ollama = _patched_ollama
 
 DATA = Path(__file__).parent / "data" / "memory_poison_v1.jsonl"
@@ -63,7 +76,7 @@ OUT.mkdir(exist_ok=True)
 # Two entry points, each pinned to its own surface.
 ENTRY_POINTS = {
     "write": ("memory-write", jataayu_check_memory_write),
-    "read":  ("memory-read", jataayu_check_memory_read),
+    "read": ("memory-read", jataayu_check_memory_read),
 }
 
 # jataayu's ThreatLevel score bands (see InboundGuard._score_to_level).
@@ -129,9 +142,17 @@ def metrics_at(y_true, y_score, thr):
     rec = tp / (tp + fn) if (tp + fn) else 0.0
     fpr = fp / (fp + tn) if (fp + tn) else 0.0
     f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
-    return dict(threshold=thr, tp=tp, fp=fp, tn=tn, fn=fn,
-                precision=round(prec, 4), recall=round(rec, 4),
-                fpr=round(fpr, 4), f1=round(f1, 4))
+    return dict(
+        threshold=thr,
+        tp=tp,
+        fp=fp,
+        tn=tn,
+        fn=fn,
+        precision=round(prec, 4),
+        recall=round(rec, 4),
+        fpr=round(fpr, 4),
+        f1=round(f1, 4),
+    )
 
 
 def detection_of(rows, scores, thr, mask):
@@ -154,23 +175,30 @@ def false_block_of(rows, scores, thr, mask):
 
 def build_report(rows, y_true, scores, lat):
     rep = {
-        "latency_ms": {"mean": round(float(lat.mean()), 4),
-                       "p50": round(float(np.percentile(lat, 50)), 4),
-                       "p99": round(float(np.percentile(lat, 99)), 4)},
-        "operating_points": {name: metrics_at(y_true, scores, thr)
-                             for name, thr in OP_POINTS.items()},
+        "latency_ms": {
+            "mean": round(float(lat.mean()), 4),
+            "p50": round(float(np.percentile(lat, 50)), 4),
+            "p99": round(float(np.percentile(lat, 99)), 4),
+        },
+        "operating_points": {
+            name: metrics_at(y_true, scores, thr) for name, thr in OP_POINTS.items()
+        },
         "detection_by_subclass": {},
         "false_block_by_split": {},
     }
     for thr_name, thr in OP_POINTS.items():
         rep["detection_by_subclass"][thr_name] = {
             "overall": detection_of(rows, scores, thr, lambda r: True),
-            **{sub: detection_of(rows, scores, thr, lambda r, s=sub: r["subclass"] == s)
-               for sub in POISON_SUBCLASSES},
+            **{
+                sub: detection_of(rows, scores, thr, lambda r, s=sub: r["subclass"] == s)
+                for sub in POISON_SUBCLASSES
+            },
         }
         rep["false_block_by_split"][thr_name] = {
             "overall": false_block_of(rows, scores, thr, lambda r: True),
-            "ordinary": false_block_of(rows, scores, thr, lambda r: r["label"] == 0 and not r["tricky"]),
+            "ordinary": false_block_of(
+                rows, scores, thr, lambda r: r["label"] == 0 and not r["tricky"]
+            ),
             "tricky": false_block_of(rows, scores, thr, lambda r: r["label"] == 0 and r["tricky"]),
         }
     return rep
@@ -193,9 +221,14 @@ def main():
     result = {
         "benchmark": "Memory read/write poisoning (A6) — delayed injection via persistent agent memory",
         "path": path,
-        "corpus": {"file": str(DATA.name), "generator": "gen_memory_poison_v1.py",
-                   "n_total": len(rows), "n_poison": n_pos, "n_benign": n_neg,
-                   "poison_by_subclass": by_sub},
+        "corpus": {
+            "file": str(DATA.name),
+            "generator": "gen_memory_poison_v1.py",
+            "n_total": len(rows),
+            "n_poison": n_pos,
+            "n_benign": n_neg,
+            "poison_by_subclass": by_sub,
+        },
         "entry_points": {},
     }
 
@@ -206,33 +239,46 @@ def main():
         rep = build_report(rows, y_true, scores, lat)
         rep["api"] = f"jataayu_check_memory_{ep_name} (surface={surface})"
         result["entry_points"][ep_name] = rep
-        print(f"  {ep_name:5s}: "
-              + " | ".join(f"{n}=R{rep['detection_by_subclass'][n]['overall']['detection_rate']:.2f}"
-                           f"/FPR{rep['operating_points'][n]['fpr']:.2f}"
-                           for n in OP_POINTS))
+        print(
+            f"  {ep_name:5s}: "
+            + " | ".join(
+                f"{n}=R{rep['detection_by_subclass'][n]['overall']['detection_rate']:.2f}"
+                f"/FPR{rep['operating_points'][n]['fpr']:.2f}"
+                for n in OP_POINTS
+            )
+        )
 
     # --- write-vs-read comparison ---
     w, r = per_ep_scores["write"], per_ep_scores["read"]
     diffs = np.abs(w - r)
     n_diff = int((diffs > 1e-9).sum())
     disagreements = [
-        {"id": rows[i]["id"], "subclass": rows[i]["subclass"], "label": rows[i]["label"],
-         "write_score": round(float(w[i]), 3), "read_score": round(float(r[i]), 3),
-         "text": rows[i]["text"][:120]}
-        for i in range(len(rows)) if diffs[i] > 1e-9
+        {
+            "id": rows[i]["id"],
+            "subclass": rows[i]["subclass"],
+            "label": rows[i]["label"],
+            "write_score": round(float(w[i]), 3),
+            "read_score": round(float(r[i]), 3),
+            "text": rows[i]["text"][:120],
+        }
+        for i in range(len(rows))
+        if diffs[i] > 1e-9
     ]
     result["write_vs_read"] = {
         "identical": n_diff == 0,
         "n_rows_differing": n_diff,
         "max_abs_score_delta": round(float(diffs.max()), 4),
         "mean_abs_score_delta": round(float(diffs.mean()), 6),
-        "note": ("Store-time and recall-time screens route through the same engine "
-                 "and both surfaces carry the same 1.1 risk multiplier, so per-row "
-                 "scores are identical on the fast path — the defense is symmetric: "
-                 "whatever is caught on recall is equally caught on store, and vice "
-                 "versa." if n_diff == 0 else
-                 "Scores diverge (expected only under the LLM slow path, whose "
-                 "sampling is nondeterministic)."),
+        "note": (
+            "Store-time and recall-time screens route through the same engine "
+            "and both surfaces carry the same 1.1 risk multiplier, so per-row "
+            "scores are identical on the fast path — the defense is symmetric: "
+            "whatever is caught on recall is equally caught on store, and vice "
+            "versa."
+            if n_diff == 0
+            else "Scores diverge (expected only under the LLM slow path, whose "
+            "sampling is nondeterministic)."
+        ),
         "disagreements": disagreements[:20],
     }
 

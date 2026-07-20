@@ -3,6 +3,7 @@
 These pin the historical return shape: the shims exist so that callers installed
 from git keep working, so a change to what they return is a breaking change.
 """
+
 import pytest
 from jataayu.api import reset_guards
 from jataayu.convenience import check_inbound, check_outbound, sanitize_inbound
@@ -164,14 +165,17 @@ class TestRootImportStaysCompatible:
     @pytest.mark.parametrize("name", ["check_inbound", "check_outbound", "sanitize_inbound"])
     def test_importable_from_the_package_root(self, name):
         import jataayu
+
         assert hasattr(jataayu, name), f"from jataayu import {name} regressed to ImportError"
 
     @pytest.mark.parametrize("name", ["check_inbound", "check_outbound", "sanitize_inbound"])
     def test_not_advertised_in_dunder_all(self, name):
         import jataayu
+
         assert name not in jataayu.__all__
 
     def test_root_import_still_warns(self):
         from jataayu import check_outbound
+
         with pytest.warns(DeprecationWarning):
             check_outbound("Weather is fine.", surface="discord-channel")

@@ -18,6 +18,7 @@ Run:
 Writes:
     benchmarks/results/composition_v1.json
 """
+
 from __future__ import annotations
 
 import json
@@ -37,6 +38,7 @@ def load_corpus() -> list[dict]:
         # Auto-generate if missing (keeps the bench self-contained + reproducible).
         import subprocess
         import sys
+
         subprocess.run([sys.executable, str(HERE / "data" / "gen_composition_v1.py")], check=True)
     with CORPUS.open() as f:
         return [json.loads(line) for line in f if line.strip()]
@@ -164,11 +166,16 @@ def main() -> None:
     missed = []
     for r in results:
         if r["expected_verdict"] != "SAFE" and not r["passed"]:
-            missed.append({
-                "id": r["id"], "class": r["class"],
-                "expected_verdict": r["expected_verdict"], "got_verdict": r["got_verdict"],
-                "detail": r["detail"], "skills": r["skills"],
-            })
+            missed.append(
+                {
+                    "id": r["id"],
+                    "class": r["class"],
+                    "expected_verdict": r["expected_verdict"],
+                    "got_verdict": r["got_verdict"],
+                    "detail": r["detail"],
+                    "skills": r["skills"],
+                }
+            )
 
     # ---- coverage-gap probes: human-risky paths outside the guard's combo model ----
     coverage_gaps = []
@@ -196,8 +203,8 @@ def main() -> None:
         "total_sets": len(results),
         "class_counts": {k: len(v) for k, v in sorted(by_class.items())},
         "overall_pass_rate": round(overall_pass / len(results), 4),
-        "risk_recall": recall,                 # verdict + signal recall per risk class
-        "safe_false_positive_rate": fp_rate,   # lower is better
+        "risk_recall": recall,  # verdict + signal recall per risk class
+        "safe_false_positive_rate": fp_rate,  # lower is better
         "safe_sets_evaluated": len(safe_rows),
         "safe_false_positives": len(safe_fp),
         "missed_positive_sets": len(missed),
@@ -215,8 +222,13 @@ def main() -> None:
         "coverage_gaps": coverage_gaps,
         "probe_results": probe_results,
         "false_positives": [
-            {"id": r["id"], "class": r["class"], "got_verdict": r["got_verdict"],
-             "explanation": r["explanation"], "skills": r["skills"]}
+            {
+                "id": r["id"],
+                "class": r["class"],
+                "got_verdict": r["got_verdict"],
+                "explanation": r["explanation"],
+                "skills": r["skills"],
+            }
             for r in safe_fp
         ],
         "per_case": results,
@@ -239,10 +251,14 @@ def main() -> None:
     print("RECALL by risk class (verdict / signal):")
     for cls, m in recall.items():
         if m["n"]:
-            print(f"  {cls:7s} n={m['n']:2d}  verdict={m['verdict_recall']:.1%}  signal={m['signal_recall']:.1%}")
+            print(
+                f"  {cls:7s} n={m['n']:2d}  verdict={m['verdict_recall']:.1%}  signal={m['signal_recall']:.1%}"
+            )
     print("-" * 72)
-    print(f"SAFE false-positive rate: {fp_rate:.1%}  "
-          f"({len(safe_fp)}/{len(safe_rows)} safe sets misflagged)")
+    print(
+        f"SAFE false-positive rate: {fp_rate:.1%}  "
+        f"({len(safe_fp)}/{len(safe_rows)} safe sets misflagged)"
+    )
     print("-" * 72)
     print("CONFUSION (expected -> got) by class:")
     for cls in sorted(confusion):
@@ -251,19 +267,27 @@ def main() -> None:
     if missed:
         print(f"MISSED positive sets ({len(missed)}) — honest failure report:")
         for m in missed:
-            print(f"  [{m['id']}] {m['class']}  exp={m['expected_verdict']} got={m['got_verdict']}  "
-                  f"skills={m['skills']}")
+            print(
+                f"  [{m['id']}] {m['class']}  exp={m['expected_verdict']} got={m['got_verdict']}  "
+                f"skills={m['skills']}"
+            )
             print(f"      detail={m['detail']}")
     else:
         print("MISSED positive sets: NONE — every risky/policy/trust set was surfaced.")
     print("-" * 72)
-    print(f"COVERAGE-GAP PROBES ({len(probe_rows)}): human-risky paths outside the guard's "
-          f"4-combo model")
+    print(
+        f"COVERAGE-GAP PROBES ({len(probe_rows)}): human-risky paths outside the guard's "
+        f"4-combo model"
+    )
     if coverage_gaps:
-        print(f"  {len(coverage_gaps)}/{len(probe_rows)} returned SAFE — capability paths the "
-              f"current surface does NOT model:")
+        print(
+            f"  {len(coverage_gaps)}/{len(probe_rows)} returned SAFE — capability paths the "
+            f"current surface does NOT model:"
+        )
         for g in coverage_gaps:
-            print(f"  [MISS] {g['capabilities']}  ({'+'.join(g['skills'])}) -> {g['guard_verdict']}")
+            print(
+                f"  [MISS] {g['capabilities']}  ({'+'.join(g['skills'])}) -> {g['guard_verdict']}"
+            )
             print(f"         {g['note']}")
     else:
         print("  none — the guard flagged every probe.")

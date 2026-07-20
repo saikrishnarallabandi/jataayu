@@ -17,6 +17,7 @@ and LLM-free, so all API cost comes from the agent --model.
 
 Pinned against agentdojo 0.1.35.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -96,7 +97,7 @@ def _balanced_json(s: str) -> str | None:
         elif c == "}":
             depth -= 1
             if depth == 0:
-                return s[start:i + 1]
+                return s[start : i + 1]
     return None
 
 
@@ -126,6 +127,7 @@ _local_llm._parse_model_output = _parse_model_output_fixed
 try:
     from agentdojo.functions_runtime import FunctionCall as _FunctionCall  # noqa: F401
     from agentdojo.benchmark import TaskResults as _TaskResults
+
     _TaskResults.model_rebuild()
 except Exception:
     pass
@@ -134,14 +136,17 @@ except Exception:
 # a pipeline name -> prose model name (AgentDojo 0.1.35's table predates them).
 # base_attacks imports the same dict object, so an in-place update is visible there.
 import agentdojo.models as _admodels  # noqa: E402
-_admodels.MODEL_NAMES.update({
-    "gpt-5.4-mini": "GPT-4",
-    "gpt-5.4": "GPT-4",
-    "claude-sonnet-5": "Claude",
-    "claude-opus-4-8": "Claude",
-    "claude-haiku-4-5": "Claude",
-    "claude-subagent": "Claude",
-})
+
+_admodels.MODEL_NAMES.update(
+    {
+        "gpt-5.4-mini": "GPT-4",
+        "gpt-5.4": "GPT-4",
+        "claude-sonnet-5": "Claude",
+        "claude-opus-4-8": "Claude",
+        "claude-haiku-4-5": "Claude",
+        "claude-subagent": "Claude",
+    }
+)
 
 
 def _make_llm(model: str, model_id: str | None, local_base_url: str | None):
@@ -169,6 +174,7 @@ def _make_llm(model: str, model_id: str | None, local_base_url: str | None):
         # (no Anthropic API key needed). See subagent_llm.py.
         import atexit
         from subagent_llm import SubagentLLM
+
         rpc = os.environ.get("JATAAYU_RPC_DIR")
         if not rpc:
             raise ValueError("JATAAYU_RPC_DIR must be set for --model subagent")
@@ -181,17 +187,24 @@ def _make_llm(model: str, model_id: str | None, local_base_url: str | None):
             # OpenAILLM defaults temperature=0.0, which `0.0 or NOT_GIVEN` drops,
             # so no sampling param is sent (gpt-5.x reasoning models require that).
             from agentdojo.agent_pipeline.llms.openai_llm import OpenAILLM
+
             return OpenAILLM(openai.OpenAI(), model_id)  # reads OPENAI_API_KEY
         # anthropic: temperature=None -> NOT_GIVEN, required for Opus 4.8 / Sonnet 5
         # (sampling params 400 on those). Reads ANTHROPIC_API_KEY.
         import anthropic as _anthropic
         from agentdojo.agent_pipeline.llms.anthropic_llm import AnthropicLLM
+
         return AnthropicLLM(_anthropic.Anthropic(), model_id, temperature=None)
     # other hosted models: let from_config build the provider-correct client
-    cfg_pipe = AgentPipeline.from_config(PipelineConfig(
-        llm=model, model_id=None, defense=None,
-        system_message_name=None, system_message=None,
-    ))
+    cfg_pipe = AgentPipeline.from_config(
+        PipelineConfig(
+            llm=model,
+            model_id=None,
+            defense=None,
+            system_message_name=None,
+            system_message=None,
+        )
+    )
     # the llm is the 3rd element (SystemMessage, InitQuery, llm, ToolsExecutionLoop)
     return cfg_pipe.elements[2]
 
@@ -202,18 +215,21 @@ def _build_pipeline(model, with_jataayu, min_status, model_id=None, local_base_u
     before the agent LLM (AgentDojo's defense position)."""
     llm = _make_llm(model, model_id, local_base_url)
     # resolve the default system message via the config validator
-    cfg = PipelineConfig(llm="local", model_id="x", defense=None,
-                         system_message_name=None, system_message=None)
+    cfg = PipelineConfig(
+        llm="local", model_id="x", defense=None, system_message_name=None, system_message=None
+    )
     loop_elements = [ToolsExecutor()]
     if with_jataayu:
         loop_elements.append(JataayuPIDetector(min_status=min_status, raise_on_injection=False))
     loop_elements.append(llm)
-    pipeline = AgentPipeline([
-        SystemMessage(cfg.system_message),
-        InitQuery(),
-        llm,
-        ToolsExecutionLoop(loop_elements),
-    ])
+    pipeline = AgentPipeline(
+        [
+            SystemMessage(cfg.system_message),
+            InitQuery(),
+            llm,
+            ToolsExecutionLoop(loop_elements),
+        ]
+    )
     if model == "local":
         tag = f"local:{model_id}"
     elif model in ("openai", "anthropic"):
@@ -222,25 +238,42 @@ def _build_pipeline(model, with_jataayu, min_status, model_id=None, local_base_u
         tag = model_id or "claude-subagent"
     else:
         tag = model
-    pipeline.name = (f"jataayu_{min_status.lower()}_{tag}" if with_jataayu
-                     else f"baseline_{tag}")
+    pipeline.name = f"jataayu_{min_status.lower()}_{tag}" if with_jataayu else f"baseline_{tag}"
     return pipeline
 
 
-def _run_variant(model, suite, attack_name, user_tasks, with_jataayu, min_status, logdir,
-                 model_id=None, local_base_url=None, injection_tasks=None):
+def _run_variant(
+    model,
+    suite,
+    attack_name,
+    user_tasks,
+    with_jataayu,
+    min_status,
+    logdir,
+    model_id=None,
+    local_base_url=None,
+    injection_tasks=None,
+):
     pipeline = _build_pipeline(model, with_jataayu, min_status, model_id, local_base_url)
 
     # AgentDojo's TraceLogger reads logdir from the active Logger context.
     with OutputLogger(str(logdir), live=None):
         util = benchmark_suite_without_injections(
-            pipeline, suite, logdir=logdir, force_rerun=True,
+            pipeline,
+            suite,
+            logdir=logdir,
+            force_rerun=True,
             user_tasks=user_tasks or None,
         )
         attack = load_attack(attack_name, suite, pipeline)
         atk = benchmark_suite_with_injections(
-            pipeline, suite, attack, logdir=logdir, force_rerun=True,
-            user_tasks=user_tasks or None, injection_tasks=injection_tasks or None,
+            pipeline,
+            suite,
+            attack,
+            logdir=logdir,
+            force_rerun=True,
+            user_tasks=user_tasks or None,
+            injection_tasks=injection_tasks or None,
         )
     return {
         "pipeline": pipeline.name,
@@ -256,19 +289,29 @@ def _run_variant(model, suite, attack_name, user_tasks, with_jataayu, min_status
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
-    ap.add_argument("--suite", default="workspace",
-                    choices=["workspace", "travel", "banking", "slack"])
+    ap.add_argument(
+        "--suite", default="workspace", choices=["workspace", "travel", "banking", "slack"]
+    )
     ap.add_argument("--attack", default="important_instructions")
-    ap.add_argument("--user-tasks", nargs="*", default=None,
-                    help="subset e.g. user_task_0 user_task_1; omit for full suite")
-    ap.add_argument("--variants", nargs="+", default=["baseline", "jataayu"],
-                    choices=["baseline", "jataayu"])
+    ap.add_argument(
+        "--user-tasks",
+        nargs="*",
+        default=None,
+        help="subset e.g. user_task_0 user_task_1; omit for full suite",
+    )
+    ap.add_argument(
+        "--variants", nargs="+", default=["baseline", "jataayu"], choices=["baseline", "jataayu"]
+    )
     ap.add_argument("--min-status", default="HIGH", choices=["HIGH", "MEDIUM"])
     ap.add_argument("--model-id", default=None, help="ollama/vLLM model name when --model local")
-    ap.add_argument("--local-base-url", default=None,
-                    help="OpenAI-compatible base URL when --model local, e.g. http://GPU_HOST:11434/v1")
-    ap.add_argument("--injection-tasks", nargs="*", default=None,
-                    help="subset of injection tasks; omit for all")
+    ap.add_argument(
+        "--local-base-url",
+        default=None,
+        help="OpenAI-compatible base URL when --model local, e.g. http://GPU_HOST:11434/v1",
+    )
+    ap.add_argument(
+        "--injection-tasks", nargs="*", default=None, help="subset of injection tasks; omit for all"
+    )
     ap.add_argument("--logdir", default="./runs/agentdojo")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
@@ -278,29 +321,45 @@ def main() -> None:
 
     rows = []
     for variant in args.variants:
-        print(f"[run] {variant} on {args.suite}/{args.attack} "
-              f"({'full suite' if not args.user_tasks else args.user_tasks})", flush=True)
-        rows.append(_run_variant(
-            args.model, suite, args.attack, args.user_tasks,
-            with_jataayu=(variant == "jataayu"),
-            min_status=args.min_status, logdir=logdir,
-            model_id=args.model_id, local_base_url=args.local_base_url,
-            injection_tasks=args.injection_tasks,
-        ))
+        print(
+            f"[run] {variant} on {args.suite}/{args.attack} "
+            f"({'full suite' if not args.user_tasks else args.user_tasks})",
+            flush=True,
+        )
+        rows.append(
+            _run_variant(
+                args.model,
+                suite,
+                args.attack,
+                args.user_tasks,
+                with_jataayu=(variant == "jataayu"),
+                min_status=args.min_status,
+                logdir=logdir,
+                model_id=args.model_id,
+                local_base_url=args.local_base_url,
+                injection_tasks=args.injection_tasks,
+            )
+        )
 
     report = {
-        "model": args.model_id if args.model in ("local", "openai", "anthropic") and args.model_id else args.model,
-        "suite": args.suite, "attack": args.attack,
+        "model": args.model_id
+        if args.model in ("local", "openai", "anthropic") and args.model_id
+        else args.model,
+        "suite": args.suite,
+        "attack": args.attack,
         "user_tasks": args.user_tasks or "ALL",
-        "agentdojo_version": "0.1.35", "results": rows,
+        "agentdojo_version": "0.1.35",
+        "results": rows,
     }
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2))
     print("\n=== summary ===")
     for r in rows:
-        print(f"{r['defense']:>8}: util(no-atk)={r['utility_no_attack']:.3f} "
-              f"util(atk)={r['utility_under_attack']:.3f} ASR={r['attack_success_rate']:.3f}")
+        print(
+            f"{r['defense']:>8}: util(no-atk)={r['utility_no_attack']:.3f} "
+            f"util(atk)={r['utility_under_attack']:.3f} ASR={r['attack_success_rate']:.3f}"
+        )
     print(f"\nwrote {out}")
 
 

@@ -18,6 +18,7 @@ dict. The older tuple-returning `check_inbound` / `check_outbound` aliases in
 `jataayu.convenience` are deprecated wrappers over these; they still import and work
 but warn.
 """
+
 __version__ = "0.3.1"
 
 from jataayu.core.errors import SecurityError
@@ -40,10 +41,20 @@ from jataayu.guards.egress import EgressChannelGuard, EgressConfig
 from jataayu.guards.skill_vet import SkillVetGuard, SkillVetResult
 from jataayu.guards.composition import check_skillset, CompositionRisk
 from jataayu.guards.effect_boundary import (
-    EffectBoundary, Value, Provenance, EffectClass, Decision, CommitRejected,
+    EffectBoundary,
+    Value,
+    Provenance,
+    EffectClass,
+    Decision,
+    CommitRejected,
 )
 from jataayu.core.audit import (
-    SessionTrace, AuditResult, AuditFinding, AuditRisk, TraceEvent, set_decision_sink,
+    SessionTrace,
+    AuditResult,
+    AuditFinding,
+    AuditRisk,
+    TraceEvent,
+    set_decision_sink,
 )
 from jataayu.api import jataayu_authorize_action
 

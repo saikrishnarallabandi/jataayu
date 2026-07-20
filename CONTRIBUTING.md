@@ -6,10 +6,11 @@
 pip install -e ".[dev]"
 pytest -q          # ~1,070 tests, ~16s, no network or GPU required
 ruff check jataayu tests examples demo benchmarks training
+ruff format --check jataayu tests examples demo benchmarks training
 python examples/quickstart.py   # the README's Quick Start, executable and self-asserting
 ```
 
-All three run in CI on Python 3.10 / 3.11 / 3.12.
+All four run in CI on Python 3.10 / 3.11 / 3.12.
 
 ## Where things live
 
@@ -59,6 +60,6 @@ Do not open a public issue. See [SECURITY.md](SECURITY.md).
 
 ## Style
 
-Ruff handles formatting; there is no separate style guide. Match the surrounding code. Comments
+Ruff is the only required style tool: use `ruff check ...` for linting and `ruff format ...` for formatting. There is no separate style guide. Match the surrounding code. Comments
 should explain *why*, not restate the line — the existing source is the reference for the level
 of comment the project expects.

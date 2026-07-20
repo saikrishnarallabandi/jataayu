@@ -21,6 +21,7 @@ Usage:
     if risk.verdict == "MALICIOUS":
         raise PermissionError(risk.explanation)
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -57,6 +58,7 @@ class CompositionRisk:
         individually_flagged: Skills that vet as REVIEW/MALICIOUS on their own.
         explanation: Human-readable summary.
     """
+
     verdict: str
     skills: list[str] = field(default_factory=list)
     per_skill_capabilities: dict[str, list[str]] = field(default_factory=dict)
@@ -105,8 +107,12 @@ def _normalize_skill(
     endorsement must not be allowed to launder a dangerous capability (SCR-Bench).
     """
     if isinstance(item, SkillVetResult):
-        return (item.skill_name or "unnamed", set(item.capabilities), item.verdict,
-                bool(getattr(item, "endorsed", False)))
+        return (
+            item.skill_name or "unnamed",
+            set(item.capabilities),
+            item.verdict,
+            bool(getattr(item, "endorsed", False)),
+        )
 
     if isinstance(item, dict) and "capabilities" in item:
         return (
@@ -119,8 +125,12 @@ def _normalize_skill(
     if isinstance(item, (str, Path)):
         g = guard or SkillVetGuard(use_llm=use_llm)
         result = g.vet(skill_path=item)
-        return (result.skill_name or str(item), set(result.capabilities), result.verdict,
-                bool(getattr(result, "endorsed", False)))
+        return (
+            result.skill_name or str(item),
+            set(result.capabilities),
+            result.verdict,
+            bool(getattr(result, "endorsed", False)),
+        )
 
     raise TypeError(
         f"Cannot interpret skillset item of type {type(item).__name__}: "
@@ -148,9 +158,9 @@ def check_skillset(
     Returns:
         CompositionRisk.
     """
-    guard = SkillVetGuard(use_llm=use_llm) if any(
-        isinstance(s, (str, Path)) for s in skills
-    ) else None
+    guard = (
+        SkillVetGuard(use_llm=use_llm) if any(isinstance(s, (str, Path)) for s in skills) else None
+    )
 
     per_skill: dict[str, set[str]] = {}
     endorsed_skills: set[str] = set()
@@ -180,28 +190,31 @@ def check_skillset(
         if any(combo.issubset(caps) for caps in per_skill.values()):
             continue
         contributors = {
-            cap: sorted(n for n, caps in per_skill.items() if cap in caps)
-            for cap in sorted(combo)
+            cap: sorted(n for n, caps in per_skill.items() if cap in caps) for cap in sorted(combo)
         }
-        risky_combinations.append({
-            "capabilities": sorted(combo),
-            "description": description,
-            "contributors": contributors,
-        })
+        risky_combinations.append(
+            {
+                "capabilities": sorted(combo),
+                "description": description,
+                "contributors": contributors,
+            }
+        )
 
     # --- memory poisoning vector: memory_write + any other skill ---
     if _MEMORY_POISON_CAP in aggregate and len(per_skill) > 1:
         writers = sorted(n for n, caps in per_skill.items() if _MEMORY_POISON_CAP in caps)
         others = [n for n in per_skill if n not in writers]
         if others:
-            risky_combinations.append({
-                "capabilities": [_MEMORY_POISON_CAP],
-                "description": (
-                    "memory-poisoning vector (a skill persists content that any other "
-                    "instruction-following skill may later act on)"
-                ),
-                "contributors": {_MEMORY_POISON_CAP: writers},
-            })
+            risky_combinations.append(
+                {
+                    "capabilities": [_MEMORY_POISON_CAP],
+                    "description": (
+                        "memory-poisoning vector (a skill persists content that any other "
+                        "instruction-following skill may later act on)"
+                    ),
+                    "contributors": {_MEMORY_POISON_CAP: writers},
+                }
+            )
 
     # --- annotate combos: fragmentation + endorsed contributors ---
     # Intent fragmentation (SCR-Bench / arXiv:2606.00448 — individually-safe skills
@@ -213,9 +226,9 @@ def check_skillset(
     trust_transfer: list[dict] = []
     _seen_transfer: set[tuple[str, tuple[str, ...]]] = set()
     for combo in risky_combinations:
-        contributing = sorted({
-            s for skills_for_cap in combo["contributors"].values() for s in skills_for_cap
-        })
+        contributing = sorted(
+            {s for skills_for_cap in combo["contributors"].values() for s in skills_for_cap}
+        )
         combo["fragmented"] = len(contributing) >= 3
         endorsed_here = [s for s in contributing if s in endorsed_skills]
         combo["endorsed_contributors"] = endorsed_here
@@ -224,25 +237,29 @@ def check_skillset(
             if key in _seen_transfer:
                 continue
             _seen_transfer.add(key)
-            trust_transfer.append({
-                "skill": s,
-                "capabilities": combo["capabilities"],
-                "reason": (
-                    "endorsed/trusted skill contributes a dangerous capability to a realized "
-                    "cross-skill combo — endorsement must not launder capability risk"
-                ),
-            })
+            trust_transfer.append(
+                {
+                    "skill": s,
+                    "capabilities": combo["capabilities"],
+                    "reason": (
+                        "endorsed/trusted skill contributes a dangerous capability to a realized "
+                        "cross-skill combo — endorsement must not launder capability risk"
+                    ),
+                }
+            )
 
     # --- per-agent capability isolation (blocked at install) ---
     policy_violations: list[dict] = []
     agent_policy = _resolve_agent_policy(policy, agent)
     if agent_policy is not None:
         for cap in agent_policy.capability_violations(aggregate):
-            policy_violations.append({
-                "capability": cap,
-                "contributors": sorted(n for n, caps in per_skill.items() if cap in caps),
-                "reason": "capability not permitted by agent policy",
-            })
+            policy_violations.append(
+                {
+                    "capability": cap,
+                    "contributors": sorted(n for n, caps in per_skill.items() if cap in caps),
+                    "reason": "capability not permitted by agent policy",
+                }
+            )
 
     verdict = _rollup(individually_flagged, risky_combinations, policy_violations, trust_transfer)
     explanation = _explain(
@@ -279,16 +296,20 @@ def _rollup(individually_flagged, risky_combinations, policy_violations, trust_t
     # Endorsement laundering a dangerous capability is install-blockable. This is
     # jataayu's own defensive stance (endorsement is not a security property), not a
     # sourced benchmark number — see CHANGELOG for the SCR-Bench citation correction.
-    if (policy_violations or trust_transfer
-            or any(f["verdict"] == "MALICIOUS" for f in individually_flagged)):
+    if (
+        policy_violations
+        or trust_transfer
+        or any(f["verdict"] == "MALICIOUS" for f in individually_flagged)
+    ):
         return "MALICIOUS"
     if risky_combinations or individually_flagged:
         return "REVIEW"
     return "SAFE"
 
 
-def _explain(verdict, risky_combinations, policy_violations, individually_flagged,
-             trust_transfer=()) -> str:
+def _explain(
+    verdict, risky_combinations, policy_violations, individually_flagged, trust_transfer=()
+) -> str:
     if verdict == "SAFE":
         return "No compositional risk: capability set is benign and policy-compliant."
     parts = []

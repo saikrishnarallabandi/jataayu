@@ -53,6 +53,7 @@ Usage:
   python benchmarks/run_outbound_privacy_bench.py --no-hf     # curated corpus only
   python benchmarks/run_outbound_privacy_bench.py --repeat 10 # median-of-10 latency
 """
+
 import argparse
 import json
 import sys
@@ -184,17 +185,25 @@ def load_hf_positives(limit):
             spans = []
             for s in row.get("privacy_mask", []):
                 cat, in_scope = cat_for(s["label"])
-                spans.append({"value": s["value"], "label": s["label"],
-                              "category": cat, "in_scope": in_scope})
-            rows.append({
-                "id": f"ai4privacy-{row.get('id')}",
-                "text": row["source_text"],
-                "is_pii": True,
-                "spans": spans,
-                "protected_names": [],
-                "source": "ai4privacy",
-                "split": "standard_pii",
-            })
+                spans.append(
+                    {
+                        "value": s["value"],
+                        "label": s["label"],
+                        "category": cat,
+                        "in_scope": in_scope,
+                    }
+                )
+            rows.append(
+                {
+                    "id": f"ai4privacy-{row.get('id')}",
+                    "text": row["source_text"],
+                    "is_pii": True,
+                    "spans": spans,
+                    "protected_names": [],
+                    "source": "ai4privacy",
+                    "split": "standard_pii",
+                }
+            )
             if len(rows) >= limit:
                 break
     except Exception as e:
@@ -216,8 +225,9 @@ def load_gretel_positives(limit):
     except Exception as e:  # pragma: no cover
         return None, f"datasets import failed: {e}"
     try:
-        ds = load_dataset("gretelai/synthetic_pii_finance_multilingual",
-                          split="test", streaming=True)
+        ds = load_dataset(
+            "gretelai/synthetic_pii_finance_multilingual", split="test", streaming=True
+        )
     except Exception as e:
         return None, f"load_dataset failed: {type(e).__name__}: {str(e)[:160]}"
 
@@ -233,23 +243,26 @@ def load_gretel_positives(limit):
                 raw_spans = []
             spans = []
             for s in raw_spans:
-                value = text[s["start"]:s["end"]]
+                value = text[s["start"] : s["end"]]
                 if not value:
                     continue
                 cat, in_scope = GRETEL_CATEGORY_MAP.get(s["label"], OUT_OF_SCOPE_DEFAULT)
-                spans.append({"value": value, "label": s["label"],
-                              "category": cat, "in_scope": in_scope})
+                spans.append(
+                    {"value": value, "label": s["label"], "category": cat, "in_scope": in_scope}
+                )
             if not spans:
                 continue
-            rows.append({
-                "id": f"gretel-{row.get('index')}",
-                "text": text,
-                "is_pii": True,
-                "spans": spans,
-                "protected_names": [],
-                "source": "gretelai",
-                "split": "standard_pii",
-            })
+            rows.append(
+                {
+                    "id": f"gretel-{row.get('index')}",
+                    "text": text,
+                    "is_pii": True,
+                    "spans": spans,
+                    "protected_names": [],
+                    "source": "gretelai",
+                    "split": "standard_pii",
+                }
+            )
             if len(rows) >= limit:
                 break
     except Exception as e:
@@ -265,7 +278,8 @@ def load_gretel_positives(limit):
 def score_record(rec, surface):
     t0 = time.perf_counter()
     r = jataayu_check_outbound(
-        rec["text"], surface=surface,
+        rec["text"],
+        surface=surface,
         protected_names=rec.get("protected_names") or None,
         use_llm=False,
     )
@@ -278,28 +292,49 @@ def prf(tp, fp, tn, fn):
     rec = tp / (tp + fn) if (tp + fn) else 0.0
     fpr = fp / (fp + tn) if (fp + tn) else 0.0
     f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
-    return dict(tp=tp, fp=fp, tn=tn, fn=fn,
-                precision=round(prec, 4), recall=round(rec, 4),
-                fpr=round(fpr, 4), f1=round(f1, 4))
+    return dict(
+        tp=tp,
+        fp=fp,
+        tn=tn,
+        fn=fn,
+        precision=round(prec, 4),
+        recall=round(rec, 4),
+        fpr=round(fpr, 4),
+        f1=round(f1, 4),
+    )
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default=str(DATA))
-    ap.add_argument("--surface", default="public",
-                    help="outbound surface (affects strictness); default public")
-    ap.add_argument("--source", choices=["gretelai", "ai4privacy"], default="gretelai",
-                    help="public PII source for standard_pii positives. Default gretelai "
-                         "(Apache-2.0, preferred). ai4privacy is an eval-only reference "
-                         "(its license bars training/derivative use).")
-    ap.add_argument("--hf-limit", type=int, default=400,
-                    help="max English public rows to sample (deterministic prefix)")
-    ap.add_argument("--no-hf", action="store_true",
-                    help="skip the public dataset; use the curated corpus only")
+    ap.add_argument(
+        "--surface", default="public", help="outbound surface (affects strictness); default public"
+    )
+    ap.add_argument(
+        "--source",
+        choices=["gretelai", "ai4privacy"],
+        default="gretelai",
+        help="public PII source for standard_pii positives. Default gretelai "
+        "(Apache-2.0, preferred). ai4privacy is an eval-only reference "
+        "(its license bars training/derivative use).",
+    )
+    ap.add_argument(
+        "--hf-limit",
+        type=int,
+        default=400,
+        help="max English public rows to sample (deterministic prefix)",
+    )
+    ap.add_argument(
+        "--no-hf", action="store_true", help="skip the public dataset; use the curated corpus only"
+    )
     ap.add_argument("--out", default=str(OUT_DIR / "outbound_privacy_v1.json"))
-    ap.add_argument("--repeat", type=int, default=1,
-                    help="score the corpus N times and report the median of the per-run "
-                         "latency statistics (detection is deterministic and unaffected)")
+    ap.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="score the corpus N times and report the median of the per-run "
+        "latency statistics (detection is deterministic and unaffected)",
+    )
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
     if args.repeat < 1:
@@ -324,12 +359,17 @@ def main():
         if hf_rows:
             std, corpus_source = hf_rows, public_label
         else:
-            std, corpus_source = curated_std, f"curated fallback (public set unavailable: {hf_reason})"
+            std, corpus_source = (
+                curated_std,
+                f"curated fallback (public set unavailable: {hf_reason})",
+            )
 
     records = std + native + benign
-    print(f"[outbound-privacy] {len(records)} records | "
-          f"standard_pii={len(std)} native={len(native)} benign={len(benign)} "
-          f"| source={corpus_source} | surface={args.surface}")
+    print(
+        f"[outbound-privacy] {len(records)} records | "
+        f"standard_pii={len(std)} native={len(native)} benign={len(benign)} "
+        f"| source={corpus_source} | surface={args.surface}"
+    )
 
     # score everything; with --repeat the corpus is scored again for the timing only (the
     # fast path is deterministic, so every pass produces the same findings)
@@ -362,7 +402,8 @@ def main():
         if sub:
             caught = sum(1 for _, r in sub if flagged(r))
             detection_by_split[split] = {
-                "n": len(sub), "flagged": caught,
+                "n": len(sub),
+                "flagged": caught,
                 "recall": round(caught / len(sub), 4),
             }
 
@@ -381,9 +422,9 @@ def main():
     #            fraction flagged.
     # redaction: among all spans of category C, fraction whose value was removed
     #            from `redacted` (SAFE -> nothing removed).
-    det_msgs = defaultdict(lambda: [0, 0])       # cat -> [flagged, total]
-    red_spans = defaultdict(lambda: [0, 0])      # cat -> [removed, total]
-    in_scope_flags = [0, 0]                      # [flagged, total] messages w/ in-scope span
+    det_msgs = defaultdict(lambda: [0, 0])  # cat -> [flagged, total]
+    red_spans = defaultdict(lambda: [0, 0])  # cat -> [removed, total]
+    in_scope_flags = [0, 0]  # [flagged, total] messages w/ in-scope span
     for rec, r in pos:
         cats_in_msg = {sp["category"] for sp in rec["spans"]}
         is_flag = flagged(r)
@@ -425,8 +466,9 @@ def main():
         if r["redacted"] is not None and r["redacted"] != rec["text"]:
             benign_changed += 1
             if len(benign_examples) < 5:
-                benign_examples.append({"text": rec["text"], "redacted": r["redacted"],
-                                        "findings": r["findings"]})
+                benign_examples.append(
+                    {"text": rec["text"], "redacted": r["redacted"], "findings": r["findings"]}
+                )
 
     over_redaction = {
         "n_benign": len(neg),
@@ -453,7 +495,9 @@ def main():
         "detection_in_scope_only": {
             "n": in_scope_flags[1],
             "flagged": in_scope_flags[0],
-            "recall": round(in_scope_flags[0] / in_scope_flags[1], 4) if in_scope_flags[1] else None,
+            "recall": round(in_scope_flags[0] / in_scope_flags[1], 4)
+            if in_scope_flags[1]
+            else None,
             "note": "messages containing >=1 span jataayu is designed to catch",
         },
         "operating_points_by_risk_score": operating_points,
@@ -477,23 +521,31 @@ def main():
 
     # ---- console summary --------------------------------------------------
     d = detection_status
-    print(f"\nDetection (status WARN/BLOCK): "
-          f"P={d['precision']:.3f} R={d['recall']:.3f} FPR={d['fpr']:.3f} F1={d['f1']:.3f} "
-          f"(tp={d['tp']} fp={d['fp']} tn={d['tn']} fn={d['fn']})")
+    print(
+        f"\nDetection (status WARN/BLOCK): "
+        f"P={d['precision']:.3f} R={d['recall']:.3f} FPR={d['fpr']:.3f} F1={d['f1']:.3f} "
+        f"(tp={d['tp']} fp={d['fp']} tn={d['tn']} fn={d['fn']})"
+    )
     isc = result["detection_in_scope_only"]
     print(f"Detection (in-scope PII only): R={isc['recall']} over n={isc['n']}")
     ov = over_redaction
-    print(f"Benign: pass_rate={ov['benign_pass_rate']} false_block={ov['benign_false_block_rate']} "
-          f"over_redaction={ov['over_redaction_rate']}")
+    print(
+        f"Benign: pass_rate={ov['benign_pass_rate']} false_block={ov['benign_false_block_rate']} "
+        f"over_redaction={ov['over_redaction_rate']}"
+    )
     print(f"\n{'category':18} {'scope':>6} {'det-R':>7} {'red-R':>7} {'msgs':>5} {'spans':>6}")
-    for cat, m in sorted(per_category.items(), key=lambda kv: (not kv[1]['in_scope'], kv[0])):
+    for cat, m in sorted(per_category.items(), key=lambda kv: (not kv[1]["in_scope"], kv[0])):
         dr = "-" if m["detection_recall"] is None else f"{m['detection_recall']:.3f}"
         rr = "-" if m["redaction_recall"] is None else f"{m['redaction_recall']:.3f}"
-        print(f"{cat:18} {('in' if m['in_scope'] else 'OUT'):>6} {dr:>7} {rr:>7} "
-              f"{m['msgs_with_category']:>5} {m['spans']:>6}")
+        print(
+            f"{cat:18} {('in' if m['in_scope'] else 'OUT'):>6} {dr:>7} {rr:>7} "
+            f"{m['msgs_with_category']:>5} {m['spans']:>6}"
+        )
     over = f" (median of {args.repeat} runs)" if args.repeat > 1 else ""
-    print(f"\nlatency: mean {result['latency_ms']['mean']}ms  "
-          f"p99 {result['latency_ms']['p99']}ms{over}")
+    print(
+        f"\nlatency: mean {result['latency_ms']['mean']}ms  "
+        f"p99 {result['latency_ms']['p99']}ms{over}"
+    )
     print(f"wrote {args.out}")
 
     if args.json:

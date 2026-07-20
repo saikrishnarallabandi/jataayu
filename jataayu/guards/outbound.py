@@ -28,6 +28,7 @@ Example:
         raise ValueError("Draft blocked — contains sensitive info")
     safe_text = result.output_text  # may be sanitized
 """
+
 from __future__ import annotations
 
 import math
@@ -42,6 +43,7 @@ from jataayu.core.threat import ThreatLevel, ThreatResult, ThreatType
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class PrivacyConfig:
@@ -64,6 +66,7 @@ class PrivacyConfig:
         llm_threshold: Risk score above which to invoke LLM rewrite. Default 0.3.
         block_threshold: Risk score above which to block entirely. Default 0.9.
     """
+
     # Names/terms that should never appear in output
     protected_names: list[str] = field(default_factory=list)
 
@@ -75,13 +78,15 @@ class PrivacyConfig:
     gtm_codenames: list[str] = field(default_factory=list)
 
     # Categories to always check for
-    check_categories: list[str] = field(default_factory=lambda: [
-        "minors_info",
-        "health",
-        "financial",
-        "home_address",
-        "relationships",
-    ])
+    check_categories: list[str] = field(
+        default_factory=lambda: [
+            "minors_info",
+            "health",
+            "financial",
+            "home_address",
+            "relationships",
+        ]
+    )
 
     # Whether to check for credential leaks (API keys, private keys, etc.)
     check_credentials: bool = True
@@ -123,115 +128,126 @@ _PII_PATTERNS: list[tuple[str, ThreatType, float, str, list[str]]] = [
     # Home address
     (
         r"\b\d{1,5}\s+[A-Z][a-z]+\s+(Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|Blvd|Way|Court|Ct|Place|Pl)\b",
-        ThreatType.PRIVACY_VIOLATION, 0.85,
+        ThreatType.PRIVACY_VIOLATION,
+        0.85,
         "Home street address pattern",
         ["home_address"],
     ),
     (
         r"\b(apartment|apt|unit|suite|ste)\.?\s+\d+\b",
-        ThreatType.PRIVACY_VIOLATION, 0.70,
+        ThreatType.PRIVACY_VIOLATION,
+        0.70,
         "Apartment/unit number",
         ["home_address"],
     ),
     (
         r"\b\d{5}(-\d{4})?\b",  # US ZIP
-        ThreatType.PII_LEAKAGE, 0.35,
+        ThreatType.PII_LEAKAGE,
+        0.35,
         "US ZIP code (possible address component)",
         ["home_address"],
     ),
-
     # Financial details
     (
         r"\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b",
-        ThreatType.PRIVACY_VIOLATION, 0.95,
+        ThreatType.PRIVACY_VIOLATION,
+        0.95,
         "Credit/debit card number pattern",
         ["financial"],
     ),
     (
         r"\b(ssn|social\s+security(\s+number)?)\s*[:=]?\s*\d{3}[-\s]?\d{2}[-\s]?\d{4}\b",
-        ThreatType.PRIVACY_VIOLATION, 0.98,
+        ThreatType.PRIVACY_VIOLATION,
+        0.98,
         "Social Security Number",
         ["financial"],
     ),
     (
         r"\b(salary|income|net\s+worth|annual\s+pay|earns?|makes?)\s+\$[\d,]+",
-        ThreatType.PRIVACY_VIOLATION, 0.75,
+        ThreatType.PRIVACY_VIOLATION,
+        0.75,
         "Salary / personal income disclosure",
         ["financial"],
     ),
     (
         r"\b(bank\s+account|routing\s+number|account\s+number)\s*[:=]?\s*[\d\-]+",
-        ThreatType.PRIVACY_VIOLATION, 0.90,
+        ThreatType.PRIVACY_VIOLATION,
+        0.90,
         "Bank account details",
         ["financial"],
     ),
     (
         r"\$([\d,]+)\s*(debt|loan|mortgage|owe|owed|balance)",
-        ThreatType.PRIVACY_VIOLATION, 0.70,
+        ThreatType.PRIVACY_VIOLATION,
+        0.70,
         "Personal debt/financial liability",
         ["financial"],
     ),
-
     # Health information
     (
         r"\b(diagnosed|diagnosis|condition|disorder|syndrome|disease|illness|suffers?\s+from|treatment|prescription|medication|therapy|therapist|counseling)\b",
-        ThreatType.PRIVACY_VIOLATION, 0.65,
+        ThreatType.PRIVACY_VIOLATION,
+        0.65,
         "Health/medical information",
         ["health"],
     ),
     (
         r"\b(hospital|clinic|doctor|physician|specialist|psychiatrist|psychologist)\s+.{0,30}(visit|appointment|referred|admitted)\b",
-        ThreatType.PRIVACY_VIOLATION, 0.72,
+        ThreatType.PRIVACY_VIOLATION,
+        0.72,
         "Medical appointment / visit disclosure",
         ["health"],
     ),
-
     # Minors' information
     (
         r"\b(my\s+)?(son|daughter|child|kid|baby|toddler|infant)\s+.{0,100}(school|grade|class|teacher|daycare|kindergarten|elementary|preschool|kindergarten)\b",
-        ThreatType.PRIVACY_VIOLATION, 0.80,
+        ThreatType.PRIVACY_VIOLATION,
+        0.80,
         "Child's school/education information",
         ["minors_info"],
     ),
     (
         r"\b(my\s+)?(son|daughter|child|kid)\s+(is\s+)?\d+\s+(years?\s+old|months?\s+old)\b",
-        ThreatType.PRIVACY_VIOLATION, 0.75,
+        ThreatType.PRIVACY_VIOLATION,
+        0.75,
         "Child's age disclosure",
         ["minors_info"],
     ),
     (
         r"\b(my\s+)?(son|daughter|child|kid)\s+.{0,30}(medical|health|therapy|diagnosis|sick|hospital)\b",
-        ThreatType.PRIVACY_VIOLATION, 0.85,
+        ThreatType.PRIVACY_VIOLATION,
+        0.85,
         "Child's health information",
         ["minors_info"],
     ),
-
     # Relationship details
     (
         r"\b(my\s+)?(wife|husband|spouse|partner|girlfriend|boyfriend)\s+.{0,50}(problem|issue|fight|argument|divorce|separated|cheating)\b",
-        ThreatType.PRIVACY_VIOLATION, 0.80,
+        ThreatType.PRIVACY_VIOLATION,
+        0.80,
         "Sensitive relationship information",
         ["relationships"],
     ),
     (
         r"\b(my\s+)?(mother|father|mom|dad|parent|sibling|sister|brother)\s+.{0,50}(health|sick|hospital|diagnosed|passed|died|death)\b",
-        ThreatType.PRIVACY_VIOLATION, 0.82,
+        ThreatType.PRIVACY_VIOLATION,
+        0.82,
         "Family member's health/death information",
         ["relationships"],
     ),
-
     # Phone numbers
     (
         r"\b(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b",
-        ThreatType.PII_LEAKAGE, 0.60,
+        ThreatType.PII_LEAKAGE,
+        0.60,
         "Phone number",
         ["relationships", "home_address"],
     ),
-
     # Email addresses (moderate risk — context-dependent)
     (
         r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b",
-        ThreatType.PII_LEAKAGE, 0.45,
+        ThreatType.PII_LEAKAGE,
+        0.45,
         "Email address",
         ["relationships"],
     ),
@@ -253,55 +269,63 @@ _CREDENTIAL_PATTERNS: list[tuple[str, ThreatType, float, str, str]] = [
     # CRED_001: OpenAI API key
     (
         r"\bsk-[A-Za-z0-9]{20,}\b",
-        ThreatType.CREDENTIAL_LEAK, 0.98,
+        ThreatType.CREDENTIAL_LEAK,
+        0.98,
         "OpenAI API key (sk-...)",
         "CRED_001",
     ),
     # CRED_013: Anthropic API key
     (
         r"\bsk-ant-[A-Za-z0-9\-_]{20,}\b",
-        ThreatType.CREDENTIAL_LEAK, 0.98,
+        ThreatType.CREDENTIAL_LEAK,
+        0.98,
         "Anthropic API key (sk-ant-...)",
         "CRED_013",
     ),
     # CRED_002: AWS access key
     (
         r"\bAKIA[0-9A-Z]{16}\b",
-        ThreatType.CREDENTIAL_LEAK, 0.98,
+        ThreatType.CREDENTIAL_LEAK,
+        0.98,
         "AWS access key ID (AKIA...)",
         "CRED_002",
     ),
     # AWS secret access key pattern
     (
         r"\b[A-Za-z0-9/+]{40}\b(?=.*aws|.*secret)",
-        ThreatType.CREDENTIAL_LEAK, 0.85,
+        ThreatType.CREDENTIAL_LEAK,
+        0.85,
         "Possible AWS secret access key (40-char base64 near 'aws'/'secret')",
         "CRED_002b",
     ),
     # CRED_003: GitHub personal access token (classic ghp_ and fine-grained github_pat_)
     (
         r"\b(ghp|gho|ghs|ghr|github_pat)_[A-Za-z0-9_]{20,}\b",
-        ThreatType.CREDENTIAL_LEAK, 0.98,
+        ThreatType.CREDENTIAL_LEAK,
+        0.98,
         "GitHub personal access token (ghp_/gho_/ghs_/github_pat_...)",
         "CRED_003",
     ),
     # CRED_009: GCP service account key (JSON format)
     (
         r'"private_key"\s*:\s*"-----BEGIN (RSA |EC )?PRIVATE KEY-----',
-        ThreatType.CREDENTIAL_LEAK, 0.99,
+        ThreatType.CREDENTIAL_LEAK,
+        0.99,
         "GCP service account private key in JSON",
         "CRED_009",
     ),
     (
         r'"client_email"\s*:\s*"[^"]+@[^"]+\.iam\.gserviceaccount\.com"',
-        ThreatType.CREDENTIAL_LEAK, 0.90,
+        ThreatType.CREDENTIAL_LEAK,
+        0.90,
         "GCP service account email in JSON",
         "CRED_009b",
     ),
     # CRED_005: Private key blocks (RSA, EC, OpenSSH, PKCS8)
     (
         r"-----BEGIN\s+(RSA|EC|DSA|OPENSSH|PRIVATE|ENCRYPTED)\s+PRIVATE KEY-----",
-        ThreatType.CREDENTIAL_LEAK, 0.99,
+        ThreatType.CREDENTIAL_LEAK,
+        0.99,
         "Private key block (RSA/EC/DSA/OpenSSH)",
         "CRED_005",
     ),
@@ -309,34 +333,39 @@ _CREDENTIAL_PATTERNS: list[tuple[str, ThreatType, float, str, str]] = [
     (
         r"\b(postgresql|postgres|mysql|mongodb|redis|mongodb\+srv|mssql|jdbc:(postgresql|mysql|sqlserver))"
         r"://[A-Za-z0-9._\-]+:[^@\s]{3,}@[A-Za-z0-9._\-]+",
-        ThreatType.CREDENTIAL_LEAK, 0.97,
+        ThreatType.CREDENTIAL_LEAK,
+        0.97,
         "Database connection string with embedded credentials",
         "CRED_006",
     ),
     # CRED_007: Hardcoded passwords in common patterns
     (
         r"(password|passwd|pwd|pass)\s*[:=]\s*['\"]?[A-Za-z0-9!@#$%^&*()_+\-=]{8,}['\"]?",
-        ThreatType.CREDENTIAL_LEAK, 0.82,
+        ThreatType.CREDENTIAL_LEAK,
+        0.82,
         "Hardcoded password pattern",
         "CRED_007",
     ),
     # CRED_008: Slack and Discord webhooks
     (
         r"https://hooks\.slack\.com/services/[A-Z0-9]+/[A-Z0-9]+/[A-Za-z0-9]+",
-        ThreatType.CREDENTIAL_LEAK, 0.95,
+        ThreatType.CREDENTIAL_LEAK,
+        0.95,
         "Slack webhook URL",
         "CRED_008a",
     ),
     (
         r"https://discord(?:app)?\.com/api/webhooks/\d+/[A-Za-z0-9_\-]+",
-        ThreatType.CREDENTIAL_LEAK, 0.95,
+        ThreatType.CREDENTIAL_LEAK,
+        0.95,
         "Discord webhook URL",
         "CRED_008b",
     ),
     # CRED_010: JWT tokens (three base64 segments separated by dots)
     (
         r"\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\b",
-        ThreatType.CREDENTIAL_LEAK, 0.88,
+        ThreatType.CREDENTIAL_LEAK,
+        0.88,
         "JWT token (eyJ... format)",
         "CRED_010",
     ),
@@ -344,55 +373,63 @@ _CREDENTIAL_PATTERNS: list[tuple[str, ThreatType, float, str, str]] = [
     (
         r"export\s+(AWS_SECRET|AWS_ACCESS|API_KEY|SECRET_KEY|TOKEN|PASSWORD|PASSWD"
         r"|PRIVATE_KEY|AUTH_TOKEN|ACCESS_TOKEN)\w*\s*=\s*\S+",
-        ThreatType.CREDENTIAL_LEAK, 0.90,
+        ThreatType.CREDENTIAL_LEAK,
+        0.90,
         "Credential in shell export statement",
         "CRED_011",
     ),
     # CRED_012: Stripe API key
     (
         r"\b(sk|pk)_(test|live)_[A-Za-z0-9]{20,}\b",
-        ThreatType.CREDENTIAL_LEAK, 0.98,
+        ThreatType.CREDENTIAL_LEAK,
+        0.98,
         "Stripe API key (sk_test_/pk_live_/...)",
         "CRED_012",
     ),
     # CRED_014: SendGrid and Twilio API keys
     (
         r"\bSG\.[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}\b",
-        ThreatType.CREDENTIAL_LEAK, 0.97,
+        ThreatType.CREDENTIAL_LEAK,
+        0.97,
         "SendGrid API key (SG.xxx.xxx)",
         "CRED_014a",
     ),
     (
         r"\bAC[0-9a-f]{32}\b",
-        ThreatType.CREDENTIAL_LEAK, 0.88,
+        ThreatType.CREDENTIAL_LEAK,
+        0.88,
         "Twilio Account SID (ACxxx...)",
         "CRED_014b",
     ),
     # CRED_004: Generic API key patterns
     (
         r"(api[_\-]?key|apikey|api[_\-]?token|auth[_\-]?token|access[_\-]?token)\s*[:=]\s*['\"]?[A-Za-z0-9\-_]{16,}['\"]?",
-        ThreatType.CREDENTIAL_LEAK, 0.80,
+        ThreatType.CREDENTIAL_LEAK,
+        0.80,
         "Generic API key or token assignment",
         "CRED_004",
     ),
     # CRED_016: SSH private key in command
     (
         r"(ssh|scp|sftp)\s+.{0,100}-i\s+~?/[^\s]{5,}(id_rsa|id_ed25519|\.pem|\.key)",
-        ThreatType.CREDENTIAL_LEAK, 0.82,
+        ThreatType.CREDENTIAL_LEAK,
+        0.82,
         "SSH private key path in command",
         "CRED_016",
     ),
     # Bearer token in HTTP header
     (
         r"(Authorization|Bearer)\s*:\s*Bearer\s+[A-Za-z0-9\-._~+/]{20,}",
-        ThreatType.CREDENTIAL_LEAK, 0.88,
+        ThreatType.CREDENTIAL_LEAK,
+        0.88,
         "Bearer token in Authorization header",
         "CRED_bearer",
     ),
     # HMAC secrets
     (
         r"(hmac[_\-]?(secret|key)|secret[_\-]?key)\s*[:=]\s*['\"]?[A-Za-z0-9+/=]{20,}['\"]?",
-        ThreatType.CREDENTIAL_LEAK, 0.85,
+        ThreatType.CREDENTIAL_LEAK,
+        0.85,
         "HMAC secret or signing key",
         "CRED_hmac",
     ),
@@ -414,12 +451,11 @@ def _shannon_entropy(s: str) -> float:
     if not s:
         return 0.0
     from collections import Counter
+
     counts = Counter(s)
     length = len(s)
-    return -sum(
-        (c / length) * math.log2(c / length)
-        for c in counts.values()
-    )
+    return -sum((c / length) * math.log2(c / length) for c in counts.values())
+
 
 # ---------------------------------------------------------------------------
 # Internal / operational context denylist (ported from privacy_guard.py, 2026-07-10, so Jataayu
@@ -428,26 +464,48 @@ def _shannon_entropy(s: str) -> float:
 # applied surface-INDEPENDENTLY (a repo path is a leak on github as much as on a group chat).
 # Format: (pattern, ThreatType, base_risk_score, description)
 _INTERNAL_CONTEXT_PATTERNS: list[tuple[str, ThreatType, float, str]] = [
-    (r"\bqueue item\s*#?\d+\b", ThreatType.PRIVACY_VIOLATION, 0.95, "Internal queue-item bookkeeping"),
+    (
+        r"\bqueue item\s*#?\d+\b",
+        ThreatType.PRIVACY_VIOLATION,
+        0.95,
+        "Internal queue-item bookkeeping",
+    ),
     (r"\bwake timestamp\b", ThreatType.PRIVACY_VIOLATION, 0.95, "Agent wake-timestamp scaffolding"),
-    (r"\bnext action for\b.*\bwake\b", ThreatType.PRIVACY_VIOLATION, 0.95, "Agent next-action scaffolding"),
+    (
+        r"\bnext action for\b.*\bwake\b",
+        ThreatType.PRIVACY_VIOLATION,
+        0.95,
+        "Agent next-action scaffolding",
+    ),
     (r"\bdeliverables_today\b", ThreatType.PRIVACY_VIOLATION, 0.95, "Agent bookkeeping token"),
     (r"\bHEARTBEAT_OK\b", ThreatType.PRIVACY_VIOLATION, 0.95, "Heartbeat bookkeeping token"),
-    (r"\bdocs/[\w./-]+\.(?:md|py|json)\b", ThreatType.PRIVACY_VIOLATION, 0.95, "Internal repo doc path"),
+    (
+        r"\bdocs/[\w./-]+\.(?:md|py|json)\b",
+        ThreatType.PRIVACY_VIOLATION,
+        0.95,
+        "Internal repo doc path",
+    ),
     (r"/home2?/[\w./-]+", ThreatType.PRIVACY_VIOLATION, 0.95, "Absolute local filesystem path"),
 ]
 _COMPILED_INTERNAL = [
     (re.compile(p, re.IGNORECASE), tt, s, d) for (p, tt, s, d) in _INTERNAL_CONTEXT_PATTERNS
 ]
 
+
 # Codenames are NOT shipped. They are the deployer's own confidential vocabulary, so baking a list
 # into the package would publish exactly what this rule exists to protect. Supply them via
 # PrivacyConfig(internal_codenames=..., gtm_codenames=...) or the `internal_codenames` /
 # `gtm_codenames` keys on an agent in a policy YAML.
-def _compile_codenames(names: list[str], desc: str) -> list[tuple[re.Pattern, ThreatType, float, str]]:
+def _compile_codenames(
+    names: list[str], desc: str
+) -> list[tuple[re.Pattern, ThreatType, float, str]]:
     return [
-        (re.compile(r"\b" + re.escape(name) + r"\b", re.IGNORECASE),
-         ThreatType.PRIVACY_VIOLATION, 0.95, f"{desc}: {name}")
+        (
+            re.compile(r"\b" + re.escape(name) + r"\b", re.IGNORECASE),
+            ThreatType.PRIVACY_VIOLATION,
+            0.95,
+            f"{desc}: {name}",
+        )
         for name in names
         if name and name.strip()
     ]
@@ -636,6 +694,7 @@ class OutboundGuard(JataayuEngine):
         self._egress_guard = None
         if cfg.check_egress:
             from jataayu.guards.egress import EgressChannelGuard, EgressConfig
+
             self._egress_guard = EgressChannelGuard(
                 EgressConfig(allowed_domains=list(cfg.egress_allowed_domains))
             )
@@ -856,9 +915,7 @@ class OutboundGuard(JataayuEngine):
 
         # Check credential patterns (CRED_001-017)
         if self.config.check_credentials:
-            cred_matched, cred_types, cred_score = self._check_credentials(
-                text, multiplier
-            )
+            cred_matched, cred_types, cred_score = self._check_credentials(text, multiplier)
             matched.extend(cred_matched)
             threat_types.update(cred_types)
             max_score = max(max_score, cred_score)
@@ -959,7 +1016,10 @@ class OutboundGuard(JataayuEngine):
         """LLM-backed privacy evaluation (check only, no rewrite)."""
         import json as _json
 
-        check_prompt = _LLM_SYSTEM_PROMPT + "\n\nFor CHECK mode: respond with JSON only:\n{\"threat_level\": \"clean|low|medium|high|blocked\", \"risk_score\": 0.0-1.0, \"explanation\": \"brief\"}"
+        check_prompt = (
+            _LLM_SYSTEM_PROMPT
+            + '\n\nFor CHECK mode: respond with JSON only:\n{"threat_level": "clean|low|medium|high|blocked", "risk_score": 0.0-1.0, "explanation": "brief"}'
+        )
 
         user_msg = (
             f"Surface: {surface}\n"
@@ -981,8 +1041,10 @@ class OutboundGuard(JataayuEngine):
             return fast_result
 
         level_map = {
-            "clean": ThreatLevel.CLEAN, "low": ThreatLevel.LOW,
-            "medium": ThreatLevel.MEDIUM, "high": ThreatLevel.HIGH,
+            "clean": ThreatLevel.CLEAN,
+            "low": ThreatLevel.LOW,
+            "medium": ThreatLevel.MEDIUM,
+            "high": ThreatLevel.HIGH,
             "blocked": ThreatLevel.BLOCKED,
         }
         threat_level = level_map.get(data.get("threat_level", "medium"), ThreatLevel.MEDIUM)

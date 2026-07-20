@@ -1,6 +1,7 @@
 """
 Jataayu threat model — ThreatResult, ThreatLevel, ThreatType, taint tracking.
 """
+
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
@@ -8,6 +9,7 @@ from typing import Optional
 
 class ThreatLevel(Enum):
     """Severity levels for detected threats."""
+
     CLEAN = "clean"
     LOW = "low"
     MEDIUM = "medium"
@@ -15,8 +17,13 @@ class ThreatLevel(Enum):
     BLOCKED = "blocked"
 
     def __lt__(self, other):
-        order = [ThreatLevel.CLEAN, ThreatLevel.LOW, ThreatLevel.MEDIUM,
-                 ThreatLevel.HIGH, ThreatLevel.BLOCKED]
+        order = [
+            ThreatLevel.CLEAN,
+            ThreatLevel.LOW,
+            ThreatLevel.MEDIUM,
+            ThreatLevel.HIGH,
+            ThreatLevel.BLOCKED,
+        ]
         return order.index(self) < order.index(other)
 
     def __le__(self, other):
@@ -31,6 +38,7 @@ class ThreatLevel(Enum):
 
 class ThreatType(Enum):
     """Types of threats Jataayu can detect."""
+
     PROMPT_INJECTION = "prompt_injection"
     COMMAND_INJECTION = "command_injection"
     SOCIAL_ENGINEERING = "social_engineering"
@@ -47,6 +55,7 @@ class ThreatType(Enum):
 # Taint tracking — for Clinejection flow analysis (Issue #3)
 # ---------------------------------------------------------------------------
 
+
 class TaintSource(Enum):
     """
     Sources from which tainted content can originate.
@@ -56,16 +65,17 @@ class TaintSource(Enum):
     is read by a coding agent (Cline, Claude Code, Cursor), which then executes
     instructions embedded in that content as if they were legitimate tool calls.
     """
-    NONE = "none"                       # Content is not tainted
-    GITHUB_ISSUE = "github_issue"       # GitHub issue body (classic Clinejection)
-    GITHUB_PR = "github_pr"             # PR description or diff
-    GITHUB_COMMENT = "github_comment"   # PR/issue comment
-    WEB_PAGE = "web_page"               # Fetched web content
-    EMAIL = "email"                     # Email body
-    USER_INPUT = "user_input"           # Direct user message (elevated)
-    EXTERNAL_API = "external_api"       # API response from external service
-    FILE_SYSTEM = "file_system"         # File content from disk (untrusted repo)
-    UNKNOWN_EXTERNAL = "unknown"        # Unknown external source
+
+    NONE = "none"  # Content is not tainted
+    GITHUB_ISSUE = "github_issue"  # GitHub issue body (classic Clinejection)
+    GITHUB_PR = "github_pr"  # PR description or diff
+    GITHUB_COMMENT = "github_comment"  # PR/issue comment
+    WEB_PAGE = "web_page"  # Fetched web content
+    EMAIL = "email"  # Email body
+    USER_INPUT = "user_input"  # Direct user message (elevated)
+    EXTERNAL_API = "external_api"  # API response from external service
+    FILE_SYSTEM = "file_system"  # File content from disk (untrusted repo)
+    UNKNOWN_EXTERNAL = "unknown"  # Unknown external source
 
 
 class TaintSink(Enum):
@@ -75,15 +85,16 @@ class TaintSink(Enum):
     These represent operations that have significant impact when fed malicious
     content — the Clinejection kill chain ends at one of these sinks.
     """
+
     NONE = "none"
-    SHELL_EXECUTION = "shell_execution"     # bash, sh, exec()
-    CODE_EVAL = "code_eval"                 # eval(), exec(), Python/JS eval
-    FILE_WRITE = "file_write"               # Writing to filesystem
-    NETWORK_REQUEST = "network_request"     # curl, wget, fetch()
-    TOOL_CALL = "tool_call"                 # MCP tool call parameters
-    AGENT_INSTRUCTION = "agent_instruction" # Fed back as agent instructions
-    LLM_PROMPT = "llm_prompt"              # Injected into another LLM call
-    SECRET_ACCESS = "secret_access"         # Reading env vars, keychain, etc.
+    SHELL_EXECUTION = "shell_execution"  # bash, sh, exec()
+    CODE_EVAL = "code_eval"  # eval(), exec(), Python/JS eval
+    FILE_WRITE = "file_write"  # Writing to filesystem
+    NETWORK_REQUEST = "network_request"  # curl, wget, fetch()
+    TOOL_CALL = "tool_call"  # MCP tool call parameters
+    AGENT_INSTRUCTION = "agent_instruction"  # Fed back as agent instructions
+    LLM_PROMPT = "llm_prompt"  # Injected into another LLM call
+    SECRET_ACCESS = "secret_access"  # Reading env vars, keychain, etc.
 
 
 @dataclass
@@ -102,6 +113,7 @@ class TaintState:
         propagation_path: Ordered list of surfaces/operations the taint flowed through.
         taint_id: Unique identifier for tracking this taint instance.
     """
+
     is_tainted: bool = False
     source: TaintSource = TaintSource.NONE
     sink: TaintSink = TaintSink.NONE
@@ -140,6 +152,7 @@ class TaintState:
 # ThreatResult
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ThreatResult:
     """
@@ -158,6 +171,7 @@ class ThreatResult:
         llm_used: Whether the LLM slow path was invoked.
         taint: Taint tracking state for Clinejection flow analysis.
     """
+
     threat_level: ThreatLevel
     threat_types: list[ThreatType] = field(default_factory=list)
     risk_score: float = 0.0

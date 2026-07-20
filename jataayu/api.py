@@ -28,6 +28,7 @@ Example::
     if result["status"] == "BLOCK":
         safe_text = result["redacted"]
 """
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -264,8 +265,11 @@ def jataayu_vet_skill(
 
     guard = SkillVetGuard(use_llm=use_llm)
     result = guard.vet(
-        skill_path=skill_path, content=content, code=code,
-        tool_defs=tool_defs, name=name,
+        skill_path=skill_path,
+        content=content,
+        code=code,
+        tool_defs=tool_defs,
+        name=name,
     )
     return result.to_dict()
 
@@ -302,6 +306,7 @@ def jataayu_check_skillset(
     policy = None
     if policy_file:
         from jataayu.config.policy import load_policy
+
         policy = load_policy(policy_file)
 
     risk = check_skillset(skills, policy=policy, agent=agent, use_llm=use_llm)
@@ -332,6 +337,7 @@ def _load_agent_policy(policy_file: str, agent: Optional[str]):
     policy file with no named agent is still load-bearing.
     """
     from jataayu.config.policy import load_policy
+
     return load_policy(policy_file).get_agent_policy(agent or "")
 
 
@@ -391,7 +397,10 @@ def jataayu_authorize_action(
     policy = _load_agent_policy(policy_file, agent) if policy_file else None
 
     boundary = EffectBoundary(
-        policy=policy, mode=mode, tool_effects=tool_effects, strict=strict,
+        policy=policy,
+        mode=mode,
+        tool_effects=tool_effects,
+        strict=strict,
     )
     prov = Provenance.UNTRUSTED if untrusted else Provenance.TRUSTED
     values = [Value(str(params), prov)]
@@ -624,9 +633,7 @@ def jataayu_recover_outbound(
         llm_url=llm_url,
         llm_token=llm_token,
     )
-    outcome = OutboundGuard(config).recover(
-        content, surface=surface, max_attempts=max_attempts
-    )
+    outcome = OutboundGuard(config).recover(content, surface=surface, max_attempts=max_attempts)
     return {
         "action": outcome.action,
         "text": outcome.text,
@@ -683,9 +690,7 @@ def jataayu_check_egress(
     """
     from jataayu.guards.egress import EgressChannelGuard, EgressConfig
 
-    guard = EgressChannelGuard(
-        EgressConfig(allowed_domains=list(allowed_domains or []))
-    )
+    guard = EgressChannelGuard(EgressConfig(allowed_domains=list(allowed_domains or [])))
     result = guard.check(content, surface=surface, context_secrets=context_secrets)
     status = _OUTBOUND_STATUS_MAP.get(result.threat_level, "WARN")
 

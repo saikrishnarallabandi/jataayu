@@ -15,11 +15,12 @@ from jataayu.guards.effect_boundary import EffectClass
 # Cross-turn exfiltration chain
 # ---------------------------------------------------------------------------
 
+
 class TestCrossTurnExfil:
     def test_secret_read_then_network_flagged(self):
         t = SessionTrace()
-        t.record("web_fetch", untrusted=True, turn=1)     # untrusted content enters
-        t.record("read_secret", untrusted=True, turn=2)   # secret read
+        t.record("web_fetch", untrusted=True, turn=1)  # untrusted content enters
+        t.record("read_secret", untrusted=True, turn=2)  # secret read
         t.record("http_request", untrusted=True, turn=5)  # egress later
         r = t.audit()
         assert r.risk == AuditRisk.HIGH
@@ -46,6 +47,7 @@ class TestCrossTurnExfil:
 # ---------------------------------------------------------------------------
 # Sleeper memory poisoning
 # ---------------------------------------------------------------------------
+
 
 class TestSleeperMemory:
     def test_flagged_write_then_read_then_shell(self):
@@ -78,6 +80,7 @@ class TestSleeperMemory:
 # Untrusted into critical effect (single-event)
 # ---------------------------------------------------------------------------
 
+
 class TestUntrustedCritical:
     def test_untrusted_shell_flagged(self):
         t = SessionTrace()
@@ -97,6 +100,7 @@ class TestUntrustedCritical:
 # Escalating trajectory
 # ---------------------------------------------------------------------------
 
+
 class TestEscalation:
     def test_monotonic_severity_climb(self):
         t = SessionTrace()
@@ -110,6 +114,7 @@ class TestEscalation:
 # ---------------------------------------------------------------------------
 # Benign trajectories — no false positives
 # ---------------------------------------------------------------------------
+
 
 class TestNoFalsePositives:
     def test_clean_trusted_session(self):
@@ -131,6 +136,7 @@ class TestNoFalsePositives:
 # ---------------------------------------------------------------------------
 # Profiling & serialization
 # ---------------------------------------------------------------------------
+
 
 class TestProfileAndSerialize:
     def test_profile_counts(self):
@@ -166,6 +172,12 @@ class TestProfileAndSerialize:
         assert e.effect_class is EffectClass.SHELL
         assert t.audit().risk == AuditRisk.HIGH
 
-        assert SessionTrace().record(
-            "internal.run_playbook", untrusted=True,
-        ).effect_class is EffectClass.READ
+        assert (
+            SessionTrace()
+            .record(
+                "internal.run_playbook",
+                untrusted=True,
+            )
+            .effect_class
+            is EffectClass.READ
+        )

@@ -5,6 +5,7 @@ per-agent capability-isolation policy.
 Most tests pass skills as dicts with explicit capabilities so they're deterministic
 and offline; a couple exercise path-vetting and the convenience API.
 """
+
 import pytest
 
 from jataayu import jataayu_check_skillset, check_skillset, CompositionRisk
@@ -22,6 +23,7 @@ def skill(name, caps, verdict=None):
 # ---------------------------------------------------------------------------
 # Cross-skill dangerous combinations
 # ---------------------------------------------------------------------------
+
 
 def test_two_safe_skills_compose_to_exfil():
     skills = [
@@ -85,6 +87,7 @@ def test_benign_skillset_is_safe():
 # Individually-flagged skills propagate to the set verdict
 # ---------------------------------------------------------------------------
 
+
 def test_individually_malicious_skill_makes_set_malicious():
     skills = [
         skill("evil", ["exec"], verdict="MALICIOUS"),
@@ -114,6 +117,7 @@ def test_duplicate_names_disambiguated():
 # Capability isolation via policy
 # ---------------------------------------------------------------------------
 
+
 def test_agent_policy_capability_allowlist():
     p = AgentPolicy(name="restricted", allowed_capabilities=["network_read", "fs_read"])
     assert p.is_capability_allowed("network_read") is True
@@ -139,12 +143,14 @@ def test_check_skillset_blocks_forbidden_capability_at_install():
 
 
 def test_check_skillset_with_policy_object_and_agent():
-    policy = PolicyLoader.from_dict({
-        "version": 1,
-        "agents": {
-            "github-bot": {"allowed_capabilities": ["network_read", "fs_read"]},
-        },
-    })
+    policy = PolicyLoader.from_dict(
+        {
+            "version": 1,
+            "agents": {
+                "github-bot": {"allowed_capabilities": ["network_read", "fs_read"]},
+            },
+        }
+    )
     skills = [skill("fetcher", ["network_read"]), skill("shell", ["exec"])]
     risk = check_skillset(skills, policy=policy, agent="github-bot")
     assert risk.verdict == "MALICIOUS"
@@ -152,15 +158,17 @@ def test_check_skillset_with_policy_object_and_agent():
 
 
 def test_policy_loader_parses_capability_lists():
-    policy = PolicyLoader.from_dict({
-        "version": 1,
-        "agents": {
-            "bot": {
-                "allowed_capabilities": ["network_read"],
-                "forbidden_capabilities": ["exec", "reads_secrets"],
+    policy = PolicyLoader.from_dict(
+        {
+            "version": 1,
+            "agents": {
+                "bot": {
+                    "allowed_capabilities": ["network_read"],
+                    "forbidden_capabilities": ["exec", "reads_secrets"],
+                },
             },
-        },
-    })
+        }
+    )
     ap = policy.get_agent_policy("bot")
     assert ap.allowed_capabilities == ["network_read"]
     assert ap.forbidden_capabilities == ["exec", "reads_secrets"]
@@ -170,6 +178,7 @@ def test_policy_loader_parses_capability_lists():
 # ---------------------------------------------------------------------------
 # Path vetting + convenience API + result shape
 # ---------------------------------------------------------------------------
+
 
 def test_check_skillset_vets_paths(tmp_path):
     a = tmp_path / "reader"
@@ -186,13 +195,22 @@ def test_check_skillset_vets_paths(tmp_path):
 
 
 def test_convenience_api_check_skillset():
-    res = jataayu_check_skillset([
-        skill("a", ["reads_secrets"]),
-        skill("b", ["network_write"]),
-    ])
+    res = jataayu_check_skillset(
+        [
+            skill("a", ["reads_secrets"]),
+            skill("b", ["network_write"]),
+        ]
+    )
     assert res["verdict"] == "REVIEW"
-    for key in ("verdict", "skills", "aggregate_capabilities", "risky_combinations",
-                "policy_violations", "individually_flagged", "explanation"):
+    for key in (
+        "verdict",
+        "skills",
+        "aggregate_capabilities",
+        "risky_combinations",
+        "policy_violations",
+        "individually_flagged",
+        "explanation",
+    ):
         assert key in res
 
 

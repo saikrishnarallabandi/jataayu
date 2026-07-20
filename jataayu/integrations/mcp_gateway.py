@@ -36,6 +36,7 @@ Security:
     - Suspicious (non-blocked) requests return a warning header X-Jataayu-Warning
     - Taint tracking can be enabled to track untrusted data flows
 """
+
 from __future__ import annotations
 
 import json
@@ -50,6 +51,7 @@ logger = logging.getLogger("jataayu.mcp_gateway")
 # ---------------------------------------------------------------------------
 # JSON-RPC helpers
 # ---------------------------------------------------------------------------
+
 
 def _jsonrpc_error(id: Any, code: int, message: str, data: Optional[dict] = None) -> dict:
     resp = {
@@ -69,6 +71,7 @@ def _jsonrpc_ok(id: Any, result: Any) -> dict:
 # ---------------------------------------------------------------------------
 # MCP Gateway core
 # ---------------------------------------------------------------------------
+
 
 class JataayuMCPGateway:
     """
@@ -152,10 +155,12 @@ class JataayuMCPGateway:
 
         # Lazy imports — don't require aiohttp/fastapi unless gateway is used
         from jataayu.guards.inbound import InboundGuard
+
         self.guard = InboundGuard(use_llm=use_llm, llm_threshold=llm_threshold)
 
         if enable_taint:
             from jataayu.core.taint import TaintTracker
+
             self.taint_tracker: Optional[Any] = TaintTracker()
         else:
             self.taint_tracker = None
@@ -173,11 +178,21 @@ class JataayuMCPGateway:
 
     # Sink risk scores — used even without taint to assess inherent danger of tools
     _SINK_BASE_SCORES: dict[str, float] = {
-        "bash": 0.60, "shell": 0.60, "exec": 0.60, "execute": 0.60,
-        "run": 0.55, "run_command": 0.60, "execute_command": 0.60,
-        "run_terminal_cmd": 0.60, "terminal": 0.55, "sh": 0.60,
-        "cmd": 0.55, "powershell": 0.60, "subprocess": 0.60,
-        "computer_use_bash": 0.60, "computer_use_shell": 0.60,
+        "bash": 0.60,
+        "shell": 0.60,
+        "exec": 0.60,
+        "execute": 0.60,
+        "run": 0.55,
+        "run_command": 0.60,
+        "execute_command": 0.60,
+        "run_terminal_cmd": 0.60,
+        "terminal": 0.55,
+        "sh": 0.60,
+        "cmd": 0.55,
+        "powershell": 0.60,
+        "subprocess": 0.60,
+        "computer_use_bash": 0.60,
+        "computer_use_shell": 0.60,
     }
 
     def before_tool_call(
@@ -240,12 +255,17 @@ class JataayuMCPGateway:
             logger.warning(
                 "MCP tool call %s: tool=%s risk=%.2f surface=%s patterns=%s",
                 "BLOCKED" if enforced else "WOULD BLOCK (observe mode)",
-                tool_name, effective_score, guard_surface, result.matched_patterns[:3],
+                tool_name,
+                effective_score,
+                guard_surface,
+                result.matched_patterns[:3],
             )
         elif not result.is_safe:
             logger.warning(
                 "MCP tool call WARNING: tool=%s risk=%.2f explanation=%s",
-                tool_name, effective_score, result.explanation,
+                tool_name,
+                effective_score,
+                result.explanation,
             )
 
         self._emit(tool_name, "call", effective_score, enforced, blocked, result.explanation)
@@ -298,35 +318,54 @@ class JataayuMCPGateway:
             logger.warning(
                 "MCP tool RETURN %s: tool=%s risk=%.2f surface=%s patterns=%s",
                 "BLOCKED" if enforced else "WOULD BLOCK (observe mode)",
-                tool_name, guard_result.risk_score, self.return_surface,
+                tool_name,
+                guard_result.risk_score,
+                self.return_surface,
                 guard_result.matched_patterns[:3],
             )
         elif not guard_result.is_safe:
             logger.warning(
                 "MCP tool RETURN WARNING: tool=%s risk=%.2f explanation=%s",
-                tool_name, guard_result.risk_score, guard_result.explanation,
+                tool_name,
+                guard_result.risk_score,
+                guard_result.explanation,
             )
 
-        self._emit(tool_name, "return", guard_result.risk_score, enforced, blocked,
-                   guard_result.explanation)
+        self._emit(
+            tool_name,
+            "return",
+            guard_result.risk_score,
+            enforced,
+            blocked,
+            guard_result.explanation,
+        )
         return not enforced, context
 
-    def _emit(self, tool_name: str, direction: str, risk: float,
-              enforced: bool, would_block: bool, reason: str) -> None:
+    def _emit(
+        self,
+        tool_name: str,
+        direction: str,
+        risk: float,
+        enforced: bool,
+        would_block: bool,
+        reason: str,
+    ) -> None:
         """Report one gateway decision to the sink, alongside effect-boundary decisions."""
         from jataayu.core.audit import emit_decision
 
-        emit_decision({
-            "rail_type": "inbound",
-            "tool_name": tool_name,
-            "direction": direction,
-            "risk_score": risk,
-            "decision": "deny" if enforced else "allow",
-            "would_decision": "deny" if would_block else "allow",
-            "tripwire_triggered": would_block,
-            "mode": self.mode,
-            "reason": reason,
-        })
+        emit_decision(
+            {
+                "rail_type": "inbound",
+                "tool_name": tool_name,
+                "direction": direction,
+                "risk_score": risk,
+                "decision": "deny" if enforced else "allow",
+                "would_decision": "deny" if would_block else "allow",
+                "tripwire_triggered": would_block,
+                "mode": self.mode,
+                "reason": reason,
+            }
+        )
 
     def inspect_tool_response(
         self,
@@ -365,14 +404,16 @@ class JataayuMCPGateway:
         # Withhold the malicious payload: replace the result content with a notice.
         risk = ctx.get("risk_score", 0.0)
         notice = {
-            "content": [{
-                "type": "text",
-                "text": (
-                    f"[Jataayu blocked this tool return: it carried a suspected "
-                    f"injection payload (risk={risk:.2f}). The original content was "
-                    f"withheld from the agent.]"
-                ),
-            }],
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        f"[Jataayu blocked this tool return: it carried a suspected "
+                        f"injection payload (risk={risk:.2f}). The original content was "
+                        f"withheld from the agent.]"
+                    ),
+                }
+            ],
             "isError": True,
             "_jataayu_blocked": True,
         }
@@ -454,8 +495,7 @@ class JataayuMCPGateway:
             import aiohttp
         except ImportError:
             raise RuntimeError(
-                "aiohttp is required for async proxy mode. "
-                "Install with: pip install aiohttp"
+                "aiohttp is required for async proxy mode. Install with: pip install aiohttp"
             )
 
         # Parse and check the request body
@@ -473,7 +513,8 @@ class JataayuMCPGateway:
         # Forward to upstream
         upstream_path = urljoin(self.upstream_url + "/", path.lstrip("/"))
         forward_hdrs = {
-            k: v for k, v in headers.items()
+            k: v
+            for k, v in headers.items()
             if k in self.forward_headers or k.lower().startswith("content-")
         }
 
@@ -494,20 +535,14 @@ class JataayuMCPGateway:
 
                 # Add security context header when there are warnings
                 if not ctx.get("blocked") and ctx.get("risk_score", 0) > 0.3:
-                    resp_headers["X-Jataayu-Warning"] = (
-                        f"risk={ctx['risk_score']:.2f}"
-                    )
+                    resp_headers["X-Jataayu-Warning"] = f"risk={ctx['risk_score']:.2f}"
 
                 # after_tool_call: scan the tool RETURN before it reaches the agent.
                 # Only for tool-call responses (ctx carries tool_name) and when the
                 # upstream returned an inspectable JSON body (not an SSE stream).
                 tool_name = ctx.get("tool_name")
                 content_type = resp_headers.get("Content-Type", "")
-                if (
-                    self.inspect_returns
-                    and tool_name
-                    and "text/event-stream" not in content_type
-                ):
+                if self.inspect_returns and tool_name and "text/event-stream" not in content_type:
                     resp_body, ret_ctx = self.inspect_tool_response(tool_name, resp_body)
                     if ret_ctx.get("blocked"):
                         resp_headers["X-Jataayu-Return-Blocked"] = "true"
@@ -537,8 +572,7 @@ class JataayuMCPGateway:
             from aiohttp import web
         except ImportError:
             raise RuntimeError(
-                "aiohttp is required for the MCP Gateway server. "
-                "Install with: pip install aiohttp"
+                "aiohttp is required for the MCP Gateway server. Install with: pip install aiohttp"
             )
 
         gateway = self
@@ -597,7 +631,9 @@ class JataayuMCPGateway:
 
         logger.info(
             "Jataayu MCP Gateway listening on http://%s:%d → %s",
-            self.bind_host, port, self.upstream_url,
+            self.bind_host,
+            port,
+            self.upstream_url,
         )
         return runner
 
@@ -644,6 +680,7 @@ class JataayuMCPGateway:
     def start(self) -> None:
         """Start the gateway (blocking, runs asyncio event loop)."""
         import asyncio
+
         try:
             asyncio.run(self.serve_forever())
         except KeyboardInterrupt:
@@ -657,14 +694,10 @@ class JataayuMCPGateway:
         if isinstance(params, str):
             return params
         if isinstance(params, (list, tuple)):
-            return " ".join(
-                JataayuMCPGateway._params_to_text(p, depth + 1)
-                for p in params
-            )
+            return " ".join(JataayuMCPGateway._params_to_text(p, depth + 1) for p in params)
         if isinstance(params, dict):
             return " ".join(
-                JataayuMCPGateway._params_to_text(v, depth + 1)
-                for v in params.values()
+                JataayuMCPGateway._params_to_text(v, depth + 1) for v in params.values()
             )
         return str(params)
 
@@ -691,6 +724,7 @@ class JataayuMCPGateway:
 # CLI entrypoint
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     import argparse
 
@@ -701,12 +735,19 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8765, help="Port to listen on (default: 8765)")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
     parser.add_argument("--use-llm", action="store_true", help="Enable LLM slow path")
-    parser.add_argument("--block-threshold", type=float, default=0.7,
-                        help="Risk score threshold to block (default: 0.7)")
+    parser.add_argument(
+        "--block-threshold",
+        type=float,
+        default=0.7,
+        help="Risk score threshold to block (default: 0.7)",
+    )
     parser.add_argument("--surface", default="mcp-tool-call", help="Surface name for guard")
     parser.add_argument("--enable-taint", action="store_true", help="Enable taint tracking")
-    parser.add_argument("--observe", action="store_true",
-                        help="Observe mode: report what WOULD be blocked, block nothing")
+    parser.add_argument(
+        "--observe",
+        action="store_true",
+        help="Observe mode: report what WOULD be blocked, block nothing",
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging")
     args = parser.parse_args()
 

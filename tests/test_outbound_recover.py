@@ -17,6 +17,7 @@ Two library bugs made that inevitable, and both are pinned here:
      "[BLOCKED]" for a blocked result without calling the LLM either. The LLM rewriter was
      therefore unreachable for exactly the findings that needed it — dead code by construction.
 """
+
 import pytest
 
 from jataayu.guards.outbound import OutboundGuard, PrivacyConfig
@@ -51,11 +52,13 @@ class StubLLM:
 
 
 def guard(llm=None, use_llm=False, names=None, codenames=None):
-    g = OutboundGuard(PrivacyConfig(
-        protected_names=names or [],
-        internal_codenames=codenames or [],
-        use_llm=use_llm,
-    ))
+    g = OutboundGuard(
+        PrivacyConfig(
+            protected_names=names or [],
+            internal_codenames=codenames or [],
+            use_llm=use_llm,
+        )
+    )
     if llm is not None:
         g.llm = llm
     return g
@@ -64,6 +67,7 @@ def guard(llm=None, use_llm=False, names=None, codenames=None):
 # ---------------------------------------------------------------------------
 # The deterministic floor — no LLM at all
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("draft", REAL_DECLINES)
 def test_real_declines_now_send_without_any_llm(draft):
@@ -158,6 +162,7 @@ def test_mixed_pii_and_path_is_still_sendable():
 # The credential floor — the one thing that is never rephrased
 # ---------------------------------------------------------------------------
 
+
 def test_credential_is_withheld_and_never_shown_to_the_llm():
     """A leaked path is embarrassing and reversible. A leaked key is neither.
 
@@ -191,6 +196,7 @@ def test_rewrite_that_reintroduces_a_credential_is_withheld():
 # ---------------------------------------------------------------------------
 # The LLM path — the primary route
 # ---------------------------------------------------------------------------
+
 
 def test_llm_rewrite_is_used_and_re_screened():
     llm = StubLLM(reply="Done. Started a clean new project: example-guardrail-drift.")
@@ -273,13 +279,15 @@ def test_residue_is_fed_back_on_retry():
     assert r.action == "send"
     assert r.text == "Nearly: foo is done"
     assert r.stages == ["llm-rephrase", "llm-rephrase"]
-    assert "Absolute local filesystem path" in llm.calls[1][1], \
+    assert "Absolute local filesystem path" in llm.calls[1][1], (
         "the second attempt must be told what survived the first"
+    )
 
 
 # ---------------------------------------------------------------------------
 # sanitize() — the old surface, now routed through recover()
 # ---------------------------------------------------------------------------
+
 
 def test_sanitize_rescues_a_blocked_message_instead_of_returning_BLOCKED():
     """Before: a 0.95 path finding meant sanitize() returned "[BLOCKED …]" and the caller had

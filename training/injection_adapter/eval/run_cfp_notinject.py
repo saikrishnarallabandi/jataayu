@@ -17,13 +17,14 @@ Run:
     python eval/run_cfp_notinject.py --adapter adapters/v0.2/checkpoint-N --tag v0.2
     python eval/run_cfp_notinject.py --no-adapter --tag v0.2-BASE
 """
+
 import argparse
 import json
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent            # training/injection_adapter/eval
-ROOT = HERE.parent                                # training/injection_adapter
+HERE = Path(__file__).resolve().parent  # training/injection_adapter/eval
+ROOT = HERE.parent  # training/injection_adapter
 sys.path.insert(0, str(ROOT / "code"))
 import injscore
 from train_lora import CFP_TAU, cfp_paired_accuracy, flatten_cfp_arms, load_cfp_pairs
@@ -42,15 +43,20 @@ def load_model(base, adapter, no_adapter, fp32):
 
     dtype = torch.float32 if fp32 else torch.float16
     from transformers import AutoModelForCausalLM
+
     try:
-        model = AutoModelForCausalLM.from_pretrained(base, torch_dtype=dtype, device_map={"": 0},
-                                                     trust_remote_code=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            base, torch_dtype=dtype, device_map={"": 0}, trust_remote_code=True
+        )
     except (ValueError, KeyError):
         from transformers import AutoModelForImageTextToText
-        model = AutoModelForImageTextToText.from_pretrained(base, torch_dtype=dtype, device_map={"": 0},
-                                                            trust_remote_code=True)
+
+        model = AutoModelForImageTextToText.from_pretrained(
+            base, torch_dtype=dtype, device_map={"": 0}, trust_remote_code=True
+        )
     if not no_adapter:
         from peft import PeftModel
+
         model = PeftModel.from_pretrained(model, str(adapter))
     model.eval()
     return model, tok
@@ -59,8 +65,9 @@ def load_model(base, adapter, no_adapter, fp32):
 def score_texts(model, tok, texts, batch_size, max_len):
     pos_id, neg_id = injscore.label_first_token_ids(tok)
     dev = next(model.parameters()).device
-    res = injscore.injection_scores(model, tok, texts, pos_id, neg_id,
-                                    max_len=max_len, batch_size=batch_size, device=dev)
+    res = injscore.injection_scores(
+        model, tok, texts, pos_id, neg_id, max_len=max_len, batch_size=batch_size, device=dev
+    )
     if len(res) != len(texts):
         raise SystemExit(f"harness error: scored {len(res)} of {len(texts)} texts")
     return [r["score"] for r in res]
@@ -90,8 +97,11 @@ def main():
     tag = args.tag if not args.no_adapter else f"{args.tag}-BASE"
     print(f"base={args.base}")
     print(f"adapter={'NONE (base model)' if args.no_adapter else args.adapter}")
-    print(f"dtype={'fp16' if args.fp16 else 'fp32'}  cfp={stats}  notinject={len(ni_rows)}  "
-          f"tag={tag}  tau={CFP_TAU}", flush=True)
+    print(
+        f"dtype={'fp16' if args.fp16 else 'fp32'}  cfp={stats}  notinject={len(ni_rows)}  "
+        f"tag={tag}  tau={CFP_TAU}",
+        flush=True,
+    )
 
     model, tok = load_model(args.base, args.adapter, args.no_adapter, fp32=not args.fp16)
 
@@ -125,21 +135,40 @@ def main():
     print("\n" + "=" * 78)
     print(f"NOTINJECT OVER-DEFENSE ACCURACY (benign, correct = p < {CFP_TAU})")
     print("=" * 78)
-    print(f"  od_acc: {od_acc:.4f}   FP: {od_fp}/{len(ni_rows)}   file={Path(args.notinject_file).name}")
+    print(
+        f"  od_acc: {od_acc:.4f}   FP: {od_fp}/{len(ni_rows)}   file={Path(args.notinject_file).name}"
+    )
 
     outpath = Path(args.out) if args.out else HERE / "results" / f"cfp_notinject.{tag}.json"
     outpath.parent.mkdir(parents=True, exist_ok=True)
-    outpath.write_text(json.dumps({
-        "tag": tag, "base": args.base,
-        "adapter": None if args.no_adapter else str(args.adapter),
-        "dtype": "fp16" if args.fp16 else "fp32", "tau": CFP_TAU,
-        "cfp": {"file": args.cfp_file, "stats": stats, "paired_acc": agg,
-                "per_family": fam, "n_pairs": npairs, "arm_acc": arm_acc,
-                "scores": {a["id"]: s for a, s in zip(arms, ascores)}},
-        "notinject": {"file": args.notinject_file, "n": len(ni_rows),
-                      "od_acc": od_acc, "fp": od_fp,
-                      "scores": {r["id"]: s for r, s in zip(ni_rows, ni_scores)}},
-    }, indent=2))
+    outpath.write_text(
+        json.dumps(
+            {
+                "tag": tag,
+                "base": args.base,
+                "adapter": None if args.no_adapter else str(args.adapter),
+                "dtype": "fp16" if args.fp16 else "fp32",
+                "tau": CFP_TAU,
+                "cfp": {
+                    "file": args.cfp_file,
+                    "stats": stats,
+                    "paired_acc": agg,
+                    "per_family": fam,
+                    "n_pairs": npairs,
+                    "arm_acc": arm_acc,
+                    "scores": {a["id"]: s for a, s in zip(arms, ascores)},
+                },
+                "notinject": {
+                    "file": args.notinject_file,
+                    "n": len(ni_rows),
+                    "od_acc": od_acc,
+                    "fp": od_fp,
+                    "scores": {r["id"]: s for r, s in zip(ni_rows, ni_scores)},
+                },
+            },
+            indent=2,
+        )
+    )
     print(f"\nwrote {outpath}")
     return 0
 

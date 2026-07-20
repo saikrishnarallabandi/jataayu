@@ -29,6 +29,7 @@ Usage:
     if sink_result.is_dangerous_flow:
         raise SecurityError("Tainted data flowing into shell execution!")
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -38,8 +39,12 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from jataayu.core.threat import (
-    ThreatLevel, ThreatResult, ThreatType,
-    TaintSource, TaintSink, TaintState,
+    ThreatLevel,
+    ThreatResult,
+    ThreatType,
+    TaintSource,
+    TaintSink,
+    TaintState,
 )
 
 
@@ -48,45 +53,101 @@ from jataayu.core.threat import (
 # ---------------------------------------------------------------------------
 
 # Tool names that represent dangerous sinks (MCP tool names from common servers)
-_SHELL_SINK_TOOLS = frozenset({
-    "bash", "shell", "exec", "run", "execute", "run_command", "execute_command",
-    "run_terminal_cmd", "terminal", "sh", "cmd", "powershell", "subprocess",
-    "computer_use_bash", "computer_use_shell",
-})
+_SHELL_SINK_TOOLS = frozenset(
+    {
+        "bash",
+        "shell",
+        "exec",
+        "run",
+        "execute",
+        "run_command",
+        "execute_command",
+        "run_terminal_cmd",
+        "terminal",
+        "sh",
+        "cmd",
+        "powershell",
+        "subprocess",
+        "computer_use_bash",
+        "computer_use_shell",
+    }
+)
 
-_FILE_WRITE_TOOLS = frozenset({
-    "write_file", "create_file", "overwrite_file", "append_file", "edit_file",
-    "str_replace_editor", "write_to_file", "save_file", "create_or_overwrite_file",
-    # Filesystem writes exposed by agent suites (AgentDojo workspace, etc.). These mutate
-    # or destroy files and were previously mis-classified as READ -> ALLOW.
-    "append_to_file", "delete_file",
-})
+_FILE_WRITE_TOOLS = frozenset(
+    {
+        "write_file",
+        "create_file",
+        "overwrite_file",
+        "append_file",
+        "edit_file",
+        "str_replace_editor",
+        "write_to_file",
+        "save_file",
+        "create_or_overwrite_file",
+        # Filesystem writes exposed by agent suites (AgentDojo workspace, etc.). These mutate
+        # or destroy files and were previously mis-classified as READ -> ALLOW.
+        "append_to_file",
+        "delete_file",
+    }
+)
 
-_NETWORK_TOOLS = frozenset({
-    "fetch", "http_request", "web_fetch", "curl", "wget", "make_request",
-    "browse_web", "web_search", "send_email", "send_message",
-    # Effectful external actions exposed by agent suites (AgentDojo banking/slack/travel/
-    # workspace). Each commits an irreversible, attacker-influenceable side effect off the
-    # box — moving money, messaging/inviting people, booking, or externally sharing — so they
-    # are NETWORK-class sinks (approval-gated), not READs. Previously unmapped -> silently
-    # ALLOWed, which is the coverage gap the Tier-2 effect-boundary benchmark surfaces.
-    # banking (money movement / account mutation):
-    "send_money", "send_money_to_iban", "transfer_funds",
-    "schedule_transaction", "update_scheduled_transaction", "update_user_info",
-    # slack (social / messaging writes):
-    "send_direct_message", "send_channel_message", "post_message",
-    "invite_user_to_slack", "add_user_to_channel", "remove_user_from_slack", "post_webpage",
-    # travel (bookings / reservations):
-    "reserve_hotel", "reserve_restaurant", "reserve_car_rental", "book_flight",
-    # workspace (calendar writes / external document sharing):
-    "create_calendar_event", "reschedule_calendar_event", "add_calendar_event_participants",
-    "share_file", "share_document",
-})
+_NETWORK_TOOLS = frozenset(
+    {
+        "fetch",
+        "http_request",
+        "web_fetch",
+        "curl",
+        "wget",
+        "make_request",
+        "browse_web",
+        "web_search",
+        "send_email",
+        "send_message",
+        # Effectful external actions exposed by agent suites (AgentDojo banking/slack/travel/
+        # workspace). Each commits an irreversible, attacker-influenceable side effect off the
+        # box — moving money, messaging/inviting people, booking, or externally sharing — so they
+        # are NETWORK-class sinks (approval-gated), not READs. Previously unmapped -> silently
+        # ALLOWed, which is the coverage gap the Tier-2 effect-boundary benchmark surfaces.
+        # banking (money movement / account mutation):
+        "send_money",
+        "send_money_to_iban",
+        "transfer_funds",
+        "schedule_transaction",
+        "update_scheduled_transaction",
+        "update_user_info",
+        # slack (social / messaging writes):
+        "send_direct_message",
+        "send_channel_message",
+        "post_message",
+        "invite_user_to_slack",
+        "add_user_to_channel",
+        "remove_user_from_slack",
+        "post_webpage",
+        # travel (bookings / reservations):
+        "reserve_hotel",
+        "reserve_restaurant",
+        "reserve_car_rental",
+        "book_flight",
+        # workspace (calendar writes / external document sharing):
+        "create_calendar_event",
+        "reschedule_calendar_event",
+        "add_calendar_event_participants",
+        "share_file",
+        "share_document",
+    }
+)
 
-_SECRET_TOOLS = frozenset({
-    "read_env", "get_env", "env_get", "keychain_get", "get_secret",
-    "read_secret", "vault_read",
-})
+_SECRET_TOOLS = frozenset(
+    {
+        "read_env",
+        "get_env",
+        "env_get",
+        "keychain_get",
+        "get_secret",
+        "read_secret",
+        "vault_read",
+    }
+)
 
 # Map tool categories to sink types
 _TOOL_SINK_MAP: dict[frozenset, TaintSink] = {
@@ -98,12 +159,24 @@ _TOOL_SINK_MAP: dict[frozenset, TaintSink] = {
 
 # Parameter patterns that suggest dangerous content (Aguara taint/toxic-flow analog)
 _DANGEROUS_PARAM_PATTERNS = [
-    (re.compile(r"(rm\s+-rf?|wget|curl|bash|sh|exec|eval|nc|netcat)", re.I), TaintSink.SHELL_EXECUTION),
+    (
+        re.compile(r"(rm\s+-rf?|wget|curl|bash|sh|exec|eval|nc|netcat)", re.I),
+        TaintSink.SHELL_EXECUTION,
+    ),
     (re.compile(r"https?://[^\s]{10,}", re.I), TaintSink.NETWORK_REQUEST),
-    (re.compile(r"(cat|read|open)\s+.*(passwd|shadow|\.ssh|\.aws|\.env)", re.I), TaintSink.SECRET_ACCESS),
+    (
+        re.compile(r"(cat|read|open)\s+.*(passwd|shadow|\.ssh|\.aws|\.env)", re.I),
+        TaintSink.SECRET_ACCESS,
+    ),
     (re.compile(r"(eval|exec)\s*\(", re.I), TaintSink.CODE_EVAL),
-    (re.compile(r"(ignore\s+previous|new\s+instructions?|you\s+are\s+now)", re.I), TaintSink.AGENT_INSTRUCTION),
-    (re.compile(r"(ignore\s+previous|override|forget).*(instructions?|system)", re.I), TaintSink.LLM_PROMPT),
+    (
+        re.compile(r"(ignore\s+previous|new\s+instructions?|you\s+are\s+now)", re.I),
+        TaintSink.AGENT_INSTRUCTION,
+    ),
+    (
+        re.compile(r"(ignore\s+previous|override|forget).*(instructions?|system)", re.I),
+        TaintSink.LLM_PROMPT,
+    ),
 ]
 
 
@@ -128,6 +201,7 @@ SURFACE_TO_TAINT_SOURCE: dict[str, TaintSource] = {
 @dataclass
 class TaintEntry:
     """An individual tainted content fragment tracked by the TaintTracker."""
+
     taint_id: str
     content_hash: str
     source: TaintSource
@@ -166,7 +240,7 @@ def derives_from(tainted_content: str, param_text: str) -> bool:
         return True
     if len(a) >= 16:
         for i in range(0, len(a) - 16 + 1, 4):
-            if a[i:i + 16] in b:
+            if a[i : i + 16] in b:
                 return True
     ta = set(re.findall(r"\w{4,}", a))
     tb = set(re.findall(r"\w{4,}", b))
@@ -328,7 +402,8 @@ class TaintTracker:
 
         # Value-level: any registered taint whose content actually appears in the params.
         value_taints = [
-            e for e in self._taint_registry.values()
+            e
+            for e in self._taint_registry.values()
             if e.content and derives_from(e.content, all_param_text)
         ]
 
