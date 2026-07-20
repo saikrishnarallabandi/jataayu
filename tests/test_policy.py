@@ -3,8 +3,19 @@ Tests for Issue #6 — YAML policy configuration.
 """
 import os
 import tempfile
+from pathlib import Path
+
 import pytest
-from jataayu.config.policy import Policy, PolicyLoader, load_policy, AgentPolicy, SurfacePolicy
+from jataayu.config.policy import (
+    Policy,
+    PolicyLoader,
+    load_policy,
+    AgentPolicy,
+    SUPPORTED_POLICY_VERSIONS,
+    _DEAD_KEYS,
+    _INHERITED_BOOL_KEYS,
+    _INHERITED_LIST_KEYS,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -15,60 +26,25 @@ SAMPLE_POLICY_YAML = """
 version: 1
 
 defaults:
-  block_threshold: 0.85
-  llm_threshold: 0.4
-  use_llm: false
   check_credentials: true
   check_high_entropy: false
 
 agents:
   coding-agent:
-    allowed_surfaces:
-      - coding-task
-      - internal
-      - direct-message
-    surface_overrides:
-      coding-task:
-        block_threshold: 0.95
-        inbound_strict: false
-        risk_multiplier: 0.7
     protected_names: []
     check_credentials: false
 
   github-bot:
-    allowed_surfaces:
-      - github-issue
-      - github-pr
-      - github-comment
-      - internal
-    surface_overrides:
-      github-issue:
-        block_threshold: 0.70
-        inbound_strict: true
-        risk_multiplier: 1.2
     protected_names:
       - "Alice Smith"
       - "Bob Jones"
     check_credentials: true
-    use_llm: false
-    llm_threshold: 0.4
 
   privacy-bot:
-    allowed_surfaces: []
     protected_names:
       - Alice
       - Bob
     check_credentials: false
-
-surfaces:
-  github-issue:
-    trust_level: low
-    inbound_strict: true
-    risk_multiplier: 1.3
-  coding-task:
-    trust_level: medium
-    inbound_strict: false
-    risk_multiplier: 0.7
 """
 
 
@@ -95,10 +71,10 @@ class TestPolicyLoading:
     def test_load_from_dict(self):
         raw = {
             "version": 1,
-            "defaults": {"block_threshold": 0.8},
+            "defaults": {"check_credentials": False},
             "agents": {
                 "test-agent": {
-                    "allowed_surfaces": ["internal"],
+                    "protected_names": ["Alice"],
                 }
             }
         }
@@ -125,14 +101,14 @@ class TestPolicyLoading:
 version: 1
 agents:
   agent-a:
-    allowed_surfaces: [internal]
+    protected_names: [Alice]
 """)
         p2 = tmp_path / "more-agents.yml"
         p2.write_text("""
 version: 1
 agents:
   agent-b:
-    allowed_surfaces: [github-issue]
+    protected_names: [Bob]
 """)
         policy = PolicyLoader.from_dir(tmp_path)
         assert "agent-a" in policy.agents
@@ -140,36 +116,10 @@ agents:
 
 
 class TestAgentPolicy:
-    def test_coding_agent_allowed_surfaces(self, policy):
-        agent = policy.get_agent_policy("coding-agent")
-        assert agent.is_surface_allowed("coding-task")
-        assert agent.is_surface_allowed("internal")
-        assert not agent.is_surface_allowed("github-issue")
-        assert not agent.is_surface_allowed("web-content")
-
-    def test_agent_with_no_allowed_surfaces_allows_all(self, policy):
-        """Empty allowed_surfaces means all surfaces permitted."""
-        agent = policy.get_agent_policy("privacy-bot")
-        assert agent.is_surface_allowed("github-issue")
-        assert agent.is_surface_allowed("web-content")
-        assert agent.is_surface_allowed("group-chat")
-
-    def test_github_bot_surface_override(self, policy):
-        agent = policy.get_agent_policy("github-bot")
-        sp = agent.get_surface_policy("github-issue")
-        assert sp.block_threshold == 0.70
-        assert sp.inbound_strict is True
-
-    def test_coding_agent_surface_override(self, policy):
-        agent = policy.get_agent_policy("coding-agent")
-        sp = agent.get_surface_policy("coding-task")
-        assert sp.block_threshold == 0.95
-        assert sp.inbound_strict is False
-
     def test_unknown_agent_returns_defaults(self, policy):
         agent = policy.get_agent_policy("nonexistent-agent")
         assert agent.name == "nonexistent-agent"
-        assert agent.block_threshold == 0.85  # from defaults
+        assert agent.check_credentials is True  # from defaults
 
     def test_agent_protected_names(self, policy):
         agent = policy.get_agent_policy("github-bot")
@@ -186,33 +136,15 @@ class TestAgentPolicy:
 
 
 class TestSurfacePolicy:
-    def test_global_surface_override(self, policy):
-        """Global surface overrides should affect get_surface_profile."""
-        profile = policy.get_surface_profile("github-issue")
-        # Should reflect the global surface override (risk_multiplier: 1.3)
-        assert profile.get("risk_multiplier", 0) == 1.3
+    def test_surface_profile_is_the_builtin_table(self, policy):
+        """get_surface_profile() returns SURFACE_PROFILES verbatim — nothing overrides it."""
+        from jataayu.surfaces.profiles import SURFACE_PROFILES
+        assert policy.get_surface_profile("github-issue") == SURFACE_PROFILES["github-issue"]
 
     def test_surface_profile_fallback_to_builtin(self, policy):
         """Surfaces not overridden in policy should use built-in profiles."""
         profile = policy.get_surface_profile("group-chat")
         assert profile.get("trust_level") == "medium"
-
-    def test_surface_policy_fallback_for_unknown_surface(self, policy):
-        agent = policy.get_agent_policy("coding-agent")
-        sp = agent.get_surface_policy("unknown-surface")
-        # Should return defaults with agent-level block_threshold
-        assert sp.block_threshold == agent.block_threshold
-
-    def test_surface_policy_to_dict(self):
-        sp = SurfacePolicy(
-            surface="github-issue",
-            block_threshold=0.75,
-            inbound_strict=True,
-        )
-        d = sp.to_dict()
-        assert d["surface"] == "github-issue"
-        assert d["block_threshold"] == 0.75
-        assert d["inbound_strict"] is True
 
 
 class TestToPrivacyConfig:
@@ -226,10 +158,14 @@ class TestToPrivacyConfig:
         config = agent.to_privacy_config()
         assert config.check_credentials is False
 
-    def test_to_privacy_config_block_threshold(self, policy):
-        agent = policy.get_agent_policy("github-bot")
-        config = agent.to_privacy_config()
-        assert config.block_threshold == agent.block_threshold
+    def test_to_privacy_config_leaves_thresholds_at_privacyconfig_defaults(self, policy):
+        """No policy key can move them, so they must come from PrivacyConfig itself."""
+        from jataayu.guards.outbound import PrivacyConfig
+
+        config = policy.get_agent_policy("github-bot").to_privacy_config()
+        assert config.block_threshold == PrivacyConfig.block_threshold
+        assert config.llm_threshold == PrivacyConfig.llm_threshold
+        assert config.use_llm == PrivacyConfig.use_llm
 
 
 class TestPolicyToDict:
@@ -244,24 +180,24 @@ class TestPolicyToDict:
         agent = policy.get_agent_policy("github-bot")
         d = agent.to_dict()
         assert d["name"] == "github-bot"
-        assert "allowed_surfaces" in d
         assert "protected_names" in d
-        assert "surface_overrides" in d
+        assert "forbidden_capabilities" in d
+        # A rejected key must not reappear on the way out.
+        assert not (_DEAD_KEYS.keys() & d.keys())
 
 
 class TestDefaultPolicy:
     def test_default_policy_has_safe_defaults(self):
         p = load_policy()
-        # Default policy should have safe block threshold
         agent = p.get_agent_policy("any-agent")
-        assert agent.block_threshold <= 0.95
         assert agent.check_credentials is True
+        assert agent.mode == "enforce"
 
-    def test_default_policy_allows_all_surfaces(self):
+    def test_default_policy_names_no_rejected_key(self):
+        """load_policy()'s built-in defaults are fed back through _parse_agent, so a
+        rejected key in there would make the no-file path raise on itself."""
         p = load_policy()
-        agent = p.get_agent_policy("test")
-        assert agent.is_surface_allowed("github-issue")
-        assert agent.is_surface_allowed("group-chat")
+        assert not (_DEAD_KEYS.keys() & p.defaults.keys())
 
     def test_list_agents(self, policy):
         agents = policy.list_agents()
@@ -282,7 +218,7 @@ EFFECT_POLICY_YAML = """
 version: 1
 
 defaults:
-  block_threshold: 0.85
+  check_credentials: false
 
 agents:
   prod:
@@ -687,11 +623,7 @@ class TestScalarListFieldsAreRejected:
                 {"version": 1, "defaults": {"forbidden_capabilities": "exec"}}
             )
 
-    @pytest.mark.parametrize(
-        "key",
-        ["forbidden_capabilities", "allowed_capabilities",
-         "internal_codenames", "gtm_codenames"],
-    )
+    @pytest.mark.parametrize("key", _INHERITED_LIST_KEYS)
     def test_every_inherited_list_key_is_validated_in_defaults(self, key):
         with pytest.raises(ValueError, match=key):
             PolicyLoader.from_dict({"version": 1, "defaults": {key: "oops"}})
@@ -732,10 +664,10 @@ class TestScalarListFieldsAreRejected:
                 policy_file=str(p), agent=agent,
             )
 
-    def test_scalar_allowed_surfaces_raises(self, tmp_path):
-        with pytest.raises(ValueError, match="allowed_surfaces"):
+    def test_scalar_protected_names_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="protected_names"):
             self._load(
-                "version: 1\nagents:\n  prod:\n    allowed_surfaces: internal\n", tmp_path
+                "version: 1\nagents:\n  prod:\n    protected_names: Alice\n", tmp_path
             )
 
     def test_a_real_list_still_loads(self, tmp_path):
@@ -761,8 +693,6 @@ class TestDefaultsFallbackInheritsEverything:
         "  forbidden_capabilities: [exec]\n"
         "  check_credentials: false\n"
         "  check_high_entropy: true\n"
-        "  block_threshold: 0.5\n"
-        "  llm_threshold: 0.1\n"
         "  strict_unknown_tools: true\n"
         "  mode: observe\n"
         "  tool_effects:\n    internal.run_playbook: shell\n"
@@ -799,6 +729,81 @@ class TestDefaultsFallbackInheritsEverything:
         assert got.internal_codenames is not policy.defaults["internal_codenames"]
         got.internal_codenames.clear()
         assert policy.defaults["internal_codenames"] == ["Skunkworks"]
+
+
+class TestEveryInheritedKeyActuallyInherits:
+    """Every key on _INHERITED_LIST_KEYS / _INHERITED_BOOL_KEYS must resolve from
+    `defaults:` on ALL THREE paths an AgentPolicy is reached by.
+
+    Parametrized off the tuples themselves, deliberately. The predecessor of this class
+    hand-listed its keys and every case used `internal_codenames` — so
+    `protected_names` and `disabled_cred_rules` were resolved off the agent block alone,
+    a roster written in `defaults:` reached the wire unredacted, and a 16-test suite was
+    green. A test that names its own keys cannot catch the field nobody remembered.
+    """
+
+    # "" is the no-agent call, "prod" the named one, "prodd" the typo.
+    AGENTS = ["", "prod", "prodd"]
+
+    @pytest.mark.parametrize("agent", AGENTS)
+    @pytest.mark.parametrize("key", _INHERITED_LIST_KEYS)
+    def test_list_key_inherits_from_defaults(self, tmp_path, key, agent):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(f"version: 1\ndefaults:\n  {key}: [zephyr]\nagents:\n  prod: {{}}\n")
+        got = load_policy(str(p)).get_agent_policy(agent)
+        assert getattr(got, key) == ["zephyr"], f"{key} did not inherit for agent={agent!r}"
+
+    @pytest.mark.parametrize("agent", AGENTS)
+    @pytest.mark.parametrize("key", _INHERITED_BOOL_KEYS)
+    def test_bool_key_inherits_from_defaults(self, tmp_path, key, agent):
+        """Asserted against the OPPOSITE of the built-in default, so a field that ignores
+        `defaults:` and falls through to its hardcoded value fails here."""
+        builtin = getattr(AgentPolicy(name="x"), key)
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(
+            f"version: 1\ndefaults:\n  {key}: {str(not builtin).lower()}\n"
+            f"agents:\n  prod: {{}}\n"
+        )
+        got = load_policy(str(p)).get_agent_policy(agent)
+        assert getattr(got, key) is (not builtin), f"{key} did not inherit for agent={agent!r}"
+
+    @pytest.mark.parametrize("agent", AGENTS)
+    @pytest.mark.parametrize("key", _INHERITED_LIST_KEYS)
+    def test_the_agent_block_still_wins_over_defaults(self, tmp_path, key, agent):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(
+            f"version: 1\ndefaults:\n  {key}: [zephyr]\n"
+            f"agents:\n  prod:\n    {key}: [tern]\n"
+        )
+        expected = ["tern"] if agent == "prod" else ["zephyr"]
+        assert getattr(load_policy(str(p)).get_agent_policy(agent), key) == expected
+
+    @pytest.mark.parametrize("key", _INHERITED_LIST_KEYS)
+    def test_an_inherited_list_is_never_aliased_to_defaults(self, tmp_path, key):
+        """A copy per agent — one caller's mutation must not poison the next."""
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(f"version: 1\ndefaults:\n  {key}: [zephyr]\nagents:\n  prod: {{}}\n")
+        policy = load_policy(str(p))
+        got = getattr(policy.get_agent_policy("prod"), key)
+        assert got is not policy.defaults[key]
+        got.clear()
+        assert policy.defaults[key] == ["zephyr"]
+
+    def test_every_list_field_on_agentpolicy_is_covered(self):
+        """The tuples are the spec, so they must not silently fall behind the dataclass.
+
+        Every list/bool field on AgentPolicy must be on a tuple above.
+        """
+        import dataclasses
+
+        listy, booly = set(), set()
+        for f in dataclasses.fields(AgentPolicy):
+            if f.name in ("name", "tool_effects", "extra"):
+                continue
+            value = getattr(AgentPolicy(name="x"), f.name)
+            (listy if isinstance(value, list) else booly if isinstance(value, bool) else set()).add(f.name)
+        assert listy == set(_INHERITED_LIST_KEYS)
+        assert booly == set(_INHERITED_BOOL_KEYS)
 
 
 class TestFromDirRejectsANonMapping:
@@ -865,10 +870,6 @@ class TestEmptyBodiesRaiseAClearError:
         with pytest.raises(ValueError, match="agents.prod"):
             load_policy(str(tmp_path))
 
-    def test_empty_surfaces_body_in_a_directory(self, tmp_path):
-        (tmp_path / "a.yml").write_text("version: 1\nsurfaces:\n")
-        assert load_policy(str(tmp_path)).get_surface_profile("github-issue")
-
     def test_empty_defaults_body(self, tmp_path):
         p = tmp_path / "jataayu-policy.yml"
         p.write_text("version: 1\ndefaults:\n")
@@ -882,28 +883,222 @@ class TestEmptyBodiesRaiseAClearError:
 
 
 class TestSectionsMustBeMappings:
-    """`agents:`/`surfaces:` written as a YAML sequence must name the offending key.
+    """`agents:` written as a YAML sequence must name the offending key.
 
     Both loader entry points are covered because they kept diverging: from_dir() merges
-    these two sections itself, so a check added to from_dict() alone never ran for a
-    directory load. Three review rounds found this same shape; these four tests are what
-    keeps the fifth from finding it again.
+    this section itself, so a check added to from_dict() alone never ran for a
+    directory load. Three review rounds found this same shape; these tests are what
+    keeps the fourth from finding it again. `surfaces:` is no longer a section — any
+    shape of it raises; see TestSurfacesBlockIsRejected.
     """
 
-    @pytest.mark.parametrize("key", ["agents", "surfaces"])
-    def test_from_dict_rejects_a_sequence(self, key):
-        with pytest.raises(ValueError, match=f"{key}: expected a mapping"):
-            PolicyLoader.from_dict({"version": 1, key: ["prod"]})
+    def test_from_dict_rejects_a_sequence(self):
+        with pytest.raises(ValueError, match="agents: expected a mapping"):
+            PolicyLoader.from_dict({"version": 1, "agents": ["prod"]})
 
-    @pytest.mark.parametrize("key", ["agents", "surfaces"])
-    def test_from_dir_rejects_a_sequence_and_names_the_file(self, tmp_path, key):
-        (tmp_path / "bad.yml").write_text(f"version: 1\n{key}:\n  - prod\n")
-        with pytest.raises(ValueError, match=rf"bad\.yml: {key}: expected a mapping"):
+    def test_from_dir_rejects_a_sequence_and_names_the_file(self, tmp_path):
+        (tmp_path / "bad.yml").write_text("version: 1\nagents:\n  - prod\n")
+        with pytest.raises(ValueError, match=r"bad\.yml: agents: expected a mapping"):
             load_policy(str(tmp_path))
 
     def test_defaults_as_a_sequence_still_raises(self):
         with pytest.raises(ValueError, match="defaults: expected a mapping"):
             PolicyLoader.from_dict({"version": 1, "defaults": ["x"]})
+
+
+class TestSurfacesBlockIsRejected:
+    """A `surfaces:` block used to parse into Policy.global_surface_overrides and then
+    be read by nobody: InboundGuard resolves a surface through
+    JataayuEngine.get_surface_profile(), which reads SURFACE_PROFILES directly. A user
+    could set risk_multiplier: 0.001 on github-issue, load clean, and change nothing.
+    """
+
+    SURFACES_YAML = (
+        "version: 1\n"
+        "surfaces:\n"
+        "  github-issue:\n"
+        "    trust_level: high\n"
+        "    inbound_strict: false\n"
+        "    risk_multiplier: 0.001\n"
+    )
+
+    def _assert_message(self, excinfo):
+        msg = str(excinfo.value)
+        assert "not policy-tunable" in msg
+        assert "jataayu/surfaces/profiles.py" in msg
+
+    def test_from_dict_raises(self):
+        with pytest.raises(ValueError) as e:
+            PolicyLoader.from_dict({"version": 1, "surfaces": {"github-issue": {}}})
+        self._assert_message(e)
+
+    def test_from_file_raises(self, tmp_path):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(self.SURFACES_YAML)
+        with pytest.raises(ValueError) as e:
+            load_policy(str(p))
+        self._assert_message(e)
+
+    def test_from_dir_raises_and_names_the_file(self, tmp_path):
+        (tmp_path / "10-surfaces.yml").write_text(self.SURFACES_YAML)
+        with pytest.raises(ValueError) as e:
+            load_policy(str(tmp_path))
+        assert "10-surfaces.yml" in str(e.value)
+        self._assert_message(e)
+
+    @pytest.mark.parametrize("body", [None, [], ["github-issue"], "github-issue", {}])
+    def test_any_shape_of_the_key_raises(self, body):
+        """Including an empty body — `surfaces:` alone is still a user asking for
+        something the loader cannot give them, so it gets the explanation too."""
+        with pytest.raises(ValueError) as e:
+            PolicyLoader.from_dict({"version": 1, "surfaces": body})
+        self._assert_message(e)
+
+    def test_builtin_profiles_are_unchanged_by_any_policy(self, tmp_path):
+        """The guards read SURFACE_PROFILES, and no policy load perturbs it."""
+        from jataayu.surfaces.profiles import SURFACE_PROFILES
+        from jataayu.guards.inbound import InboundGuard
+
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text("version: 1\nagents:\n  bot:\n    check_credentials: false\n")
+        load_policy(str(p))
+        assert SURFACE_PROFILES["github-issue"]["risk_multiplier"] == 1.2
+        assert SURFACE_PROFILES["github-issue"]["trust_level"] == "low"
+        assert InboundGuard().get_surface_profile("github-issue") == SURFACE_PROFILES["github-issue"]
+
+
+class TestShippedExampleLoads:
+    """examples/jataayu-policy.example.yml is what users copy. If it documents a key
+    the loader rejects — or one it ignores — they find out the hard way."""
+
+    EXAMPLE = Path(__file__).resolve().parent.parent / "examples" / "jataayu-policy.example.yml"
+
+    def test_example_file_exists(self):
+        assert self.EXAMPLE.is_file(), f"missing {self.EXAMPLE}"
+
+    def test_example_loads_cleanly(self):
+        policy = load_policy(str(self.EXAMPLE))
+        assert "coding-agent" in policy.list_agents()
+        assert policy.get_agent_policy("prod-agent").mode == "observe"
+
+    def test_example_documents_no_surfaces_block(self):
+        """A regression guard on the doc itself, not just the loader."""
+        import yaml
+        assert "surfaces" not in yaml.safe_load(self.EXAMPLE.read_text())
+
+
+class TestDeadKeysAreRejected:
+    """A key no guard reads must raise at load, not parse into an ignored field.
+
+    `block_threshold: 0.3` under an agent used to load clean, land on AgentPolicy, and
+    change nothing — the user believed they had tightened a security threshold. Every
+    key in _DEAD_KEYS is parametrized from the module rather than listed here: this
+    branch already shipped a bug that survived because a test enumerated keys by hand.
+    """
+
+    # A body for each key that is structurally valid, so the rejection is about the key
+    # existing at all and not about its shape.
+    BODIES = {
+        "block_threshold": "0.3",
+        "llm_threshold": "0.1",
+        "use_llm": "true",
+        "allowed_surfaces": "[internal]",
+        "surface_overrides": "\n      github-issue:\n        block_threshold: 0.65",
+    }
+
+    def _assert_actionable(self, excinfo, key):
+        msg = str(excinfo.value)
+        assert key in msg
+        assert "Remove the key" in msg
+        # It must say what to do instead, not merely that it is unsupported.
+        assert any(s in msg for s in ("argument", "profiles.py")), msg
+
+    def test_every_dead_key_has_a_body(self):
+        """Keeps BODIES from falling behind _DEAD_KEYS."""
+        assert set(self.BODIES) == set(_DEAD_KEYS)
+
+    @pytest.mark.parametrize("key", sorted(_DEAD_KEYS))
+    def test_on_a_named_agent_raises(self, tmp_path, key):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(f"version: 1\nagents:\n  prod:\n    {key}: {self.BODIES[key]}\n")
+        with pytest.raises(ValueError) as e:
+            load_policy(str(p))
+        assert "agents.prod" in str(e.value)
+        self._assert_actionable(e, key)
+
+    @pytest.mark.parametrize("key", sorted(_DEAD_KEYS))
+    def test_in_defaults_raises_at_load(self, tmp_path, key):
+        """At load — not deferred to the first call that resolves an unknown agent."""
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(f"version: 1\ndefaults:\n  {key}: {self.BODIES[key]}\n")
+        with pytest.raises(ValueError) as e:
+            load_policy(str(p))
+        assert "defaults" in str(e.value)
+        self._assert_actionable(e, key)
+
+    @pytest.mark.parametrize("key", sorted(_DEAD_KEYS))
+    def test_from_dir_raises_too(self, tmp_path, key):
+        """from_dir merges agent blocks itself; it must not route around the check."""
+        (tmp_path / "10-agents.yml").write_text(
+            f"version: 1\nagents:\n  prod:\n    {key}: {self.BODIES[key]}\n"
+        )
+        with pytest.raises(ValueError) as e:
+            load_policy(str(tmp_path))
+        self._assert_actionable(e, key)
+
+    @pytest.mark.parametrize("key", sorted(_DEAD_KEYS))
+    def test_from_dict_raises_too(self, key):
+        with pytest.raises(ValueError) as e:
+            PolicyLoader.from_dict({"version": 1, "agents": {"prod": {key: None}}})
+        self._assert_actionable(e, key)
+
+    @pytest.mark.parametrize("key", sorted(_DEAD_KEYS))
+    def test_the_key_is_not_a_field_on_agentpolicy(self, key):
+        """Rejected at parse AND gone from the dataclass — a field nothing populates
+        would still answer a caller, with a default that is a lie."""
+        assert not hasattr(AgentPolicy(name="x"), key)
+
+    @pytest.mark.parametrize("key", sorted(_DEAD_KEYS))
+    def test_it_does_not_land_in_extra(self, key):
+        """`extra` is the catch-all for unknown keys; a dead key must raise first."""
+        with pytest.raises(ValueError):
+            PolicyLoader.from_dict({"version": 1, "agents": {"prod": {key: 0.3}}})
+
+    def test_a_policy_without_them_still_loads(self, tmp_path):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text(
+            "version: 1\ndefaults:\n  check_credentials: true\n"
+            "agents:\n  prod:\n    forbidden_capabilities: [exec]\n"
+        )
+        assert load_policy(str(p)).get_agent_policy("prod").check_credentials is True
+
+
+class TestVersionIsValidated:
+    """`version:` was stored on Policy and never compared to anything, so `version: 7`
+    — a file written against a format this build does not implement — loaded clean."""
+
+    def test_the_supported_version_loads(self, tmp_path):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text("version: 1\nagents:\n  prod: {}\n")
+        assert load_policy(str(p)).version == 1
+
+    def test_an_omitted_version_defaults_to_supported(self):
+        assert PolicyLoader.from_dict({"agents": {}}).version == 1
+
+    @pytest.mark.parametrize("bad", [0, 2, 7, -1, "1", 1.0, True, None])
+    def test_an_unsupported_version_raises(self, bad):
+        with pytest.raises(ValueError, match="unsupported policy version"):
+            PolicyLoader.from_dict({"version": bad, "agents": {}})
+
+    def test_from_dir_names_the_offending_file(self, tmp_path):
+        """from_dir synthesizes its own version for the merged dict, so a bad one in an
+        individual file would otherwise never be checked."""
+        (tmp_path / "10-bad.yml").write_text("version: 99\nagents:\n  prod: {}\n")
+        with pytest.raises(ValueError, match="unsupported policy version"):
+            load_policy(str(tmp_path))
+
+    def test_supported_versions_is_not_empty(self):
+        assert SUPPORTED_POLICY_VERSIONS
 
 
 class TestBoolFieldsAreNotCoerced:
@@ -913,23 +1108,27 @@ class TestBoolFieldsAreNotCoerced:
     "reinterprets what you wrote" failure this loader rejects for scalars elsewhere.
     """
 
-    def test_quoted_false_on_an_agent_raises(self, tmp_path):
+    @pytest.mark.parametrize("key", _INHERITED_BOOL_KEYS)
+    def test_quoted_false_on_an_agent_raises(self, tmp_path, key):
         p = tmp_path / "jataayu-policy.yml"
-        p.write_text('version: 1\nagents:\n  prod:\n    strict_unknown_tools: "false"\n')
-        with pytest.raises(ValueError, match="agents.prod: strict_unknown_tools must be true or false"):
+        p.write_text(f'version: 1\nagents:\n  prod:\n    {key}: "false"\n')
+        with pytest.raises(ValueError, match=f"agents.prod: {key} must be true or false"):
             load_policy(str(p))
 
-    def test_quoted_false_in_defaults_raises_at_load(self, tmp_path):
+    @pytest.mark.parametrize("key", _INHERITED_BOOL_KEYS)
+    def test_quoted_false_in_defaults_raises_at_load(self, tmp_path, key):
         """Named `defaults`, and raised at load — not deferred to the first unknown agent."""
         p = tmp_path / "jataayu-policy.yml"
-        p.write_text('version: 1\ndefaults:\n  strict_unknown_tools: "false"\n')
-        with pytest.raises(ValueError, match="defaults: strict_unknown_tools must be true or false"):
+        p.write_text(f'version: 1\ndefaults:\n  {key}: "false"\n')
+        with pytest.raises(ValueError, match=f"defaults: {key} must be true or false"):
             load_policy(str(p))
 
-    def test_an_int_is_not_a_bool(self, tmp_path):
+    @pytest.mark.parametrize("key", _INHERITED_BOOL_KEYS)
+    def test_an_int_is_not_a_bool(self, tmp_path, key):
+        """`check_credentials: 0` silently switched off the entire credential scan."""
         p = tmp_path / "jataayu-policy.yml"
-        p.write_text("version: 1\nagents:\n  prod:\n    strict_unknown_tools: 1\n")
-        with pytest.raises(ValueError, match="strict_unknown_tools must be true or false"):
+        p.write_text(f"version: 1\nagents:\n  prod:\n    {key}: 0\n")
+        with pytest.raises(ValueError, match=f"{key} must be true or false"):
             load_policy(str(p))
 
     def test_real_bools_still_load(self, tmp_path):

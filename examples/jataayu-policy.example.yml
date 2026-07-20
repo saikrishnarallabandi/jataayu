@@ -3,22 +3,37 @@
 # Place as jataayu-policy.yml in your project root, or point to it with:
 #   JATAAYU_POLICY_FILE=/path/to/jataayu-policy.yml
 #
-# Usage in Python:
+# Usage in Python — the outbound privacy keys below are read straight off this file:
+#   from jataayu import jataayu_check_outbound
+#   jataayu_check_outbound(draft, surface="discord-channel",
+#                          policy_file="jataayu-policy.yml", agent="privacy-bot")
+#
+# Or load it yourself:
 #   from jataayu.config.policy import load_policy
 #   policy = load_policy("jataayu-policy.yml")
 #   agent_policy = policy.get_agent_policy("my-agent")
 #   config = agent_policy.to_privacy_config()  # for OutboundGuard
-#   threshold = agent_policy.get_block_threshold("github-issue")
+#
+# Every key below is read by a guard at runtime. Keys that are NOT policy-settable are
+# rejected at load with a message pointing at the real source of truth, rather than being
+# parsed and ignored — see the note at the bottom of this file for the full list.
 
-version: 1
+version: 1                    # Must be 1. An unknown version is a load error.
 
-# Global defaults — applied to all agents unless overridden per-agent
+# Global defaults — applied to all agents unless overridden per-agent, and used on their
+# own when a call names no agent (or names one that is not listed below).
 defaults:
-  block_threshold: 0.90       # Block above this score (0.0-1.0)
-  llm_threshold: 0.35         # Invoke LLM slow path above this score
-  use_llm: false              # Default: fast path only (no LLM cost)
   check_credentials: true     # Scan outbound content for leaked credentials
   check_high_entropy: false   # Entropy-based secret detection (more FPs)
+
+  # Every key an agent block accepts may be written here, and an agent that omits it
+  # inherits this value. Your org-wide roster and codename lists belong here — written
+  # once, they apply to every agent, to a call that names no agent, and to a call that
+  # misspells one.
+  protected_names: []         # Names that must never appear in outbound content
+  internal_codenames: []      # Blocked on every surface
+  gtm_codenames: []           # Allowed on github/public, held on social surfaces
+  disabled_cred_rules: []     # Credential rule IDs to switch off (e.g. CRED_004)
 
 # Per-agent policies
 agents:
@@ -55,105 +70,48 @@ agents:
   # A coding agent (Cline, Claude Code, Cursor, etc.)
   # These agents read GitHub issues, PRs, and web pages — high Clinejection risk
   coding-agent:
-    allowed_surfaces:
-      - github-issue          # Reads issues — mark as tainted
-      - github-pr
-      - github-comment
-      - coding-task           # Running shell commands, writing files
-      - internal
-      - direct-message
-    surface_overrides:
-      github-issue:
-        block_threshold: 0.70    # More aggressive blocking on GitHub inputs
-        inbound_strict: true
-        risk_multiplier: 1.2
-      coding-task:
-        block_threshold: 0.95    # More permissive for actual coding work
-        inbound_strict: false    # Shell commands are expected
-        risk_multiplier: 0.7
     protected_names: []
     check_credentials: true      # Catch leaked secrets in output
     check_high_entropy: false
+    # Capability isolation, enforced by jataayu_check_skillset() at install time.
+    forbidden_capabilities: [exec]
 
   # A GitHub bot (reads issues, comments, sends responses)
   github-bot:
-    allowed_surfaces:
-      - github-issue
-      - github-pr
-      - github-comment
-      - internal
-    surface_overrides:
-      github-issue:
-        block_threshold: 0.65    # Strict — GitHub issues are public attack surface
-        inbound_strict: true
-        risk_multiplier: 1.3
-        trust_level: low
-      github-comment:
-        block_threshold: 0.70
-        inbound_strict: true
     protected_names: []
     check_credentials: true
-    use_llm: false               # Speed matters for CI bots
 
   # A WhatsApp/messaging assistant that handles family context
   privacy-bot:
-    allowed_surfaces:
-      - group-chat
-      - direct-message
-      - internal
-    surface_overrides:
-      group-chat:
-        outbound_strict: true    # Strict about what goes to group chats
-        block_threshold: 0.65
     # List names that should NEVER appear in group chat responses
     protected_names:
       - Alice                     # Children's names
       - Bob
       - "Your Child's Name"
     check_credentials: false     # WhatsApp bot doesn't handle code/secrets
-    use_llm: true                # Privacy judgments benefit from LLM
 
   # An internal-only agent (loose restrictions)
   internal-agent:
-    allowed_surfaces:
-      - internal
-      - direct-message
-    surface_overrides:
-      internal:
-        block_threshold: 0.98   # Almost nothing blocked in internal context
-        inbound_strict: false
     check_credentials: false
 
-# Global surface profile overrides (apply to all agents)
-# These override the built-in profiles in surfaces/profiles.py
-surfaces:
-  github-issue:
-    trust_level: low
-    inbound_strict: true
-    risk_multiplier: 1.2
-    description: "GitHub issue body — classic Clinejection attack surface"
-
-  github-pr:
-    trust_level: low
-    inbound_strict: true
-    risk_multiplier: 1.15
-
-  github-comment:
-    trust_level: low
-    inbound_strict: true
-    risk_multiplier: 1.1
-
-  web-content:
-    trust_level: low
-    inbound_strict: true
-    risk_multiplier: 1.1
-
-  coding-task:
-    trust_level: medium
-    inbound_strict: false        # Coding tasks often contain shell commands
-    risk_multiplier: 0.7
-
-  internal:
-    trust_level: high
-    inbound_strict: false
-    risk_multiplier: 0.4
+# ---------------------------------------------------------------------------
+# NOT policy-settable — writing any of these is a load error, not a silent no-op.
+# ---------------------------------------------------------------------------
+#
+# Surface behaviour: the top-level `surfaces:` block, per-agent `surface_overrides:`,
+# and `allowed_surfaces:`. Surface profiles (trust_level, inbound_strict,
+# outbound_strict, risk_multiplier) are a fixed table in jataayu/surfaces/profiles.py
+# — SURFACE_PROFILES — and that table is what the guards actually read. No guard has
+# ever consulted a per-agent surface allowlist.
+#
+# Guard thresholds: `block_threshold`, `llm_threshold`, `use_llm`. These are
+# constructor/keyword arguments on the guard itself:
+#   InboundGuard(use_llm=..., llm_threshold=...)
+#   OutboundGuard(PrivacyConfig(block_threshold=..., llm_threshold=..., use_llm=...))
+#   SkillVetGuard(block_threshold=...)
+#   MCPGateway(block_threshold=..., llm_threshold=..., use_llm=...)
+#   jataayu_check_inbound(..., use_llm=True) / jataayu_check_outbound(..., use_llm=True)
+# A policy file must not be able to switch on a network call or move a block line.
+#
+# Both groups may become policy-settable later. Until then the loader raises and names
+# the real source of truth, rather than accepting a value nothing would read.

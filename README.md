@@ -193,6 +193,9 @@ from jataayu import jataayu_check_outbound, jataayu_check_egress
 result = jataayu_check_outbound(
     draft_reply, surface="discord-channel",
     protected_names=["Alice", "Bob"],   # names that must never leak
+    # or keep the roster in a policy file — protected_names, internal_codenames,
+    # gtm_codenames, check_credentials, disabled_cred_rules, check_high_entropy.
+    # policy_file="jataayu-policy.yml", agent="privacy-bot",
 )
 safe_text = result["redacted"] if result["status"] in ("WARN", "BLOCK") else draft_reply
 

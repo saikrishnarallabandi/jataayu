@@ -13,9 +13,10 @@ Quick start::
     # Check outbound content for privacy leaks
     result = jataayu_check_outbound(draft, surface="discord-channel")
 
-    # Short aliases also available:
-    status, findings = check_inbound(content, surface="github-issue")
-    status, redacted = check_outbound(draft, surface="discord-channel")
+Every guard has ONE entry point, the `jataayu_*` functions below, all returning a
+dict. The older tuple-returning `check_inbound` / `check_outbound` aliases in
+`jataayu.convenience` are deprecated wrappers over these; they still import and work
+but warn.
 """
 __version__ = "0.3.1"
 
@@ -25,6 +26,7 @@ from jataayu.guards.inbound import InboundGuard
 from jataayu.guards.outbound import OutboundGuard, PrivacyConfig, RecoveryResult
 from jataayu.api import (
     jataayu_check_inbound,
+    jataayu_sanitize_inbound,
     jataayu_check_outbound,
     jataayu_recover_outbound,
     jataayu_check_tool_return,
@@ -44,11 +46,17 @@ from jataayu.core.audit import (
     SessionTrace, AuditResult, AuditFinding, AuditRisk, TraceEvent, set_decision_sink,
 )
 from jataayu.api import jataayu_authorize_action
-from jataayu.convenience import check_inbound, check_outbound
+
+# Deprecated tuple-returning shims. Importable from the package root because that is
+# where they have always been importable from, and removing them would turn a warning
+# into an ImportError for the exact callers the shims exist to protect. Deliberately
+# absent from __all__: `__all__` documents the canonical surface, and these are not it.
+from jataayu.convenience import check_inbound, check_outbound, sanitize_inbound  # noqa: F401
 
 __all__ = [
-    # Public convenience API (dict return format)
+    # Canonical guard entry points (dict return format)
     "jataayu_check_inbound",
+    "jataayu_sanitize_inbound",
     "jataayu_check_outbound",
     # Send-site recovery: rewrite-to-send instead of refuse-to-send
     "jataayu_recover_outbound",
@@ -85,9 +93,6 @@ __all__ = [
     "TraceEvent",
     # Decision telemetry — one record per decision, to your callback
     "set_decision_sink",
-    # Short aliases (tuple return format)
-    "check_inbound",
-    "check_outbound",
     # Raised by callers when a Jataayu verdict is enforced
     "SecurityError",
     # Core classes (for advanced usage)

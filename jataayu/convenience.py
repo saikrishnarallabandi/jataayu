@@ -1,53 +1,39 @@
 """
-Jataayu convenience API
-========================
-Simple functional interface for the common case:
+Jataayu convenience API — DEPRECATED, use `jataayu.api`.
 
-    from jataayu.convenience import check_inbound, check_outbound
+Every name here is a thin wrapper over its `jataayu.api` counterpart and emits a
+DeprecationWarning naming the replacement:
 
-    status, findings = check_inbound(content, surface="github-issue")
-    status, redacted = check_outbound(content, surface="discord-channel")
+    check_inbound     -> jataayu_check_inbound
+    check_outbound    -> jataayu_check_outbound
+    sanitize_inbound  -> jataayu_sanitize_inbound
+    reset_guards      -> jataayu.api.reset_guards
 
-These wrap InboundGuard and OutboundGuard with sensible defaults.
+The wrappers keep their historical TUPLE return shape, so existing callers do not
+break. That means one status string still differs from the canonical API: for clean
+inbound content this returns "LOW" where `jataayu_check_inbound` reports "SAFE".
+Changing it here would silently reclassify content for callers that branch on the
+string, so the difference is preserved and warned about instead. New code should use
+`jataayu.api` and read `result["status"]`.
 """
 from __future__ import annotations
 
+import warnings
 from typing import Optional
 
-from jataayu.guards.inbound import InboundGuard
-from jataayu.guards.outbound import OutboundGuard, PrivacyConfig
-from jataayu.core.threat import ThreatLevel
+from jataayu import api
 
-# Protected names are empty by default: a generic install must not redact
-# arbitrary names out of the box. Supply your own per call via
-# `check_outbound(..., protected_names=[...])`, or configure them centrally
-# through a PrivacyConfig / policy file.
+# Kept for backwards compatibility: this was always empty — a generic install must
+# not redact arbitrary names out of the box.
 DEFAULT_PROTECTED_NAMES: list[str] = []
 
-# Singleton guards (lazy-initialized)
-_inbound_guard: Optional[InboundGuard] = None
-_outbound_guard: Optional[OutboundGuard] = None
 
-
-def _get_inbound_guard(use_llm: bool = False) -> InboundGuard:
-    global _inbound_guard
-    if _inbound_guard is None:
-        _inbound_guard = InboundGuard(use_llm=use_llm)
-    return _inbound_guard
-
-
-def _get_outbound_guard(
-    protected_names: Optional[list[str]] = None,
-    use_llm: bool = False,
-) -> OutboundGuard:
-    global _outbound_guard
-    if _outbound_guard is None:
-        config = PrivacyConfig(
-            protected_names=protected_names or DEFAULT_PROTECTED_NAMES,
-            use_llm=use_llm,
-        )
-        _outbound_guard = OutboundGuard(config)
-    return _outbound_guard
+def _warn(old: str, new: str, extra: str = "") -> None:
+    warnings.warn(
+        f"jataayu.convenience.{old}() is deprecated; use jataayu.{new}(). {extra}".strip(),
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
 def check_inbound(
@@ -56,35 +42,20 @@ def check_inbound(
     use_llm: bool = False,
 ) -> tuple[str, str]:
     """
-    Check inbound content for injection/manipulation threats.
-
-    Args:
-        content: External content to evaluate.
-        surface: Source surface (github-issue, web-page, email, whatsapp, etc.)
-        use_llm: Whether to use LLM slow path for ambiguous cases.
+    DEPRECATED — use `jataayu_check_inbound`, which returns a dict.
 
     Returns:
-        (status, findings) where:
-            status: "LOW" | "MEDIUM" | "HIGH"
-            findings: Human-readable explanation of what was found.
-
-    Decision logic:
-        LOW    → proceed normally
-        MEDIUM → proceed with caution, note warning
-        HIGH   → stop, alert user, do not act
+        (status, findings) with status in "LOW" | "MEDIUM" | "HIGH". Note this
+        collapses the canonical "SAFE" and "LOW" statuses into "LOW".
     """
-    guard = _get_inbound_guard(use_llm=use_llm)
-    result = guard.check(content, surface=surface)
-
-    # Map ThreatLevel to simple status strings
-    if result.threat_level in (ThreatLevel.CLEAN, ThreatLevel.LOW):
-        status = "LOW"
-    elif result.threat_level == ThreatLevel.MEDIUM:
-        status = "MEDIUM"
-    else:  # HIGH or BLOCKED
-        status = "HIGH"
-
-    return status, result.explanation
+    _warn(
+        "check_inbound",
+        "jataayu_check_inbound",
+        'It returns a dict, and reports clean content as "SAFE" where this returns "LOW".',
+    )
+    result = api.jataayu_check_inbound(content, surface=surface, use_llm=use_llm)
+    status = "LOW" if result["status"] in ("SAFE", "LOW") else result["status"]
+    return status, result["findings"]
 
 
 def sanitize_inbound(
@@ -92,18 +63,9 @@ def sanitize_inbound(
     surface: str = "unknown",
     use_llm: bool = False,
 ) -> str:
-    """
-    Surgically remove an injected block from inbound content while preserving the
-    benign text it was planted inside (e.g. strip the injection from a calendar
-    description without discarding the description).
-
-    Returns the cleaned text, or "" if the injection could not be cleanly excised
-    (in which case the caller should omit the content entirely). The result is
-    guaranteed not to trip the fast-path detector. See
-    InboundGuard.sanitize for the safety contract.
-    """
-    guard = _get_inbound_guard(use_llm=use_llm)
-    return guard.sanitize(content, surface=surface)
+    """DEPRECATED — use `jataayu_sanitize_inbound`. Same return value."""
+    _warn("sanitize_inbound", "jataayu_sanitize_inbound")
+    return api.jataayu_sanitize_inbound(content, surface=surface, use_llm=use_llm)
 
 
 def check_outbound(
@@ -113,45 +75,25 @@ def check_outbound(
     use_llm: bool = False,
 ) -> tuple[str, str]:
     """
-    Check outbound content for privacy/PII violations before sending.
-
-    Args:
-        content: Draft message to evaluate.
-        surface: Target surface (discord-channel, whatsapp-group, github-comment, etc.)
-        protected_names: Names that must never appear. Defaults to none —
-            pass your own list or configure them via a policy file.
-        use_llm: Whether to use LLM for sanitization.
+    DEPRECATED — use `jataayu_check_outbound`, which returns a dict.
 
     Returns:
-        (status, output) where:
-            status: "SAFE" | "WARN" | "BLOCK"
-            output: Redacted/sanitized version (same as input if SAFE).
-
-    Decision logic:
-        SAFE → send as-is
-        WARN → review findings, consider edits; output is sanitized version
-        BLOCK → do not send; output is redacted version or explanation
+        (status, output) with status in "SAFE" | "WARN" | "BLOCK". `output` is the
+        redacted text when not SAFE, and the unchanged input when SAFE.
     """
-    guard = _get_outbound_guard(
+    _warn("check_outbound", "jataayu_check_outbound", "It returns a dict.")
+    result = api.jataayu_check_outbound(
+        content,
+        surface=surface,
         protected_names=protected_names,
         use_llm=use_llm,
     )
-    result = guard.check(content, surface=surface)
-
-    # Map ThreatLevel to simple status strings
-    if result.is_safe:
+    if result["status"] == "SAFE":
         return "SAFE", content
-    elif result.blocked:
-        # Try to get a sanitized version
-        sanitized = guard.sanitize(content, surface=surface)
-        return "BLOCK", sanitized
-    else:  # MEDIUM or HIGH but not blocked
-        sanitized = guard.sanitize(content, surface=surface)
-        return "WARN", sanitized
+    return result["status"], result["redacted"]
 
 
 def reset_guards() -> None:
-    """Reset singleton guards (useful for testing with different configs)."""
-    global _inbound_guard, _outbound_guard
-    _inbound_guard = None
-    _outbound_guard = None
+    """DEPRECATED — use `jataayu.api.reset_guards`. Resets the shared guard cache."""
+    _warn("reset_guards", "api.reset_guards")
+    api.reset_guards()

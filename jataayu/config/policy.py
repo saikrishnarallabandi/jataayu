@@ -1,31 +1,31 @@
 """
 Jataayu YAML Policy Configuration
 ===================================
-Loads per-agent surface policies from YAML files, replacing hardcoded
-profile lookups throughout the Jataayu codebase.
+Loads per-agent policy from YAML: outbound privacy rosters, capability
+isolation, and effect-boundary settings. Surface profiles are NOT loaded from
+here — they are a fixed table in jataayu/surfaces/profiles.py (SURFACE_PROFILES).
+
+This file documents EVERY key the format accepts, and the format accepts nothing else
+that a guard does not read. A key that no guard consumes is rejected at load with a
+message naming the real source of truth — see _DEAD_KEYS. The failure mode being
+designed out: writing `block_threshold: 0.3`, loading clean, and changing nothing.
 
 Policy File Format (jataayu-policy.yml):
 -----------------------------------------
-version: 1
+version: 1                       # must be 1; see SUPPORTED_POLICY_VERSIONS
 
-# Global defaults applied when no agent-specific rule matches
+# Global defaults. Every key an agent block accepts may be written here, and an agent
+# that omits the key inherits this value — as does a call naming no agent, or naming
+# one that is not listed.
 defaults:
-  block_threshold: 0.9
-  llm_threshold: 0.35
-  use_llm: false
   check_credentials: true
   check_high_entropy: false
+  protected_names: []
+  internal_codenames: []
 
 # Per-agent policies (identified by agent name/ID)
 agents:
   coding-agent:
-    # Surface allowlist — only these surfaces are permitted for this agent
-    allowed_surfaces: [coding-task, internal, direct-message]
-    # Surface-specific overrides for this agent
-    surface_overrides:
-      coding-task:
-        block_threshold: 0.95   # more permissive — shell commands expected
-        inbound_strict: false
     # Protected names for outbound guard
     protected_names: []
     # Credential checking
@@ -49,55 +49,44 @@ agents:
       db.query: read
 
   github-bot:
-    allowed_surfaces: [github-issue, github-pr, github-comment, internal]
-    surface_overrides:
-      github-issue:
-        block_threshold: 0.70
-        inbound_strict: true
     protected_names: ["Alice Smith", "Bob Jones"]
     # Internal codenames — blocked on every surface. Ships empty; these are yours to supply.
     internal_codenames: ["Bluebird", "Redwood"]
     # To-market product codenames — allowed on github/public, held on social surfaces.
     gtm_codenames: ["Skylark"]
     check_credentials: true
-    use_llm: true
-    llm_threshold: 0.4
 
   whatsapp-assistant:
-    allowed_surfaces: [group-chat, direct-message, internal]
-    surface_overrides:
-      group-chat:
-        outbound_strict: true
-        block_threshold: 0.65
     protected_names: ["Alice", "Bob", "Carol"]
     check_credentials: false
 
-# Surface profile overrides (global, applies to all agents unless overridden per-agent)
-surfaces:
-  github-issue:
-    trust_level: low
-    inbound_strict: true
-    outbound_strict: false
-    risk_multiplier: 1.2
-  coding-task:
-    trust_level: medium
-    inbound_strict: false
-    risk_multiplier: 0.7
+There is deliberately no top-level `surfaces:` block, no per-agent `surface_overrides:`
+and no `allowed_surfaces:`. Surface behaviour is a fixed table in
+jataayu/surfaces/profiles.py (SURFACE_PROFILES) — the guards read it directly and read
+nothing here. Writing any of the three raises at load rather than being ignored.
+
+Guard thresholds (use_llm, llm_threshold, block_threshold) are likewise not
+policy-settable: they are constructor/keyword arguments on the guard, and this loader
+rejects them rather than parsing values no guard would consult. Both groups may become
+policy-settable later; until then the loader says so instead of pretending.
 
 Usage:
     policy = load_policy("jataayu-policy.yml")
     agent_policy = policy.get_agent_policy("github-bot")
 
-    # Check if a surface is allowed for this agent
-    if not agent_policy.is_surface_allowed("web-content"):
-        raise PermissionError("Agent not permitted on web-content surface")
+    # Capability isolation
+    agent_policy.capability_violations(["exec", "fs_read"])
 
-    # Get effective block threshold for a surface
-    threshold = agent_policy.get_block_threshold("github-issue")
-
-    # Get outbound guard config
-    from jataayu.guards.outbound import PrivacyConfig
+    # Outbound guard config
     privacy_cfg = agent_policy.to_privacy_config()
+
+The outbound privacy keys (protected_names, internal_codenames, gtm_codenames,
+check_credentials, disabled_cred_rules, check_high_entropy) are reached from the public
+API without loading anything yourself:
+
+    from jataayu import jataayu_check_outbound
+    jataayu_check_outbound(draft, surface="discord-channel",
+                           policy_file="jataayu-policy.yml", agent="github-bot")
 """
 from __future__ import annotations
 
@@ -114,50 +103,18 @@ _logger = logging.getLogger("jataayu")
 # ---------------------------------------------------------------------------
 
 @dataclass
-class SurfacePolicy:
-    """Policy for a specific surface within an agent context."""
-    surface: str
-    block_threshold: float = 0.9
-    llm_threshold: float = 0.35
-    use_llm: bool = False
-    inbound_strict: bool = True
-    outbound_strict: bool = False
-    risk_multiplier: float = 1.0
-    trust_level: str = "medium"
-    extra: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict:
-        return {
-            "surface": self.surface,
-            "block_threshold": self.block_threshold,
-            "llm_threshold": self.llm_threshold,
-            "use_llm": self.use_llm,
-            "inbound_strict": self.inbound_strict,
-            "outbound_strict": self.outbound_strict,
-            "risk_multiplier": self.risk_multiplier,
-            "trust_level": self.trust_level,
-        }
-
-
-@dataclass
 class AgentPolicy:
     """
     Policy for a specific agent instance.
 
     Attributes:
         name: Agent identifier.
-        allowed_surfaces: If non-empty, only these surfaces are permitted.
-            Empty list = all surfaces allowed.
-        surface_overrides: Per-surface configuration overrides.
         protected_names: Names that OutboundGuard must never emit.
         internal_codenames: Internal codenames OutboundGuard must never emit on any surface.
         gtm_codenames: To-market product codenames — allowed on github/public surfaces only.
         check_credentials: Whether OutboundGuard should scan for credentials.
         disabled_cred_rules: Credential rule IDs to disable (e.g. CRED_004).
         check_high_entropy: Enable high-entropy string detection.
-        use_llm: Whether to use LLM slow path (agent-level default).
-        llm_threshold: LLM escalation threshold (agent-level default).
-        block_threshold: Block threshold (agent-level default).
         mode: "enforce" (block) or "observe" (measure only — decisions are reported
             but not enforced). Default "enforce".
         tool_effects: Tool name → EffectClass value ("read", "shell", ...). Your own
@@ -167,29 +124,18 @@ class AgentPolicy:
         extra: Additional custom config fields.
     """
     name: str
-    allowed_surfaces: list[str] = field(default_factory=list)
-    surface_overrides: dict[str, SurfacePolicy] = field(default_factory=dict)
     protected_names: list[str] = field(default_factory=list)
     internal_codenames: list[str] = field(default_factory=list)
     gtm_codenames: list[str] = field(default_factory=list)
     check_credentials: bool = True
     disabled_cred_rules: list[str] = field(default_factory=list)
     check_high_entropy: bool = False
-    use_llm: bool = False
-    llm_threshold: float = 0.35
-    block_threshold: float = 0.9
     allowed_capabilities: list[str] = field(default_factory=list)
     forbidden_capabilities: list[str] = field(default_factory=list)
     mode: str = "enforce"
     tool_effects: dict[str, str] = field(default_factory=dict)
     strict_unknown_tools: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
-
-    def is_surface_allowed(self, surface: str) -> bool:
-        """Check if a surface is permitted for this agent."""
-        if not self.allowed_surfaces:
-            return True  # Empty = all allowed
-        return surface in self.allowed_surfaces
 
     def is_capability_allowed(self, capability: str) -> bool:
         """
@@ -208,25 +154,13 @@ class AgentPolicy:
         """Return the subset of `capabilities` this agent's policy forbids."""
         return sorted(c for c in set(capabilities) if not self.is_capability_allowed(c))
 
-    def get_surface_policy(self, surface: str) -> SurfacePolicy:
-        """Get the effective SurfacePolicy for a surface (with agent defaults)."""
-        if surface in self.surface_overrides:
-            return self.surface_overrides[surface]
-        # Return a SurfacePolicy with agent-level defaults
-        return SurfacePolicy(
-            surface=surface,
-            block_threshold=self.block_threshold,
-            llm_threshold=self.llm_threshold,
-            use_llm=self.use_llm,
-        )
-
-    def get_block_threshold(self, surface: str) -> float:
-        """Get the effective block threshold for a surface."""
-        return self.get_surface_policy(surface).block_threshold
-
     def to_privacy_config(self):
         """
         Convert this agent policy to an OutboundGuard PrivacyConfig.
+
+        use_llm / llm_threshold / block_threshold are left at PrivacyConfig's own
+        defaults: they are not policy-settable (see _DEAD_KEYS), so there is nothing
+        here to carry.
 
         Returns:
             PrivacyConfig instance configured from this policy.
@@ -236,9 +170,6 @@ class AgentPolicy:
             protected_names=self.protected_names,
             internal_codenames=self.internal_codenames,
             gtm_codenames=self.gtm_codenames,
-            use_llm=self.use_llm,
-            llm_threshold=self.llm_threshold,
-            block_threshold=self.block_threshold,
             check_credentials=self.check_credentials,
             disabled_cred_rules=self.disabled_cred_rules,
             check_high_entropy=self.check_high_entropy,
@@ -247,16 +178,11 @@ class AgentPolicy:
     def to_dict(self) -> dict:
         return {
             "name": self.name,
-            "allowed_surfaces": self.allowed_surfaces,
-            "surface_overrides": {k: v.to_dict() for k, v in self.surface_overrides.items()},
             "protected_names": self.protected_names,
             "internal_codenames": self.internal_codenames,
             "gtm_codenames": self.gtm_codenames,
             "check_credentials": self.check_credentials,
             "disabled_cred_rules": self.disabled_cred_rules,
-            "use_llm": self.use_llm,
-            "llm_threshold": self.llm_threshold,
-            "block_threshold": self.block_threshold,
             "allowed_capabilities": self.allowed_capabilities,
             "forbidden_capabilities": self.forbidden_capabilities,
             "mode": self.mode,
@@ -270,9 +196,108 @@ VALID_MODES = ("enforce", "observe")
 
 _SECTION_NOUNS = {
     "agents": "agent names",
-    "surfaces": "surface names",
     "defaults": "settings",
 }
+
+
+def _reject_surfaces_block(raw: dict, where: str = "") -> None:
+    """Reject a `surfaces:` block rather than parsing one nothing reads.
+
+    The block was documented and parsed into Policy.global_surface_overrides, but no
+    guard ever consulted it: InboundGuard resolves a surface through
+    JataayuEngine.get_surface_profile(), which reads the fixed SURFACE_PROFILES table
+    directly. A user could set risk_multiplier: 0.001 on github-issue, load clean, and
+    change nothing. Failing at load is the same posture the rest of this loader takes.
+    """
+    if "surfaces" in raw:
+        prefix = f"{where}: " if where else ""
+        raise ValueError(
+            f"{prefix}surfaces: surface profiles are not policy-tunable. They are a "
+            f"fixed table in jataayu/surfaces/profiles.py (SURFACE_PROFILES), which is "
+            f"the only thing the guards read — a `surfaces:` block here would be "
+            f"silently ignored. Remove it. Per-surface tuning may become "
+            f"policy-configurable later."
+        )
+
+
+# Keys this format used to accept, parse into AgentPolicy, and hand to no guard.
+#
+# Each was documented in the example file and reachable on the dataclass, so a user who
+# wrote `block_threshold: 0.3` believed they had tightened a security threshold. Nothing
+# read it: the outbound path pins its thresholds in jataayu/api.py::_outbound_config, the
+# inbound path resolves a surface through the fixed SURFACE_PROFILES table, and no guard
+# ever consulted allowed_surfaces or surface_overrides at all. Accepting a key silently is
+# strictly worse than refusing it — the refusal is at least visible. Values are the
+# actionable half of the message; _DEAD_KEY_SUFFIX carries the rest.
+_DEAD_KEYS = {
+    "block_threshold": (
+        "the block threshold is a constructor argument on the guard, not policy: "
+        "OutboundGuard(PrivacyConfig(block_threshold=...)), "
+        "SkillVetGuard(block_threshold=...), MCPGateway(block_threshold=...). "
+        "jataayu_check_outbound() pins its own and would ignore this value"
+    ),
+    "llm_threshold": (
+        "the LLM escalation threshold is a constructor argument on the guard, not "
+        "policy: InboundGuard(llm_threshold=...), "
+        "OutboundGuard(PrivacyConfig(llm_threshold=...)), MCPGateway(llm_threshold=...)"
+    ),
+    "use_llm": (
+        "the LLM slow path is a keyword argument at the call site, not policy: "
+        "jataayu_check_inbound(..., use_llm=True), jataayu_check_outbound(..., "
+        "use_llm=True), or InboundGuard(use_llm=...). A policy file must not be able to "
+        "switch on a network call"
+    ),
+    "allowed_surfaces": (
+        "no guard reads a per-agent surface allowlist. Surface behaviour comes from the "
+        "fixed table in jataayu/surfaces/profiles.py (SURFACE_PROFILES). Gate on the "
+        "surface at your own call site, or use allowed_capabilities / "
+        "forbidden_capabilities, which jataayu_check_skillset() and "
+        "jataayu_authorize_action() do enforce"
+    ),
+    "surface_overrides": (
+        "per-surface tuning is not policy-settable. Its threshold keys "
+        "(block_threshold, llm_threshold, use_llm) are constructor arguments on the "
+        "guard, and its profile keys (trust_level, inbound_strict, outbound_strict, "
+        "risk_multiplier) are the fixed table in jataayu/surfaces/profiles.py"
+    ),
+}
+
+_DEAD_KEY_SUFFIX = (
+    "Remove the key. It may become policy-settable later; until then the loader raises "
+    "rather than accept a value no guard reads."
+)
+
+
+def _reject_dead_keys(cfg: dict, where: str) -> None:
+    """Reject a key the loader would parse and no guard would read."""
+    for key in cfg:
+        if key in _DEAD_KEYS:
+            raise ValueError(f"{where}: {key}: {_DEAD_KEYS[key]}. {_DEAD_KEY_SUFFIX}")
+
+
+# The only `version:` this loader understands. An unknown version means the file was
+# written against a format this build does not implement, and every key in it is a guess
+# — which is the same silent-no-op failure _DEAD_KEYS exists to prevent, one level up.
+SUPPORTED_POLICY_VERSIONS = (1,)
+
+
+def _parse_version(raw: dict, where: str = "") -> int:
+    """Validate `version:`, which used to be stored and never compared to anything."""
+    version = raw.get("version", 1)
+    # bool is an int subclass and 1.0 == 1, so neither `version: true` nor `version: 1.0`
+    # may pass on equality alone.
+    if (
+        isinstance(version, bool)
+        or not isinstance(version, int)
+        or version not in SUPPORTED_POLICY_VERSIONS
+    ):
+        prefix = f"{where}: " if where else ""
+        raise ValueError(
+            f"{prefix}version: unsupported policy version {version!r} — this build understands "
+            f"{list(SUPPORTED_POLICY_VERSIONS)}. Upgrade Jataayu, or write "
+            f"`version: {SUPPORTED_POLICY_VERSIONS[-1]}`."
+        )
+    return version
 
 
 def _mapping_section(raw: dict, key: str, where: str = "") -> dict:
@@ -350,11 +375,28 @@ def _string_list(value: Any, where: str, key: str) -> list[str]:
 # Every list field an agent block inherits from `defaults:`. get_agent_policy()'s
 # unknown-agent fallback and _parse_agent() both resolve these, so the defaults block
 # is a config path in its own right and is validated at parse time.
+#
+# EVERY list field in _parse_agent is on this tuple, and every bool field is on the one
+# below. That is the rule, not a coincidence: `protected_names` and `disabled_cred_rules`
+# were resolved off the agent block alone while the docs, the example file and the sibling
+# keys in the same `defaults:` block all said otherwise, so a roster written in `defaults:`
+# reached the wire unredacted. Adding a field here is part of adding it to _parse_agent.
 _INHERITED_LIST_KEYS = (
     "allowed_capabilities",
     "forbidden_capabilities",
     "internal_codenames",
     "gtm_codenames",
+    "protected_names",
+    "disabled_cred_rules",
+)
+
+# Every bool field an agent block inherits from `defaults:`. All of them go through
+# require_bool on both paths — `check_credentials: 0` silently switching off the whole
+# credential scan is the exact coercion this loader exists to reject.
+_INHERITED_BOOL_KEYS = (
+    "strict_unknown_tools",
+    "check_credentials",
+    "check_high_entropy",
 )
 
 
@@ -389,9 +431,12 @@ class Policy:
     Root policy object — contains all agent and surface policies.
 
     Attributes:
-        version: Policy format version.
+        version: Policy format version — validated against SUPPORTED_POLICY_VERSIONS
+            at load, so an unknown one raises rather than being stored and ignored.
         agents: Dict of agent_name → AgentPolicy.
-        global_surface_overrides: Global surface profile overrides.
+        global_surface_overrides: Always empty — the loader rejects a `surfaces:` block.
+            Kept so get_surface_profile()/to_dict() keep their shape; see
+            _reject_surfaces_block.
         defaults: Global defaults applied to all agents.
         source_path: Path to the YAML file this was loaded from (if any).
     """
@@ -511,7 +556,7 @@ class PolicyLoader:
         if not directory.is_dir():
             raise NotADirectoryError(f"Not a directory: {directory}")
 
-        merged: dict[str, Any] = {"version": 1, "agents": {}, "surfaces": {}}
+        merged: dict[str, Any] = {"version": 1, "agents": {}}
         for yaml_file in sorted(directory.glob("*.y*ml")):
             raw = PolicyLoader._load_yaml(str(yaml_file))
             if not isinstance(raw, dict):
@@ -519,6 +564,10 @@ class PolicyLoader:
                     f"{yaml_file}: policy must be a mapping at the top level, got "
                     f"{type(raw).__name__}"
                 )
+            _reject_surfaces_block(raw, str(yaml_file))
+            # Per file: the merged dict below carries a synthesized version, so a bad
+            # one in an individual file would never reach from_dict()'s check.
+            _parse_version(raw, str(yaml_file))
             for agent, cfg in _mapping_section(raw, "agents", str(yaml_file)).items():
                 if agent in merged["agents"]:
                     _logger.warning(
@@ -529,9 +578,6 @@ class PolicyLoader:
                         directory, agent, yaml_file.name,
                     )
                 merged["agents"][agent] = cfg
-            # Merge surface overrides
-            for surf, cfg in _mapping_section(raw, "surfaces", str(yaml_file)).items():
-                merged["surfaces"][surf] = cfg
             # Use first file's defaults
             if "defaults" not in merged and "defaults" in raw:
                 merged["defaults"] = raw["defaults"]
@@ -553,8 +599,10 @@ class PolicyLoader:
             raise ValueError(
                 f"policy must be a mapping at the top level, got {type(raw).__name__}"
             )
+        _reject_surfaces_block(raw)
+        version = _parse_version(raw)
         defaults = _mapping_section(raw, "defaults")
-        global_surfaces = _mapping_section(raw, "surfaces")
+        _reject_dead_keys(defaults, "defaults")
 
         # The defaults block feeds get_agent_policy()'s fallback for unknown agents,
         # so it is a config path in its own right and gets the same validation —
@@ -568,8 +616,9 @@ class PolicyLoader:
         )
         for key in _INHERITED_LIST_KEYS:
             _string_list(defaults.get(key), "defaults", key)
-        if "strict_unknown_tools" in defaults:
-            require_bool(defaults["strict_unknown_tools"], "defaults", "strict_unknown_tools")
+        for key in _INHERITED_BOOL_KEYS:
+            if key in defaults:
+                require_bool(defaults[key], "defaults", key)
 
         agents: dict[str, AgentPolicy] = {}
         for agent_name, agent_cfg in _mapping_section(raw, "agents").items():
@@ -584,44 +633,19 @@ class PolicyLoader:
             )
 
         return Policy(
-            version=int(raw.get("version", 1)),
+            version=version,
             agents=agents,
-            global_surface_overrides=global_surfaces,
             defaults=defaults,
             source_path=source_path,
         )
 
     @staticmethod
     def _parse_agent(name: str, cfg: dict, defaults: dict) -> AgentPolicy:
-        """Parse an agent config dict into an AgentPolicy."""
-        surface_overrides: dict[str, SurfacePolicy] = {}
-        for surf_name, surf_cfg in (cfg.get("surface_overrides") or {}).items():
-            if not isinstance(surf_cfg, dict):
-                raise ValueError(
-                    f"agents.{name}.surface_overrides.{surf_name}: expected a mapping of "
-                    f"settings, got {type(surf_cfg).__name__} — a surface key with an "
-                    f"empty body overrides nothing"
-                )
-            surface_overrides[surf_name] = SurfacePolicy(
-                surface=surf_name,
-                block_threshold=surf_cfg.get(
-                    "block_threshold", cfg.get("block_threshold", defaults.get("block_threshold", 0.9))
-                ),
-                llm_threshold=surf_cfg.get(
-                    "llm_threshold", cfg.get("llm_threshold", defaults.get("llm_threshold", 0.35))
-                ),
-                use_llm=surf_cfg.get(
-                    "use_llm", cfg.get("use_llm", defaults.get("use_llm", False))
-                ),
-                inbound_strict=surf_cfg.get("inbound_strict", True),
-                outbound_strict=surf_cfg.get("outbound_strict", False),
-                risk_multiplier=surf_cfg.get("risk_multiplier", 1.0),
-                trust_level=surf_cfg.get("trust_level", "medium"),
-                extra={k: v for k, v in surf_cfg.items()
-                       if k not in ("block_threshold", "llm_threshold", "use_llm",
-                                    "inbound_strict", "outbound_strict", "risk_multiplier",
-                                    "trust_level")},
-            )
+        """Parse an agent config dict into an AgentPolicy.
+
+        Every field inherits from `defaults:` when the agent block omits it.
+        """
+        _reject_dead_keys(cfg, f"agents.{name}")
 
         def inherited_list(key: str) -> list[str]:
             """Resolve a list field from the agent block, else `defaults:`, naming whichever
@@ -649,33 +673,21 @@ class PolicyLoader:
 
         return AgentPolicy(
             name=name,
-            allowed_surfaces=_string_list(
-                cfg.get("allowed_surfaces"), f"agents.{name}", "allowed_surfaces"
-            ),
-            surface_overrides=surface_overrides,
-            protected_names=_string_list(
-                cfg.get("protected_names"), f"agents.{name}", "protected_names"
-            ),
+            protected_names=inherited_list("protected_names"),
             internal_codenames=inherited_list("internal_codenames"),
             gtm_codenames=inherited_list("gtm_codenames"),
-            check_credentials=cfg.get("check_credentials", defaults.get("check_credentials", True)),
-            disabled_cred_rules=_string_list(
-                cfg.get("disabled_cred_rules"), f"agents.{name}", "disabled_cred_rules"
-            ),
-            check_high_entropy=cfg.get("check_high_entropy", defaults.get("check_high_entropy", False)),
-            use_llm=cfg.get("use_llm", defaults.get("use_llm", False)),
-            llm_threshold=cfg.get("llm_threshold", defaults.get("llm_threshold", 0.35)),
-            block_threshold=cfg.get("block_threshold", defaults.get("block_threshold", 0.9)),
+            check_credentials=inherited_bool("check_credentials", True),
+            disabled_cred_rules=inherited_list("disabled_cred_rules"),
+            check_high_entropy=inherited_bool("check_high_entropy", False),
             allowed_capabilities=inherited_list("allowed_capabilities"),
             forbidden_capabilities=inherited_list("forbidden_capabilities"),
             mode=mode,
             tool_effects=tool_effects,
             strict_unknown_tools=inherited_bool("strict_unknown_tools", False),
             extra={k: v for k, v in cfg.items()
-                   if k not in ("allowed_surfaces", "surface_overrides", "protected_names",
+                   if k not in ("protected_names",
                                 "internal_codenames", "gtm_codenames",
                                 "check_credentials", "disabled_cred_rules", "check_high_entropy",
-                                "use_llm", "llm_threshold", "block_threshold",
                                 "allowed_capabilities", "forbidden_capabilities",
                                 "mode", "tool_effects", "strict_unknown_tools")},
         )
@@ -727,13 +739,12 @@ def load_policy(path: Optional[str | Path] = None) -> Policy:
     if env_policy is not None:
         return env_policy
 
-    # Return empty policy with safe defaults
+    # Return empty policy with safe defaults. Only policy-settable keys belong here:
+    # get_agent_policy() runs this dict back through _parse_agent(), which rejects the
+    # rest — a built-in default naming one would make load_policy() raise on itself.
     return Policy(
         version=1,
         defaults={
-            "block_threshold": 0.9,
-            "llm_threshold": 0.35,
-            "use_llm": False,
             "check_credentials": True,
             "check_high_entropy": False,
         },
