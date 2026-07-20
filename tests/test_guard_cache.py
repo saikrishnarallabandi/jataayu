@@ -86,7 +86,7 @@ class TestOutboundGuardCache:
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = [executor.submit(exercise, i) for i in range(worker_count)]
             for future in futures:
-                future.result()
+                future.result(timeout=30)
 
 
 class TestInboundGuardCache:
