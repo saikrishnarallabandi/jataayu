@@ -21,6 +21,7 @@ Design constraints:
   - Conservative: views are *additional* scan surfaces; they only ever raise a score. Benign-FPR
     impact is measured in benchmarks/run_injection_bench.py (deleet is the riskiest view and is gated).
 """
+
 from __future__ import annotations
 
 import base64
@@ -37,27 +38,69 @@ import urllib.parse
 # only needs to cover same-glyph-different-script confusables that NFKC leaves alone.
 _CONFUSABLES: dict[str, str] = {
     # Cyrillic -> Latin
-    "а": "a", "е": "e", "о": "o", "р": "p", "с": "c",
-    "у": "y", "х": "x", "к": "k", "м": "m", "н": "h",
-    "т": "t", "в": "b", "і": "i", "ј": "j", "ѕ": "s", "ԁ": "d",
-    "А": "A", "Е": "E", "О": "O", "Р": "P", "С": "C",
-    "У": "Y", "Х": "X", "К": "K", "М": "M", "Н": "H",
-    "Т": "T", "В": "B", "І": "I", "Ј": "J",
+    "а": "a",
+    "е": "e",
+    "о": "o",
+    "р": "p",
+    "с": "c",
+    "у": "y",
+    "х": "x",
+    "к": "k",
+    "м": "m",
+    "н": "h",
+    "т": "t",
+    "в": "b",
+    "і": "i",
+    "ј": "j",
+    "ѕ": "s",
+    "ԁ": "d",
+    "А": "A",
+    "Е": "E",
+    "О": "O",
+    "Р": "P",
+    "С": "C",
+    "У": "Y",
+    "Х": "X",
+    "К": "K",
+    "М": "M",
+    "Н": "H",
+    "Т": "T",
+    "В": "B",
+    "І": "I",
+    "Ј": "J",
     # Greek -> Latin
-    "ο": "o", "α": "a", "ν": "v", "ρ": "p", "τ": "t",
-    "υ": "u", "χ": "x", "ι": "i", "κ": "k",
-    "Α": "A", "Β": "B", "Ε": "E", "Ζ": "Z", "Η": "H",
-    "Ι": "I", "Κ": "K", "Μ": "M", "Ν": "N", "Ο": "O",
-    "Ρ": "P", "Τ": "T", "Υ": "Y", "Χ": "X",
+    "ο": "o",
+    "α": "a",
+    "ν": "v",
+    "ρ": "p",
+    "τ": "t",
+    "υ": "u",
+    "χ": "x",
+    "ι": "i",
+    "κ": "k",
+    "Α": "A",
+    "Β": "B",
+    "Ε": "E",
+    "Ζ": "Z",
+    "Η": "H",
+    "Ι": "I",
+    "Κ": "K",
+    "Μ": "M",
+    "Ν": "N",
+    "Ο": "O",
+    "Ρ": "P",
+    "Τ": "T",
+    "Υ": "Y",
+    "Χ": "X",
 }
 _CONFUSABLE_TABLE = {ord(k): v for k, v in _CONFUSABLES.items()}
 
 # Zero-width / invisible separators an attacker inserts between characters to break word matching.
 _ZERO_WIDTH = dict.fromkeys(
     [0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, 0x00AD, 0x034F, 0x180E]
-    + list(range(0x200E, 0x2010))     # LRM/RLM and bidi marks
-    + list(range(0x202A, 0x202F))     # bidi embedding/override
-    + list(range(0x2066, 0x206A))     # bidi isolates
+    + list(range(0x200E, 0x2010))  # LRM/RLM and bidi marks
+    + list(range(0x202A, 0x202F))  # bidi embedding/override
+    + list(range(0x2066, 0x206A))  # bidi isolates
     + list(range(0xE0000, 0xE0080)),  # Unicode tag chars
     "",
 )

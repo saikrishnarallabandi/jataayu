@@ -1,6 +1,7 @@
 """
 Tests for Issue #6 — YAML policy configuration.
 """
+
 import os
 import tempfile
 from pathlib import Path
@@ -76,7 +77,7 @@ class TestPolicyLoading:
                 "test-agent": {
                     "protected_names": ["Alice"],
                 }
-            }
+            },
         }
         p = PolicyLoader.from_dict(raw)
         assert "test-agent" in p.agents
@@ -139,6 +140,7 @@ class TestSurfacePolicy:
     def test_surface_profile_is_the_builtin_table(self, policy):
         """get_surface_profile() returns SURFACE_PROFILES verbatim — nothing overrides it."""
         from jataayu.surfaces.profiles import SURFACE_PROFILES
+
         assert policy.get_surface_profile("github-issue") == SURFACE_PROFILES["github-issue"]
 
     def test_surface_profile_fallback_to_builtin(self, policy):
@@ -250,7 +252,11 @@ class TestEffectPolicyWiring:
     def test_yaml_tool_effects_changes_a_verdict(self, effect_policy_file):
         """The load-bearing assertion: config from a file moves the decision."""
         from jataayu.guards.effect_boundary import (
-            EffectBoundary, Value, Provenance, EffectClass, Decision,
+            EffectBoundary,
+            Value,
+            Provenance,
+            EffectClass,
+            Decision,
         )
 
         agent = load_policy(effect_policy_file).get_agent_policy("prod")
@@ -271,7 +277,7 @@ class TestEffectPolicyWiring:
         from jataayu.guards.effect_boundary import EffectBoundary, Value, Provenance, Decision
 
         agent = load_policy(effect_policy_file).get_agent_policy("prod")
-        b = EffectBoundary(policy=agent, mode="enforce")   # isolate strict from observe
+        b = EffectBoundary(policy=agent, mode="enforce")  # isolate strict from observe
         pv = b.preview("frobnicate.widget", {"x": 1}, [Value("p", Provenance.UNTRUSTED)])
         assert pv.decision is Decision.NEEDS_APPROVAL
 
@@ -288,7 +294,7 @@ class TestEffectPolicyWiring:
         agent = load_policy(effect_policy_file).get_agent_policy("prod")
         b = EffectBoundary(policy=agent, tool_effects={"local.tool": "shell"})
 
-        assert b.classify("local.tool") is EffectClass.SHELL          # from the kwarg
+        assert b.classify("local.tool") is EffectClass.SHELL  # from the kwarg
         assert b.classify("jira.create_issue") is EffectClass.NETWORK  # from the file
 
     def test_kwarg_wins_per_key_on_conflict(self, effect_policy_file):
@@ -314,8 +320,10 @@ class TestEffectPolicyWiring:
         from jataayu import jataayu_authorize_action
 
         d = jataayu_authorize_action(
-            "internal.run_playbook", {"x": 1},
-            policy_file=effect_policy_file, agent="prod",
+            "internal.run_playbook",
+            {"x": 1},
+            policy_file=effect_policy_file,
+            agent="prod",
         )
         assert d["effect_class"] == "shell"
         assert d["would_decision"] == "deny"
@@ -345,9 +353,7 @@ class TestEffectPolicyValidation:
 
     def test_invalid_effect_value_raises_naming_the_tool(self):
         with pytest.raises(ValueError, match="db.query"):
-            self._load(
-                "version: 1\nagents:\n  prod:\n    tool_effects:\n      db.query: shel\n"
-            )
+            self._load("version: 1\nagents:\n  prod:\n    tool_effects:\n      db.query: shel\n")
 
     def test_agent_with_an_empty_body_raises_naming_the_agent(self):
         with pytest.raises(ValueError, match="agents.prod"):
@@ -370,11 +376,7 @@ class TestEffectPolicyValidation:
 
 
 DEFAULTS_FORBID = (
-    "version: 1\n"
-    "defaults:\n"
-    "  forbidden_capabilities: [exec, fs_write]\n"
-    "agents:\n"
-    "  prod: {}\n"
+    "version: 1\ndefaults:\n  forbidden_capabilities: [exec, fs_write]\nagents:\n  prod: {}\n"
 )
 
 
@@ -393,7 +395,8 @@ class TestDefaultsCapabilityFallback:
 
     def test_fallback_inherits_forbidden_capabilities(self, policy_path):
         assert load_policy(policy_path).get_agent_policy("").forbidden_capabilities == [
-            "exec", "fs_write",
+            "exec",
+            "fs_write",
         ]
 
     @pytest.mark.parametrize("agent", [None, "prod", "prodd"])
@@ -402,8 +405,11 @@ class TestDefaultsCapabilityFallback:
         from jataayu import jataayu_authorize_action
 
         d = jataayu_authorize_action(
-            "shell.exec", {"command": "ls"}, untrusted=False,
-            policy_file=policy_path, agent=agent,
+            "shell.exec",
+            {"command": "ls"},
+            untrusted=False,
+            policy_file=policy_path,
+            agent=agent,
         )
         assert d["decision"] == "deny"
         assert "exec" in d["violations"]
@@ -429,14 +435,20 @@ class TestPolicyFileHotReload:
         p = tmp_path / "jataayu-policy.yml"
         self._write(p, "observe")
         first = jataayu_authorize_action(
-            "internal.run_playbook", {"x": 1}, policy_file=str(p), agent="prod",
+            "internal.run_playbook",
+            {"x": 1},
+            policy_file=str(p),
+            agent="prod",
         )
         assert first["decision"] == "allow"
         assert first["would_decision"] == "deny"
 
         self._write(p, "enforce")
         after = jataayu_authorize_action(
-            "internal.run_playbook", {"x": 1}, policy_file=str(p), agent="prod",
+            "internal.run_playbook",
+            {"x": 1},
+            policy_file=str(p),
+            agent="prod",
         )
         assert after["decision"] == "deny"
 
@@ -452,19 +464,31 @@ class TestPolicyFileHotReload:
         p = tmp_path / "jataayu-policy.yml"
         self._write(p, "observe")
         st = p.stat()
-        assert jataayu_authorize_action(
-            "internal.run_playbook", {"x": 1}, policy_file=str(p), agent="prod",
-        )["decision"] == "allow"
+        assert (
+            jataayu_authorize_action(
+                "internal.run_playbook",
+                {"x": 1},
+                policy_file=str(p),
+                agent="prod",
+            )["decision"]
+            == "allow"
+        )
 
         self._write(p, "enforce")
         os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns))
         assert p.stat().st_mtime_ns == st.st_mtime_ns
         assert p.stat().st_size == st.st_size
 
-        for _ in range(2):   # ...and stays enforcing, not just on the first re-read
-            assert jataayu_authorize_action(
-                "internal.run_playbook", {"x": 1}, policy_file=str(p), agent="prod",
-            )["decision"] == "deny"
+        for _ in range(2):  # ...and stays enforcing, not just on the first re-read
+            assert (
+                jataayu_authorize_action(
+                    "internal.run_playbook",
+                    {"x": 1},
+                    policy_file=str(p),
+                    agent="prod",
+                )["decision"]
+                == "deny"
+            )
 
     def test_a_policy_file_deleted_after_a_hit_raises(self, tmp_path):
         """A cached hit must not outlive the file it was parsed from."""
@@ -508,14 +532,28 @@ class TestPolicyFileHotReload:
 
         p = tmp_path / "jataayu-policy.yml"
         p.write_text("version: 1\nagents:\n  prod: {}\n")
-        assert jataayu_authorize_action(
-            "shell.exec", {"x": 1}, untrusted=False, policy_file=str(p), agent="prod",
-        )["decision"] == "allow"
+        assert (
+            jataayu_authorize_action(
+                "shell.exec",
+                {"x": 1},
+                untrusted=False,
+                policy_file=str(p),
+                agent="prod",
+            )["decision"]
+            == "allow"
+        )
 
         p.write_text("version: 1\nagents:\n  prod:\n    forbidden_capabilities: [exec]\n")
-        assert jataayu_authorize_action(
-            "shell.exec", {"x": 1}, untrusted=False, policy_file=str(p), agent="prod",
-        )["decision"] == "deny"
+        assert (
+            jataayu_authorize_action(
+                "shell.exec",
+                {"x": 1},
+                untrusted=False,
+                policy_file=str(p),
+                agent="prod",
+            )["decision"]
+            == "deny"
+        )
 
     def test_an_edit_takes_effect_on_the_very_next_call(self, tmp_path):
         """No stat manipulation, no sleep, no cache to clear — just write and call.
@@ -541,7 +579,8 @@ class TestPolicyFileHotReload:
         calls = []
         real = policy_mod.PolicyLoader._load_yaml
         monkeypatch.setattr(
-            policy_mod.PolicyLoader, "_load_yaml",
+            policy_mod.PolicyLoader,
+            "_load_yaml",
             staticmethod(lambda path: (calls.append(path), real(path))[1]),
         )
 
@@ -601,9 +640,7 @@ class TestScalarListFieldsAreRejected:
 
     def test_scalar_forbidden_capabilities_on_an_agent_raises(self, tmp_path):
         with pytest.raises(ValueError, match="forbidden_capabilities"):
-            self._load(
-                "version: 1\nagents:\n  prod:\n    forbidden_capabilities: exec\n", tmp_path
-            )
+            self._load("version: 1\nagents:\n  prod:\n    forbidden_capabilities: exec\n", tmp_path)
 
     def test_scalar_forbidden_capabilities_in_defaults_raises(self, tmp_path):
         """No `agents:` block — the defaults block has to be validated on its own.
@@ -613,15 +650,11 @@ class TestScalarListFieldsAreRejected:
         on every authorization request instead.
         """
         with pytest.raises(ValueError, match="defaults"):
-            self._load(
-                "version: 1\ndefaults:\n  forbidden_capabilities: exec\n", tmp_path
-            )
+            self._load("version: 1\ndefaults:\n  forbidden_capabilities: exec\n", tmp_path)
 
     def test_scalar_in_defaults_raises_from_from_dict_directly(self):
         with pytest.raises(ValueError, match="forbidden_capabilities"):
-            PolicyLoader.from_dict(
-                {"version": 1, "defaults": {"forbidden_capabilities": "exec"}}
-            )
+            PolicyLoader.from_dict({"version": 1, "defaults": {"forbidden_capabilities": "exec"}})
 
     @pytest.mark.parametrize("key", _INHERITED_LIST_KEYS)
     def test_every_inherited_list_key_is_validated_in_defaults(self, key):
@@ -639,9 +672,7 @@ class TestScalarListFieldsAreRejected:
 
     def test_non_string_elements_in_defaults_are_rejected(self):
         with pytest.raises(ValueError, match="forbidden_capabilities"):
-            PolicyLoader.from_dict(
-                {"version": 1, "defaults": {"forbidden_capabilities": [1, 2]}}
-            )
+            PolicyLoader.from_dict({"version": 1, "defaults": {"forbidden_capabilities": [1, 2]}})
 
     def test_scalar_in_defaults_raises_on_the_fallback_path_too(self):
         """get_agent_policy() is reachable without the loader — the same rule applies."""
@@ -655,20 +686,19 @@ class TestScalarListFieldsAreRejected:
         from jataayu import jataayu_authorize_action
 
         p = tmp_path / "jataayu-policy.yml"
-        p.write_text(
-            "version: 1\ndefaults:\n  forbidden_capabilities: exec\nagents:\n  prod: {}\n"
-        )
+        p.write_text("version: 1\ndefaults:\n  forbidden_capabilities: exec\nagents:\n  prod: {}\n")
         with pytest.raises(ValueError):
             jataayu_authorize_action(
-                "shell.exec", {"command": "ls"}, untrusted=False,
-                policy_file=str(p), agent=agent,
+                "shell.exec",
+                {"command": "ls"},
+                untrusted=False,
+                policy_file=str(p),
+                agent=agent,
             )
 
     def test_scalar_protected_names_raises(self, tmp_path):
         with pytest.raises(ValueError, match="protected_names"):
-            self._load(
-                "version: 1\nagents:\n  prod:\n    protected_names: Alice\n", tmp_path
-            )
+            self._load("version: 1\nagents:\n  prod:\n    protected_names: Alice\n", tmp_path)
 
     def test_a_real_list_still_loads(self, tmp_path):
         p = self._load(
@@ -761,8 +791,7 @@ class TestEveryInheritedKeyActuallyInherits:
         builtin = getattr(AgentPolicy(name="x"), key)
         p = tmp_path / "jataayu-policy.yml"
         p.write_text(
-            f"version: 1\ndefaults:\n  {key}: {str(not builtin).lower()}\n"
-            f"agents:\n  prod: {{}}\n"
+            f"version: 1\ndefaults:\n  {key}: {str(not builtin).lower()}\nagents:\n  prod: {{}}\n"
         )
         got = load_policy(str(p)).get_agent_policy(agent)
         assert getattr(got, key) is (not builtin), f"{key} did not inherit for agent={agent!r}"
@@ -772,8 +801,7 @@ class TestEveryInheritedKeyActuallyInherits:
     def test_the_agent_block_still_wins_over_defaults(self, tmp_path, key, agent):
         p = tmp_path / "jataayu-policy.yml"
         p.write_text(
-            f"version: 1\ndefaults:\n  {key}: [zephyr]\n"
-            f"agents:\n  prod:\n    {key}: [tern]\n"
+            f"version: 1\ndefaults:\n  {key}: [zephyr]\nagents:\n  prod:\n    {key}: [tern]\n"
         )
         expected = ["tern"] if agent == "prod" else ["zephyr"]
         assert getattr(load_policy(str(p)).get_agent_policy(agent), key) == expected
@@ -801,7 +829,9 @@ class TestEveryInheritedKeyActuallyInherits:
             if f.name in ("name", "tool_effects", "extra"):
                 continue
             value = getattr(AgentPolicy(name="x"), f.name)
-            (listy if isinstance(value, list) else booly if isinstance(value, bool) else set()).add(f.name)
+            (listy if isinstance(value, list) else booly if isinstance(value, bool) else set()).add(
+                f.name
+            )
         assert listy == set(_INHERITED_LIST_KEYS)
         assert booly == set(_INHERITED_BOOL_KEYS)
 
@@ -825,9 +855,7 @@ class TestPolicyListsAreNotAliased:
     def policy(self, tmp_path):
         p = tmp_path / "jataayu-policy.yml"
         p.write_text(
-            "version: 1\n"
-            "defaults:\n  forbidden_capabilities: [exec]\n"
-            "agents:\n  a: {}\n  b: {}\n"
+            "version: 1\ndefaults:\n  forbidden_capabilities: [exec]\nagents:\n  a: {}\n  b: {}\n"
         )
         return load_policy(str(p))
 
@@ -849,9 +877,7 @@ class TestPolicyListsAreNotAliased:
     def test_inherited_codenames_are_not_aliased(self, tmp_path):
         p = tmp_path / "jataayu-policy.yml"
         p.write_text(
-            "version: 1\n"
-            "defaults:\n  internal_codenames: [Bluebird]\n"
-            "agents:\n  a: {}\n  b: {}\n"
+            "version: 1\ndefaults:\n  internal_codenames: [Bluebird]\nagents:\n  a: {}\n  b: {}\n"
         )
         policy = load_policy(str(p))
         policy.agents["a"].to_privacy_config().internal_codenames.append("Leaked")
@@ -964,7 +990,9 @@ class TestSurfacesBlockIsRejected:
         load_policy(str(p))
         assert SURFACE_PROFILES["github-issue"]["risk_multiplier"] == 1.2
         assert SURFACE_PROFILES["github-issue"]["trust_level"] == "low"
-        assert InboundGuard().get_surface_profile("github-issue") == SURFACE_PROFILES["github-issue"]
+        assert (
+            InboundGuard().get_surface_profile("github-issue") == SURFACE_PROFILES["github-issue"]
+        )
 
 
 class TestShippedExampleLoads:
@@ -984,6 +1012,7 @@ class TestShippedExampleLoads:
     def test_example_documents_no_surfaces_block(self):
         """A regression guard on the doc itself, not just the loader."""
         import yaml
+
         assert "surfaces" not in yaml.safe_load(self.EXAMPLE.read_text())
 
 

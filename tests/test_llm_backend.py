@@ -5,6 +5,7 @@ Tests for LLMBackend configuration — the security-critical bits:
   - Gateway base-URL normalization
 No live network: requests.post is mocked where a call is exercised.
 """
+
 import pytest
 
 from jataayu.core.engine import LLMBackend
@@ -47,6 +48,7 @@ def _openai_payload():
 # TLS verification gating
 # ---------------------------------------------------------------------------
 
+
 class TestTLSGating:
     def _capture_verify(self, monkeypatch, backend, base_url):
         captured = {}
@@ -57,6 +59,7 @@ class TestTLSGating:
             return _FakeResponse(_openai_payload())
 
         import requests
+
         monkeypatch.setattr(requests, "post", fake_post)
         b = LLMBackend(backend=backend, base_url=base_url, api_key="tok")
         b.call("sys", "user")
@@ -86,6 +89,7 @@ class TestTLSGating:
 # ---------------------------------------------------------------------------
 # Gateway bearer-token precedence
 # ---------------------------------------------------------------------------
+
 
 class TestGatewayTokenPrecedence:
     # A gateway backend resolves its base URL at construction, so these set it to let
@@ -133,6 +137,7 @@ class TestGatewayTokenPrecedence:
 # Gateway base-URL normalization
 # ---------------------------------------------------------------------------
 
+
 class TestGatewayURLNormalization:
     @pytest.mark.parametrize(
         "given,expected",
@@ -164,6 +169,7 @@ class TestGatewayURLNormalization:
 # ---------------------------------------------------------------------------
 # base_url normalization applies regardless of source (openai + gateway)
 # ---------------------------------------------------------------------------
+
 
 class TestBaseURLNormalizationAllSources:
     def test_gateway_explicit_arg_is_normalized(self):
@@ -201,6 +207,7 @@ class TestBaseURLNormalizationAllSources:
 # ---------------------------------------------------------------------------
 # Non-gateway backends construct without any gateway env
 # ---------------------------------------------------------------------------
+
 
 class TestOtherBackendsConstruct:
     @pytest.mark.parametrize("backend", ["ollama", "openai", "anthropic"])

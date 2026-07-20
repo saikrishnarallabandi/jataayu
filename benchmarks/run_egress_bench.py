@@ -32,6 +32,7 @@ Usage:
   python benchmarks/run_egress_bench.py --surface github-comment --json
   python benchmarks/run_egress_bench.py --repeat 10          # median-of-10 latency
 """
+
 import argparse
 import json
 import sys
@@ -64,7 +65,8 @@ def load(path):
 def score(rec, surface):
     t0 = time.perf_counter()
     r = jataayu_check_egress(
-        rec["text"], surface=surface,
+        rec["text"],
+        surface=surface,
         allowed_domains=rec.get("allowed_domains") or None,
         context_secrets=rec.get("context_secrets") or None,
     )
@@ -74,12 +76,17 @@ def score(rec, surface):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default=str(DATA))
-    ap.add_argument("--surface", default="github-comment",
-                    help="target surface (recorded on the result)")
+    ap.add_argument(
+        "--surface", default="github-comment", help="target surface (recorded on the result)"
+    )
     ap.add_argument("--out", default=str(OUT_DIR / "egress_v1.json"))
-    ap.add_argument("--repeat", type=int, default=1,
-                    help="score the corpus N times and report the median of the per-run "
-                         "latency statistics (detection is deterministic and unaffected)")
+    ap.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="score the corpus N times and report the median of the per-run "
+        "latency statistics (detection is deterministic and unaffected)",
+    )
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
     if args.repeat < 1:
@@ -88,8 +95,10 @@ def main():
     rows = load(args.data)
     pos = [r for r in rows if r["is_exfil"]]
     neg = [r for r in rows if not r["is_exfil"]]
-    print(f"[egress] {len(rows)} records | exfil={len(pos)} benign={len(neg)} "
-          f"| surface={args.surface}")
+    print(
+        f"[egress] {len(rows)} records | exfil={len(pos)} benign={len(neg)} "
+        f"| surface={args.surface}"
+    )
 
     # with --repeat the corpus is scored again for the timing only; the guard is
     # deterministic, so every pass produces the same decisions.
@@ -132,14 +141,17 @@ def main():
     overall = {
         "n_exfil": len(pos),
         "n_benign": len(neg),
-        "recall_caught": round(rec_, 4),          # not-SAFE on exfil
+        "recall_caught": round(rec_, 4),  # not-SAFE on exfil
         "block_rate": round(n_block / len(pos), 4) if pos else None,
         "precision": round(prec, 4),
         "fpr": round(fpr, 4),
         "f1": round(f1, 4),
         "benign_pass_rate": round(tn / len(neg), 4) if neg else None,
         "benign_false_block_rate": round(fp / len(neg), 4) if neg else None,
-        "tp": tp, "fp": fp, "tn": tn, "fn": fn,
+        "tp": tp,
+        "fp": fp,
+        "tn": tn,
+        "fn": fn,
     }
 
     # ---- by channel -------------------------------------------------------
@@ -162,8 +174,7 @@ def main():
     # ---- confirmed-exfil (secret riding the URL) --------------------------
     sec = [(rec, r) for rec, r in scored if rec.get("has_secret")]
     sec_caught = sum(1 for rec, r in sec if not_safe(r))
-    sec_confirmed = sum(1 for rec, r in sec
-                        if "known sensitive value" in (r["findings"] or ""))
+    sec_confirmed = sum(1 for rec, r in sec if "known sensitive value" in (r["findings"] or ""))
     confirmed_exfil = {
         "n_secret_riding": len(sec),
         "caught": sec_caught,
@@ -186,8 +197,14 @@ def main():
     benign_altered = []
     for rec, r in scored:
         if not rec["is_exfil"] and not_safe(r):
-            benign_altered.append({"id": rec["id"], "text": rec["text"],
-                                   "status": r["status"], "findings": r["findings"]})
+            benign_altered.append(
+                {
+                    "id": rec["id"],
+                    "text": rec["text"],
+                    "status": r["status"],
+                    "findings": r["findings"],
+                }
+            )
 
     result = {
         "benchmark": "Jataayu egress-channel (EchoLeak / AgentFlayer / Notion class)",
@@ -213,25 +230,39 @@ def main():
 
     # ---- console summary --------------------------------------------------
     o = overall
-    print(f"\nOverall: recall(caught)={o['recall_caught']:.3f} block_rate={o['block_rate']:.3f} "
-          f"P={o['precision']:.3f} FPR={o['fpr']:.3f} F1={o['f1']:.3f}")
-    print(f"Benign:  pass_rate={o['benign_pass_rate']:.3f} "
-          f"false_block={o['benign_false_block_rate']:.3f}")
+    print(
+        f"\nOverall: recall(caught)={o['recall_caught']:.3f} block_rate={o['block_rate']:.3f} "
+        f"P={o['precision']:.3f} FPR={o['fpr']:.3f} F1={o['f1']:.3f}"
+    )
+    print(
+        f"Benign:  pass_rate={o['benign_pass_rate']:.3f} "
+        f"false_block={o['benign_false_block_rate']:.3f}"
+    )
     ce = confirmed_exfil
-    print(f"Confirmed-exfil (secret in URL): recall={ce['recall']} "
-          f"confirmed_reason_rate={ce['confirmed_reason_rate']} (n={ce['n_secret_riding']})")
-    print(f"Text-preservation (of caught): {text_preservation['rate']} "
-          f"({text_preservation['preserved']}/{text_preservation['n_caught']})")
+    print(
+        f"Confirmed-exfil (secret in URL): recall={ce['recall']} "
+        f"confirmed_reason_rate={ce['confirmed_reason_rate']} (n={ce['n_secret_riding']})"
+    )
+    print(
+        f"Text-preservation (of caught): {text_preservation['rate']} "
+        f"({text_preservation['preserved']}/{text_preservation['n_caught']})"
+    )
     print(f"\n{'channel':10} {'n':>3} {'recall':>7} {'block':>7} {'text-kept':>10} {'missed'}")
     for ch, m in by_channel.items():
-        tk = "-" if m["text_preserved_of_caught"] is None else f"{m['text_preserved_of_caught']:.3f}"
-        print(f"{ch:10} {m['n']:>3} {m['recall_caught']:>7.3f} {m['block_rate']:>7.3f} "
-              f"{tk:>10} {m['missed'] or ''}")
+        tk = (
+            "-" if m["text_preserved_of_caught"] is None else f"{m['text_preserved_of_caught']:.3f}"
+        )
+        print(
+            f"{ch:10} {m['n']:>3} {m['recall_caught']:>7.3f} {m['block_rate']:>7.3f} "
+            f"{tk:>10} {m['missed'] or ''}"
+        )
     if benign_altered:
         print(f"\nWARNING — benign false-blocks: {[b['id'] for b in benign_altered]}")
     over = f" (median of {args.repeat} runs)" if args.repeat > 1 else ""
-    print(f"\nlatency: mean {result['latency_ms']['mean']}ms  "
-          f"p99 {result['latency_ms']['p99']}ms{over}")
+    print(
+        f"\nlatency: mean {result['latency_ms']['mean']}ms  "
+        f"p99 {result['latency_ms']['p99']}ms{over}"
+    )
     print(f"wrote {args.out}")
 
     if args.json:

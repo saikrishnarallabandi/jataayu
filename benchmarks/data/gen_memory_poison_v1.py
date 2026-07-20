@@ -31,6 +31,7 @@ Row schema (JSONL):
 
 Usage:  python3 benchmarks/data/gen_memory_poison_v1.py
 """
+
 from __future__ import annotations
 
 import base64
@@ -48,8 +49,16 @@ OUT = Path(__file__).parent / "memory_poison_v1.jsonl"
 
 # Framing that makes the payload look like a stored memory / note.
 MEMORY_PREFIXES = [
-    "Note:", "Reminder:", "Memory:", "Fact to remember:", "Saved note:",
-    "Preference:", "For later:", "Journal entry:", "Pinned:", "TODO note:",
+    "Note:",
+    "Reminder:",
+    "Memory:",
+    "Fact to remember:",
+    "Saved note:",
+    "Preference:",
+    "For later:",
+    "Journal entry:",
+    "Pinned:",
+    "TODO note:",
 ]
 
 # Actions an injected instruction wants the agent to take later.
@@ -125,8 +134,7 @@ ENC_CARRIERS = [
     "Pinned note: {p}",
 ]
 
-_CYRILLIC = {"a": "а", "e": "е", "o": "о", "c": "с",
-             "i": "і", "p": "р", "y": "у", "x": "х"}
+_CYRILLIC = {"a": "а", "e": "е", "o": "о", "c": "с", "i": "і", "p": "р", "y": "у", "x": "х"}
 _LEET = {"a": "4", "e": "3", "i": "1", "o": "0", "s": "5", "t": "7"}
 
 
@@ -276,6 +284,7 @@ BENIGN_TRICKY = [
 # Generation (deterministic)
 # ---------------------------------------------------------------------------
 
+
 def _cap(rng, seq, k):
     """Deterministic sample without replacement (order-stable)."""
     idx = list(range(len(seq)))
@@ -296,8 +305,15 @@ def generate():
             direct.append(f"{pre} {core.format(a=a)}")
     direct = _cap(rng, sorted(set(direct)), 34)
     for t in direct:
-        rows.append(dict(text=t, label=1, subclass="direct-instruction",
-                         tricky=False, note="override/authority/tool-directive payload"))
+        rows.append(
+            dict(
+                text=t,
+                label=1,
+                subclass="direct-instruction",
+                tricky=False,
+                note="override/authority/tool-directive payload",
+            )
+        )
 
     # ---- deferred / sleeper poison (target ~33) ----
     deferred = []
@@ -308,8 +324,15 @@ def generate():
             deferred.append(f"{pre} {tmpl.format(a=h)}")
     deferred = _cap(rng, sorted(set(deferred)), 33)
     for t in deferred:
-        rows.append(dict(text=t, label=1, subclass="deferred",
-                         tricky=False, note="sleeper trigger — harm deferred to a future action"))
+        rows.append(
+            dict(
+                text=t,
+                label=1,
+                subclass="deferred",
+                tricky=False,
+                note="sleeper trigger — harm deferred to a future action",
+            )
+        )
 
     # ---- encoded / obfuscated poison (target ~33; every encoder represented) ----
     encoded = []
@@ -321,18 +344,33 @@ def generate():
     rng.shuffle(encoded)
     encoded = encoded[:33]
     for name, t in encoded:
-        rows.append(dict(text=t, label=1, subclass="encoded",
-                         tricky=False, note=f"obfuscated payload via {name}"))
+        rows.append(
+            dict(
+                text=t,
+                label=1,
+                subclass="encoded",
+                tricky=False,
+                note=f"obfuscated payload via {name}",
+            )
+        )
 
     # ---- benign: ordinary (label 0) ----
     for t in BENIGN_ORDINARY:
-        rows.append(dict(text=t, label=0, subclass="benign",
-                         tricky=False, note="ordinary user memory"))
+        rows.append(
+            dict(text=t, label=0, subclass="benign", tricky=False, note="ordinary user memory")
+        )
 
     # ---- benign: tricky-but-benign (label 0) ----
     for t in BENIGN_TRICKY:
-        rows.append(dict(text=t, label=0, subclass="benign",
-                         tricky=True, note="benign memory containing trigger vocabulary"))
+        rows.append(
+            dict(
+                text=t,
+                label=0,
+                subclass="benign",
+                tricky=True,
+                note="benign memory containing trigger vocabulary",
+            )
+        )
 
     # Deterministic global shuffle + stable ids.
     rng.shuffle(rows)

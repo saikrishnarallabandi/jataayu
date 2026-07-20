@@ -2,6 +2,7 @@
 Tests for Issue #5 — OutboundGuard credential leak detection.
 Covers Aguara CRED_001-017 patterns.
 """
+
 import pytest
 from jataayu.guards.outbound import OutboundGuard, PrivacyConfig
 from jataayu.core.threat import ThreatType
@@ -129,7 +130,10 @@ class TestDatabaseConnectionStrings:
 class TestWebhooks:
     def test_slack_webhook_detected(self, guard):
         # Fake test webhook — structurally valid but obviously not a real token
-        fake_webhook = "https://hooks.slack.com/services/" + "T0TEST0000/B0TEST0000/jataayuTestTokenFakeNotReal0x01"
+        fake_webhook = (
+            "https://hooks.slack.com/services/"
+            + "T0TEST0000/B0TEST0000/jataayuTestTokenFakeNotReal0x01"
+        )
         result = guard.check(f"Slack webhook: {fake_webhook}", surface="group-chat")
         assert not result.is_safe
         assert ThreatType.CREDENTIAL_LEAK in result.threat_types
@@ -195,11 +199,13 @@ class TestGenericAPIKeys:
 
 class TestHighEntropy:
     def test_high_entropy_string_detected(self):
-        guard = OutboundGuard(PrivacyConfig(
-            use_llm=False,
-            check_credentials=True,
-            check_high_entropy=True,
-        ))
+        guard = OutboundGuard(
+            PrivacyConfig(
+                use_llm=False,
+                check_credentials=True,
+                check_high_entropy=True,
+            )
+        )
         # This is a realistic secret: high entropy, alphanumeric, >= 40 chars
         secret = "aB3cD4eF5gH6iJ7kL8mN9oP0qR1sT2uV3wX4yZ5aB"  # 41 chars, high entropy
         result = guard.check(f"config = {secret}", surface="group-chat")
@@ -237,11 +243,13 @@ class TestCredentialCheckDisabled:
 
 class TestDisabledCredRules:
     def test_disabled_rule_not_flagged(self):
-        guard = OutboundGuard(PrivacyConfig(
-            use_llm=False,
-            check_credentials=True,
-            disabled_cred_rules=["CRED_004"],  # Disable generic API key
-        ))
+        guard = OutboundGuard(
+            PrivacyConfig(
+                use_llm=False,
+                check_credentials=True,
+                disabled_cred_rules=["CRED_004"],  # Disable generic API key
+            )
+        )
         result = guard.check(
             "api_key = 1234567890abcdefghijklmnop",
             surface="group-chat",
@@ -257,8 +265,9 @@ class TestCleanContentNotFlaggedForCreds:
             "The function returns a UUID string like '550e8400-e29b-41d4-a716-446655440000'.",
             surface="discord-channel",
         )
-        assert ThreatType.CREDENTIAL_LEAK not in result.threat_types, \
+        assert ThreatType.CREDENTIAL_LEAK not in result.threat_types, (
             f"UUID falsely flagged as credential: {result.matched_patterns}"
+        )
 
     def test_doc_string_not_flagged(self, guard):
         result = guard.check(

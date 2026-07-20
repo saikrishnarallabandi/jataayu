@@ -9,6 +9,7 @@ hide the dispersion.
 With N=1 the median of one run is that run, so `median_of_runs` returns exactly what a
 single pass reported before this existed.
 """
+
 import statistics as st
 
 

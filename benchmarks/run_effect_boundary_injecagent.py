@@ -67,6 +67,7 @@ Usage:
   python3 benchmarks/run_effect_boundary_injecagent.py            # base (1054), + enhanced (2108)
   python3 benchmarks/run_effect_boundary_injecagent.py --json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -94,19 +95,49 @@ ALLOW, DENY, APPROVAL = "allow", "deny", "needs_approval"
 # One rule for both attacker and user tools. Sink verbs win over read verbs.
 # ---------------------------------------------------------------------------
 READ_VERBS = {
-    "get", "read", "search", "fetch", "list", "view", "retrieve",
-    "lookup", "access", "download", "navigate",
+    "get",
+    "read",
+    "search",
+    "fetch",
+    "list",
+    "view",
+    "retrieve",
+    "lookup",
+    "access",
+    "download",
+    "navigate",
 }
 NETWORK_VERBS = {  # irreversible external effect / physical actuation / value movement
     # NB: "place" covers PlaceOrder; we deliberately do NOT include "order" — it would
     # mis-catch reads like Get*OrderHistory (a sink verb must not fire on a read tool).
-    "send", "transfer", "withdraw", "pay", "deposit", "place",
-    "unlock", "grant", "dispatch", "schedule", "post", "share",
-    "autofill", "fill", "go", "goto", "give", "priority",
+    "send",
+    "transfer",
+    "withdraw",
+    "pay",
+    "deposit",
+    "place",
+    "unlock",
+    "grant",
+    "dispatch",
+    "schedule",
+    "post",
+    "share",
+    "autofill",
+    "fill",
+    "go",
+    "goto",
+    "give",
+    "priority",
 }
 FILEWRITE_VERBS = {  # mutation of stored state / records
-    "delete", "create", "update", "manage", "move", "disable",
-    "leave", "generate",
+    "delete",
+    "create",
+    "update",
+    "manage",
+    "move",
+    "disable",
+    "leave",
+    "generate",
 }
 SHELL_VERBS = {"execute", "exec", "run"}
 
@@ -171,13 +202,15 @@ def load_cases(data_dir: Path, split: str):
     for harm in ("dh", "ds"):
         f = data_dir / f"test_cases_{harm}_{split}.json"
         for c in json.load(open(f)):
-            cases.append({
-                "harm": harm,
-                "attacker_tools": c["Attacker Tools"],
-                "attack_type": c.get("Attack Type", "?"),
-                "user_tool": c["User Tool"],
-                "user_params": _parse_params(c.get("Tool Parameters", "")),
-            })
+            cases.append(
+                {
+                    "harm": harm,
+                    "attacker_tools": c["Attacker Tools"],
+                    "attack_type": c.get("Attack Type", "?"),
+                    "user_tool": c["User Tool"],
+                    "user_params": _parse_params(c.get("Tool Parameters", "")),
+                }
+            )
     return cases
 
 
@@ -248,12 +281,17 @@ def score_attackers(cases, boundary, ambiguous_tools):
             if d != ALLOW:
                 chain_gated = True
                 break
-        per.append({
-            "harm": c["harm"], "attack_type": c["attack_type"],
-            "primary_tool": t0, "primary_ambiguous": prim_ambig,
-            "primary_decision": prim_dec, "primary_effect": prim_eff,
-            "chain_gated": chain_gated,
-        })
+        per.append(
+            {
+                "harm": c["harm"],
+                "attack_type": c["attack_type"],
+                "primary_tool": t0,
+                "primary_ambiguous": prim_ambig,
+                "primary_decision": prim_dec,
+                "primary_effect": prim_eff,
+                "chain_gated": chain_gated,
+            }
+        )
     return per, lat
 
 
@@ -313,8 +351,7 @@ def effect_distribution(audit, cases, boundary, ambiguous_tools):
             atk[e] = atk.get(e, 0) + 1
         _, ue = decide(boundary, c["user_tool"], {}, untrusted=False)
         usr[ue] = usr.get(ue, 0) + 1
-    return {"attacker_primary": dict(sorted(atk.items())),
-            "user": dict(sorted(usr.items()))}
+    return {"attacker_primary": dict(sorted(atk.items())), "user": dict(sorted(usr.items()))}
 
 
 def run_split(cases, boundary, ambiguous_tools):
@@ -403,35 +440,51 @@ def main():
 
     # ---- console summary ----
     b = base_res
-    print(f"[injecagent effect-boundary] base n={b['n_cases']}  "
-          f"enhanced n={enh_res['n_cases']}  data_dir={data_dir}")
-    print(f"distinct tools mapped: {len(audit)}   ambiguous: {len(ambiguous)} "
-          f"{[a['tool'] for a in ambiguous]}")
+    print(
+        f"[injecagent effect-boundary] base n={b['n_cases']}  "
+        f"enhanced n={enh_res['n_cases']}  data_dir={data_dir}"
+    )
+    print(
+        f"distinct tools mapped: {len(audit)}   ambiguous: {len(ambiguous)} "
+        f"{[a['tool'] for a in ambiguous]}"
+    )
     print()
     a = b["attacker"]
     print("ATTACKER (untrusted, poisoned tool return):")
-    print(f"  n={a['n']}  scored_primary={a['n_scored_primary']}  "
-          f"ambiguous_excl={a['n_ambiguous_primary_excluded']}")
-    print(f"  APR_primary   = {a['apr_primary']:.3f}   "
-          f"(deny {a['attack_deny']:.3f} / approval {a['attack_needs_approval']:.3f} / "
-          f"slip {a['attack_allow_slip']:.3f})")
-    print(f"  APR_killchain = {a['apr_killchain']:.3f}   "
-          f"slip {a['attack_slip_rate_killchain']:.3f}")
+    print(
+        f"  n={a['n']}  scored_primary={a['n_scored_primary']}  "
+        f"ambiguous_excl={a['n_ambiguous_primary_excluded']}"
+    )
+    print(
+        f"  APR_primary   = {a['apr_primary']:.3f}   "
+        f"(deny {a['attack_deny']:.3f} / approval {a['attack_needs_approval']:.3f} / "
+        f"slip {a['attack_allow_slip']:.3f})"
+    )
+    print(
+        f"  APR_killchain = {a['apr_killchain']:.3f}   slip {a['attack_slip_rate_killchain']:.3f}"
+    )
     print("  by harm:")
     for h, s in b["by_harm"].items():
-        print(f"    {h}: n={s['n']}  APR_primary={s['apr_primary']:.3f}  "
-              f"APR_killchain={s['apr_killchain']:.3f}  "
-              f"(deny {s['attack_deny']:.3f} appr {s['attack_needs_approval']:.3f})")
+        print(
+            f"    {h}: n={s['n']}  APR_primary={s['apr_primary']:.3f}  "
+            f"APR_killchain={s['apr_killchain']:.3f}  "
+            f"(deny {s['attack_deny']:.3f} appr {s['attack_needs_approval']:.3f})"
+        )
     u = b["user"]
     print("USER (trusted, the user's own request):")
-    print(f"  n={u['n']}  TUR/allow-rate={u['tur_allow_rate']:.3f}  "
-          f"FBR={u['false_block_rate']:.3f}")
-    print(f"  effect-class dist (attacker[0]): {b['effect_class_distribution']['attacker_primary']}")
+    print(
+        f"  n={u['n']}  TUR/allow-rate={u['tur_allow_rate']:.3f}  FBR={u['false_block_rate']:.3f}"
+    )
+    print(
+        f"  effect-class dist (attacker[0]): {b['effect_class_distribution']['attacker_primary']}"
+    )
     print(f"  effect-class dist (user):        {b['effect_class_distribution']['user']}")
     print(f"  latency: mean {b['latency_ms']['mean']}ms  p99 {b['latency_ms']['p99']}ms")
-    print(f"\nenhanced == base? APR_primary {enh_res['attacker']['apr_primary']:.3f} "
-          f"vs {a['apr_primary']:.3f}  |  APR_killchain "
-          f"{enh_res['attacker']['apr_killchain']:.3f} vs {a['apr_killchain']:.3f}")
+    print(
+        f"\nenhanced == base? APR_primary {enh_res['attacker']['apr_primary']:.3f} "
+        f"vs {a['apr_primary']:.3f}  |  APR_killchain "
+        f"{enh_res['attacker']['apr_killchain']:.3f} vs {a['apr_killchain']:.3f}"
+    )
     print(f"\nwrote {args.out}")
 
     if args.json:

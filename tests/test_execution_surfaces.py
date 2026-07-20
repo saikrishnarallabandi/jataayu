@@ -9,6 +9,7 @@ the user prompt. We add:
   - api convenience: jataayu_check_tool_return / _memory_write / _memory_read
   - mcp_gateway.after_tool_call + inspect_tool_response (return-value scanning)
 """
+
 import json
 
 import pytest
@@ -34,6 +35,7 @@ BENIGN = "The API returned a JSON object with the user's saved preferences."
 # Surface profiles
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("surface", EXECUTION_SURFACES)
 def test_surface_profile_exists(surface):
     assert surface in SURFACE_PROFILES
@@ -54,6 +56,7 @@ def test_surface_has_inbound_multiplier(surface):
 # Inbound routing for the new surfaces
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("surface", EXECUTION_SURFACES)
 def test_inbound_flags_injection_on_execution_surface(surface):
     guard = InboundGuard(use_llm=False)
@@ -73,6 +76,7 @@ def test_inbound_passes_benign_on_execution_surface(surface):
 # ---------------------------------------------------------------------------
 # Convenience API
 # ---------------------------------------------------------------------------
+
 
 def test_check_tool_return_flags_injection():
     res = jataayu_check_tool_return(INJECTION, tool_name="web_fetch")
@@ -109,6 +113,7 @@ def test_check_memory_read_passes_benign():
 # ---------------------------------------------------------------------------
 # MCP gateway: after_tool_call + inspect_tool_response
 # ---------------------------------------------------------------------------
+
 
 def _gateway():
     return JataayuMCPGateway(upstream_url="http://localhost:9999", use_llm=False)
@@ -148,11 +153,13 @@ def test_extract_result_text_from_mcp_content():
 
 def test_inspect_tool_response_withholds_payload():
     gw = _gateway()
-    response = json.dumps({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "result": {"content": [{"type": "text", "text": INJECTION}]},
-    }).encode()
+    response = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"content": [{"type": "text", "text": INJECTION}]},
+        }
+    ).encode()
 
     new_body, ctx = gw.inspect_tool_response("web_fetch", response)
     assert ctx["blocked"] is True
@@ -167,11 +174,13 @@ def test_inspect_tool_response_withholds_payload():
 
 def test_inspect_tool_response_passes_benign_unchanged():
     gw = _gateway()
-    response = json.dumps({
-        "jsonrpc": "2.0",
-        "id": 2,
-        "result": {"content": [{"type": "text", "text": BENIGN}]},
-    }).encode()
+    response = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "result": {"content": [{"type": "text", "text": BENIGN}]},
+        }
+    ).encode()
 
     new_body, ctx = gw.inspect_tool_response("db_query", response)
     assert ctx.get("blocked") in (False, None)

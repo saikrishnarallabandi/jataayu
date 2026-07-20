@@ -29,6 +29,7 @@ Usage:
     if result.verdict == "MALICIOUS":
         raise PermissionError(result.explanation)
 """
+
 from __future__ import annotations
 
 import json
@@ -46,11 +47,11 @@ from jataayu.core.threat import ThreatType
 # ---------------------------------------------------------------------------
 
 SKILL_RISK_DIMENSIONS = [
-    "instruction_hijack",      # NL instructions try to override/inject the host agent
-    "data_exfil",              # sends data to external endpoints
-    "memory_poisoning",        # writes attacker-controllable content to persistent memory
-    "capability_escalation",   # acquires more capability than the skill declares/needs
-    "unexpected_side_effects", # fs writes / exec / network not aligned with stated purpose
+    "instruction_hijack",  # NL instructions try to override/inject the host agent
+    "data_exfil",  # sends data to external endpoints
+    "memory_poisoning",  # writes attacker-controllable content to persistent memory
+    "capability_escalation",  # acquires more capability than the skill declares/needs
+    "unexpected_side_effects",  # fs writes / exec / network not aligned with stated purpose
 ]
 
 VERDICTS = ("SAFE", "REVIEW", "MALICIOUS")
@@ -59,39 +60,45 @@ VERDICTS = ("SAFE", "REVIEW", "MALICIOUS")
 # compositional pass (SkillReact) can flag dangerous combinations across skills.
 CAPABILITY_PATTERNS: dict[str, str] = {
     "exec": r"(child_process|subprocess\.(?:call|run|Popen)|os\.system|\bexec\s*\(|\beval\s*\("
-            r"|spawn\s*\(|new\s+Function\s*\(|pty\.spawn|Runtime\.getRuntime|\bsystem\s*\()",
+    r"|spawn\s*\(|new\s+Function\s*\(|pty\.spawn|Runtime\.getRuntime|\bsystem\s*\()",
     "fs_write": r"(open\s*\([^)]*['\"][wa]\+?['\"]|\.write_text\s*\(|writeFileSync|fs\.write"
-                r"|\.write\s*\(|>>?\s*[\w./~-]+|shutil\.(?:copy|move)|os\.remove|unlink)",
+    r"|\.write\s*\(|>>?\s*[\w./~-]+|shutil\.(?:copy|move)|os\.remove|unlink)",
     "fs_read": r"(open\s*\([^)]*['\"]r['\"]?|\.read_text\s*\(|readFileSync|fs\.read|\bcat\s+/"
-               r"|Path\([^)]*\)\.read)",
+    r"|Path\([^)]*\)\.read)",
     "network_read": r"(requests\.get|urllib\.request|http\.client|fetch\s*\(|axios\.get|wget\s|curl\s"
-                    r"|httpx\.get|\.get\s*\(\s*['\"]https?://)",
+    r"|httpx\.get|\.get\s*\(\s*['\"]https?://)",
     "network_write": r"(requests\.post|requests\.put|axios\.post|fetch\s*\([^)]*method\s*[:=]\s*['\"]POST"
-                     r"|socket\.send|\.sendall\s*\(|\.post\s*\(\s*['\"]https?://|smtplib)",
+    r"|socket\.send|\.sendall\s*\(|\.post\s*\(\s*['\"]https?://|smtplib)",
     "reads_secrets": r"(os\.environ|process\.env|getenv|~/\.ssh|\.aws/credentials|keychain|keyring"
-                     r"|\.env\b|(?:api[_-]?key|secret|token|password)\s*[:=])",
+    r"|\.env\b|(?:api[_-]?key|secret|token|password)\s*[:=])",
     "memory_write": r"(memory\.(?:write|store|save|add|upsert)|save_memory|persist_memory|remember\s*\("
-                    r"|\.insert\s*\(.*memory|lancedb)",
+    r"|\.insert\s*\(.*memory|lancedb)",
     "memory_read": r"(memory\.(?:read|recall|query|search|load)|recall_memory|load_memory)",
 }
 _COMPILED_CAPS = {
-    name: re.compile(pat, re.IGNORECASE | re.MULTILINE)
-    for name, pat in CAPABILITY_PATTERNS.items()
+    name: re.compile(pat, re.IGNORECASE | re.MULTILINE) for name, pat in CAPABILITY_PATTERNS.items()
 }
 
 # Dangerous intra-skill capability combinations (a single skill holding both).
 # These mirror the cross-skill chains the compositional pass will check later.
 DANGEROUS_COMBOS: list[tuple[frozenset[str], str]] = [
-    (frozenset({"reads_secrets", "network_write"}), "exfiltration (reads secrets + writes to network)"),
+    (
+        frozenset({"reads_secrets", "network_write"}),
+        "exfiltration (reads secrets + writes to network)",
+    ),
     (frozenset({"fs_write", "exec"}), "dropper (writes files + executes)"),
     (frozenset({"network_read", "exec"}), "download-and-run (fetches remote + executes)"),
-    (frozenset({"memory_write", "network_read"}), "memory-poisoning vector (fetches external + persists)"),
+    (
+        frozenset({"memory_write", "network_read"}),
+        "memory-poisoning vector (fetches external + persists)",
+    ),
 ]
 
 
 # ---------------------------------------------------------------------------
 # Result
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class SkillVetResult:
@@ -110,6 +117,7 @@ class SkillVetResult:
         matched_patterns: Fast-path pattern hits.
         llm_used: Whether the LLM judge was invoked.
     """
+
     verdict: str
     overall_score: float = 0.0
     risk_vector: dict[str, dict] = field(default_factory=dict)
@@ -214,6 +222,7 @@ class SkillVetGuard(JataayuEngine):
         self.review_threshold = review_threshold
         # Reuse the full inbound catalog for the pattern pre-filter.
         from jataayu.guards.inbound import InboundGuard
+
         self._prefilter_guard = InboundGuard(use_llm=False)
 
     # -- public API ---------------------------------------------------------
@@ -418,7 +427,9 @@ class SkillVetGuard(JataayuEngine):
         exfil_combo = 0.6 if {"reads_secrets", "network_write"}.issubset(cap_set) else 0.0
         data_exfil = max(sig(ThreatType.COMMAND_INJECTION), exfil_combo)
         memory_poisoning = 0.6 if {"memory_write", "network_read"}.issubset(cap_set) else 0.0
-        capability_escalation = min(0.2 * len(cap_set & {"exec", "fs_write", "network_write", "reads_secrets"}), 0.8)
+        capability_escalation = min(
+            0.2 * len(cap_set & {"exec", "fs_write", "network_write", "reads_secrets"}), 0.8
+        )
         unexpected = 0.5 if cap_set & {"exec", "fs_write"} else 0.0
         if combos:
             unexpected = max(unexpected, 0.6)
@@ -427,17 +438,23 @@ class SkillVetGuard(JataayuEngine):
             return {"score": round(score, 3), "rationale": why}
 
         return {
-            "instruction_hijack": entry(instruction_hijack, "pattern pre-filter (instruction layer)"),
+            "instruction_hijack": entry(
+                instruction_hijack, "pattern pre-filter (instruction layer)"
+            ),
             "data_exfil": entry(data_exfil, "secrets+network capability and/or exfil patterns"),
             "memory_poisoning": entry(memory_poisoning, "memory-write + external-fetch capability"),
-            "capability_escalation": entry(capability_escalation, f"{len(cap_set)} capabilities detected"),
+            "capability_escalation": entry(
+                capability_escalation, f"{len(cap_set)} capabilities detected"
+            ),
             "unexpected_side_effects": entry(unexpected, "exec/fs-write capability present"),
         }
 
     @staticmethod
     def _fallback_explanation(verdict: str, matched: list[str], combos: list[str]) -> str:
         if verdict == "SAFE":
-            return "No high-confidence threats found by the pattern pre-filter (LLM judge not used)."
+            return (
+                "No high-confidence threats found by the pattern pre-filter (LLM judge not used)."
+            )
         parts = []
         if matched:
             parts.append(f"patterns: {'; '.join(matched[:2])}")
@@ -478,8 +495,7 @@ class SkillVetGuard(JataayuEngine):
         risk_vector = data.get("risk_vector", {}) or {}
         # Overall score = max of the LLM dimension scores and the pre-filter score.
         dim_scores = [
-            float(v.get("score", 0.0))
-            for v in risk_vector.values() if isinstance(v, dict)
+            float(v.get("score", 0.0)) for v in risk_vector.values() if isinstance(v, dict)
         ]
         overall = max(dim_scores + [prefilter_score]) if dim_scores else prefilter_score
 

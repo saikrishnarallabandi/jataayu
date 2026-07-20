@@ -1,6 +1,7 @@
 """
 Tests for Issue #3 — Taint tracking for Clinejection flow.
 """
+
 import pytest
 from jataayu.core.taint import TaintTracker
 from jataayu.core.threat import ThreatType, TaintSource, TaintSink, TaintState
@@ -17,7 +18,9 @@ class TestTaintMarking:
         assert taint_id.startswith("taint_")
 
     def test_mark_tainted_registers_entry(self, tracker):
-        taint_id = tracker.mark_tainted("evil body", source=TaintSource.GITHUB_ISSUE, surface="github-issue")
+        taint_id = tracker.mark_tainted(
+            "evil body", source=TaintSource.GITHUB_ISSUE, surface="github-issue"
+        )
         entry = tracker.get_entry(taint_id)
         assert entry is not None
         assert entry.source == TaintSource.GITHUB_ISSUE
@@ -116,7 +119,9 @@ class TestTaintPropagation:
         assert entry.source == TaintSource.GITHUB_ISSUE
 
     def test_propagated_taint_has_extended_path(self, tracker):
-        taint_id = tracker.mark_tainted("content", source=TaintSource.GITHUB_ISSUE, surface="github-issue")
+        taint_id = tracker.mark_tainted(
+            "content", source=TaintSource.GITHUB_ISSUE, surface="github-issue"
+        )
         new_id = tracker.propagate(taint_id, next_surface="tool-params")
         entry = tracker.get_entry(new_id)
         assert "github-issue" in entry.propagation_path

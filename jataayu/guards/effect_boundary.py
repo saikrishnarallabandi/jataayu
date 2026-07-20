@@ -28,6 +28,7 @@ This module implements that boundary deterministically (no LLM in the decision p
 It composes with `jataayu.config.policy.AgentPolicy` (capability allow/forbid lists) but works
 standalone with safe defaults.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -38,13 +39,17 @@ from enum import Enum
 from typing import Any, Callable, Iterable, Optional
 
 from jataayu.core.taint import (
-    _SHELL_SINK_TOOLS, _FILE_WRITE_TOOLS, _NETWORK_TOOLS, _SECRET_TOOLS,
+    _SHELL_SINK_TOOLS,
+    _FILE_WRITE_TOOLS,
+    _NETWORK_TOOLS,
+    _SECRET_TOOLS,
 )
 
 
 class Provenance(Enum):
     """Where a value came from, for authorization purposes."""
-    TRUSTED = "trusted"      # first-party: the operator, system config, signed sources
+
+    TRUSTED = "trusted"  # first-party: the operator, system config, signed sources
     UNTRUSTED = "untrusted"  # anything attacker-influenceable: web, issues, tool returns, memory
 
     def worst(self, other: "Provenance") -> "Provenance":
@@ -53,6 +58,7 @@ class Provenance(Enum):
 
 class EffectClass(Enum):
     """The kind of effect an action has, ordered by severity."""
+
     NONE = "none"
     READ = "read"
     MEMORY_WRITE = "memory_write"
@@ -97,12 +103,20 @@ _EFFECT_CAPABILITY = {
 # committing them under attacker influence is the kill-chain endpoint.
 _CRITICAL_EFFECTS = frozenset({EffectClass.SHELL, EffectClass.CODE_EVAL, EffectClass.SECRET_READ})
 # Effects for which untrusted-derived input requires human approval rather than an outright deny.
-_APPROVAL_EFFECTS = frozenset({
-    EffectClass.NETWORK, EffectClass.FILE_WRITE, EffectClass.MEMORY_WRITE,
-})
+_APPROVAL_EFFECTS = frozenset(
+    {
+        EffectClass.NETWORK,
+        EffectClass.FILE_WRITE,
+        EffectClass.MEMORY_WRITE,
+    }
+)
 
-_CODE_EVAL_TOOLS = frozenset({"eval", "exec", "python_eval", "js_eval", "run_code", "code_interpreter"})
-_MEMORY_WRITE_TOOLS = frozenset({"memory_write", "save_memory", "remember", "store_memory", "kv_set"})
+_CODE_EVAL_TOOLS = frozenset(
+    {"eval", "exec", "python_eval", "js_eval", "run_code", "code_interpreter"}
+)
+_MEMORY_WRITE_TOOLS = frozenset(
+    {"memory_write", "save_memory", "remember", "store_memory", "kv_set"}
+)
 
 # ---------------------------------------------------------------------------
 # Token-level effect signals.
@@ -124,14 +138,40 @@ _MEMORY_WRITE_TOOLS = frozenset({"memory_write", "save_memory", "remember", "sto
 # SHELL and CODE_EVAL are security-equivalent here (both severity-5, both capability "exec", both
 # in _CRITICAL_EFFECTS), so the shell-vs-codeeval label is best-effort; what matters is that either
 # is recognized as a critical exec effect rather than a read.
-_SHELL_TOKENS = frozenset({
-    "bash", "shell", "sh", "zsh", "ksh", "csh", "fish", "cmd", "powershell", "pwsh",
-    "terminal", "subprocess", "popen",
-})
-_INTERPRETER_TOKENS = frozenset({
-    "python", "python3", "py", "javascript", "js", "node", "nodejs", "ruby", "perl", "php",
-    "lua", "code", "interpreter",
-})
+_SHELL_TOKENS = frozenset(
+    {
+        "bash",
+        "shell",
+        "sh",
+        "zsh",
+        "ksh",
+        "csh",
+        "fish",
+        "cmd",
+        "powershell",
+        "pwsh",
+        "terminal",
+        "subprocess",
+        "popen",
+    }
+)
+_INTERPRETER_TOKENS = frozenset(
+    {
+        "python",
+        "python3",
+        "py",
+        "javascript",
+        "js",
+        "node",
+        "nodejs",
+        "ruby",
+        "perl",
+        "php",
+        "lua",
+        "code",
+        "interpreter",
+    }
+)
 # RCE-capable deserialization sinks: loading untrusted pickle/dill/marshal is arbitrary code
 # execution regardless of arguments, and these tokens are never a benign noun in a tool name, so
 # unlike the interpreter tokens they fire wherever they appear. (Unsafe `yaml.load` is handled
@@ -160,30 +200,67 @@ _EXEC_VERBS_WEAK = frozenset({"run", "execute", "launch", "invoke", "start", "co
 #   (b) a QUALIFIER token combined with a GENERIC secret noun (handles api_key, access_token,
 #       private_key, list_api_keys, id_rsa, ... and their plurals/casing).
 # Bare generic nouns without a qualifier do NOT fire (undoes the round-2 over-block).
-_SECRET_STRONG = frozenset({
-    "secret", "secrets", "credential", "credentials", "keychain", "vault",
-    "passwd", "password", "apikey", "apitoken", "privatekey",
-    "pkcs12", "keystore", "pem",
-    # Canonical agent secret-store files — a FINITE, known list. `.env` is deliberately excluded
-    # (handled by the env-var branch below); `dotenv` is the single-token spelling of the file.
-    # Novel/arbitrary secret filenames are out of scope here — that is the Phase-2 argument/
-    # path-aware classification job, not name-token matching.
-    "netrc", "dotenv", "pgpass", "htpasswd", "kubeconfig",
-})
+_SECRET_STRONG = frozenset(
+    {
+        "secret",
+        "secrets",
+        "credential",
+        "credentials",
+        "keychain",
+        "vault",
+        "passwd",
+        "password",
+        "apikey",
+        "apitoken",
+        "privatekey",
+        "pkcs12",
+        "keystore",
+        "pem",
+        # Canonical agent secret-store files — a FINITE, known list. `.env` is deliberately excluded
+        # (handled by the env-var branch below); `dotenv` is the single-token spelling of the file.
+        # Novel/arbitrary secret filenames are out of scope here — that is the Phase-2 argument/
+        # path-aware classification job, not name-token matching.
+        "netrc",
+        "dotenv",
+        "pgpass",
+        "htpasswd",
+        "kubeconfig",
+    }
+)
 # Secret-store names that `_name_tokens` splits across components (so no single token can carry the
 # signal). Each frozenset is an all-must-be-present token combo.
 _SECRET_STORE_COMBOS = (
-    frozenset({"kube", "config"}),        # read_kube_config
-    frozenset({"service", "account"}),    # get_service_account, gcp_service_account_key
-    frozenset({"token", "file"}),         # read_token_file
+    frozenset({"kube", "config"}),  # read_kube_config
+    frozenset({"service", "account"}),  # get_service_account, gcp_service_account_key
+    frozenset({"token", "file"}),  # read_token_file
 )
-_SECRET_QUALIFIERS = frozenset({
-    "api", "access", "private", "ssh", "oauth", "bearer", "signing", "secret", "id",
-})
-_SECRET_NOUNS = frozenset({
-    "key", "keys", "token", "tokens", "cert", "certs", "certificate", "certificates",
-    "rsa", "keypair",
-})
+_SECRET_QUALIFIERS = frozenset(
+    {
+        "api",
+        "access",
+        "private",
+        "ssh",
+        "oauth",
+        "bearer",
+        "signing",
+        "secret",
+        "id",
+    }
+)
+_SECRET_NOUNS = frozenset(
+    {
+        "key",
+        "keys",
+        "token",
+        "tokens",
+        "cert",
+        "certs",
+        "certificate",
+        "certificates",
+        "rsa",
+        "keypair",
+    }
+)
 _SECRET_ENV_TOKENS = frozenset({"env", "environ", "environment"})
 # Read-ish verbs that mark a secret read but are not in the general _READ_VERBS fallback set
 # (a dump/exfil of the environment is still a read of it).
@@ -192,32 +269,113 @@ _SECRET_EXTRA_READ_VERBS = frozenset({"dump", "fetch", "retrieve", "reveal"})
 _MEMORY_TOKENS = frozenset({"memory", "memories"})
 _MEMORY_WRITE_VERBS = frozenset({"write", "save", "store", "set", "remember", "persist", "put"})
 
-_FILE_WRITE_STRONG = frozenset({
-    "write", "overwrite", "append", "truncate", "unlink", "mkdir", "rmdir", "chmod", "chown",
-})
-_FILE_MUTATE_VERBS = frozenset({
-    "create", "delete", "remove", "edit", "save", "modify", "update", "rename", "move", "replace",
-})
-_FILE_NOUNS = frozenset({
-    "file", "files", "dir", "dirs", "directory", "directories", "path", "folder",
-    "document", "doc", "docs",
-})
+_FILE_WRITE_STRONG = frozenset(
+    {
+        "write",
+        "overwrite",
+        "append",
+        "truncate",
+        "unlink",
+        "mkdir",
+        "rmdir",
+        "chmod",
+        "chown",
+    }
+)
+_FILE_MUTATE_VERBS = frozenset(
+    {
+        "create",
+        "delete",
+        "remove",
+        "edit",
+        "save",
+        "modify",
+        "update",
+        "rename",
+        "move",
+        "replace",
+    }
+)
+_FILE_NOUNS = frozenset(
+    {
+        "file",
+        "files",
+        "dir",
+        "dirs",
+        "directory",
+        "directories",
+        "path",
+        "folder",
+        "document",
+        "doc",
+        "docs",
+    }
+)
 
-_NETWORK_STRONG = frozenset({
-    "fetch", "curl", "wget", "http", "https", "url", "webhook", "download", "upload",
-    "browse", "browser", "request",
-})
-_NETWORK_VERBS = frozenset({
-    "send", "post", "publish", "transfer", "reserve", "book", "invite", "share",
-    "email", "sms", "notify", "dispatch",
-})
+_NETWORK_STRONG = frozenset(
+    {
+        "fetch",
+        "curl",
+        "wget",
+        "http",
+        "https",
+        "url",
+        "webhook",
+        "download",
+        "upload",
+        "browse",
+        "browser",
+        "request",
+    }
+)
+_NETWORK_VERBS = frozenset(
+    {
+        "send",
+        "post",
+        "publish",
+        "transfer",
+        "reserve",
+        "book",
+        "invite",
+        "share",
+        "email",
+        "sms",
+        "notify",
+        "dispatch",
+    }
+)
 
 # Verbs that mark a genuine READ.
-_READ_VERBS = frozenset({
-    "read", "get", "list", "search", "view", "show", "cat", "open", "load", "find", "query",
-    "describe", "stat", "head", "tail", "grep", "ls", "dir", "lookup", "count", "info", "status",
-    "summary", "preview", "inspect", "recall",
-})
+_READ_VERBS = frozenset(
+    {
+        "read",
+        "get",
+        "list",
+        "search",
+        "view",
+        "show",
+        "cat",
+        "open",
+        "load",
+        "find",
+        "query",
+        "describe",
+        "stat",
+        "head",
+        "tail",
+        "grep",
+        "ls",
+        "dir",
+        "lookup",
+        "count",
+        "info",
+        "status",
+        "summary",
+        "preview",
+        "inspect",
+        "recall",
+    }
+)
 
 
 def _name_tokens(name: str) -> list[str]:
@@ -262,6 +420,7 @@ class CommitRejected(Exception):
 @dataclass
 class Value:
     """A piece of data flowing into an action, tagged with its provenance."""
+
     data: Any
     provenance: Provenance = Provenance.UNTRUSTED
     source: str = "unknown"
@@ -270,6 +429,7 @@ class Value:
 @dataclass
 class OpaqueHandle:
     """A reference to confined sensitive content. The raw value never enters agent context."""
+
     handle_id: str
     summary: str
     source: str
@@ -364,8 +524,7 @@ def _coerce_effect(tool: str, value) -> EffectClass:
     except ValueError:
         valid = sorted(e.value for e in EffectClass if e is not EffectClass.NONE)
         raise ValueError(
-            f"tool_effects[{tool!r}]: invalid effect {value!r} — "
-            f"expected one of {valid}"
+            f"tool_effects[{tool!r}]: invalid effect {value!r} — expected one of {valid}"
         ) from None
     if effect is EffectClass.NONE:
         raise ValueError(
@@ -450,8 +609,12 @@ def _canonical(tool_name: str, params: dict) -> str:
     """
     try:
         _check_keys(params, "", set())
-        return json.dumps({"tool": tool_name.strip().lower(), "params": params},
-                          sort_keys=True, separators=(",", ":"), default=_json_default)
+        return json.dumps(
+            {"tool": tool_name.strip().lower(), "params": params},
+            sort_keys=True,
+            separators=(",", ":"),
+            default=_json_default,
+        )
     except UncanonicalParams:
         raise
     except RecursionError:
@@ -509,6 +672,7 @@ class EffectBoundary:
         # and record tool params the caller asked it not to keep.
         if capture_content is not None:
             from jataayu.config.policy import require_bool
+
             require_bool(capture_content, "EffectBoundary", "capture_content=")
         self.capture_content = capture_content
 
@@ -592,8 +756,10 @@ class EffectBoundary:
             (tset & _SECRET_STRONG)
             or any(combo <= tset for combo in _SECRET_STORE_COMBOS)
             or ((tset & _SECRET_QUALIFIERS) and (tset & _SECRET_NOUNS))
-            or ((tset & _SECRET_ENV_TOKENS)
-                and bool(head & (_READ_VERBS | _SECRET_EXTRA_READ_VERBS)))
+            or (
+                (tset & _SECRET_ENV_TOKENS)
+                and bool(head & (_READ_VERBS | _SECRET_EXTRA_READ_VERBS))
+            )
         ):
             return EffectClass.SECRET_READ, True
 
@@ -632,8 +798,9 @@ class EffectBoundary:
         return EffectClass.READ, False
 
     # -- the policy decision (deterministic, no LLM) ---------------------------
-    def _decide(self, effect: EffectClass, provenance: Provenance,
-                recognized: bool = True) -> tuple[Decision, str, list[str]]:
+    def _decide(
+        self, effect: EffectClass, provenance: Provenance, recognized: bool = True
+    ) -> tuple[Decision, str, list[str]]:
         violations: list[str] = []
 
         # 1. Capability isolation from the agent policy always wins.
@@ -645,24 +812,32 @@ class EffectBoundary:
         # 2. Untrusted-derived input into a consequential effect.
         if provenance is Provenance.UNTRUSTED:
             if effect in _CRITICAL_EFFECTS:
-                return (Decision.DENY,
-                        f"untrusted-derived input may not reach a {effect.value} effect", violations)
+                return (
+                    Decision.DENY,
+                    f"untrusted-derived input may not reach a {effect.value} effect",
+                    violations,
+                )
             # Strict fires for UNTRUSTED only: a trusted call has no attacker in the loop, and
             # the boundary already allows trusted->shell, so gating trusted here would be
             # stricter than the shell rule. Capability denial above still wins.
             if self.strict and not recognized:
-                return (Decision.NEEDS_APPROVAL,
-                        "unrecognized tool name; strict mode requires approval", violations)
+                return (
+                    Decision.NEEDS_APPROVAL,
+                    "unrecognized tool name; strict mode requires approval",
+                    violations,
+                )
             if effect in _APPROVAL_EFFECTS:
-                return (Decision.NEEDS_APPROVAL,
-                        f"untrusted-derived {effect.value} effect requires human approval", violations)
+                return (
+                    Decision.NEEDS_APPROVAL,
+                    f"untrusted-derived {effect.value} effect requires human approval",
+                    violations,
+                )
 
         # 3. Trusted input, or low-severity effect.
         return Decision.ALLOW, f"{provenance.value} input into {effect.value} effect", violations
 
     # -- preview / commit ------------------------------------------------------
-    def preview(self, tool_name: str, params: dict,
-                values: Iterable[Value] = ()) -> PreviewResult:
+    def preview(self, tool_name: str, params: dict, values: Iterable[Value] = ()) -> PreviewResult:
         effect, recognized = self._classify(tool_name)
         provs = [v.provenance for v in values]
         if provs:
@@ -696,10 +871,18 @@ class EffectBoundary:
             token = hashlib.sha256(canonical.encode()).hexdigest()
 
         result = PreviewResult(
-            tool_name=tool_name, params=params, effect_class=effect, provenance=provenance,
-            decision=decision, reason=reason, canonical=canonical,
-            commit_token=token, violations=violations,
-            would_decision=would_decision, mode=self.mode, unrecognized=not recognized,
+            tool_name=tool_name,
+            params=params,
+            effect_class=effect,
+            provenance=provenance,
+            decision=decision,
+            reason=reason,
+            canonical=canonical,
+            commit_token=token,
+            violations=violations,
+            would_decision=would_decision,
+            mode=self.mode,
+            unrecognized=not recognized,
         )
 
         # Local import: jataayu.core.audit imports THIS module at its top level, so a
@@ -750,7 +933,9 @@ class EffectBoundary:
         return executor()
 
     # -- read-boundary confinement ---------------------------------------------
-    def confine_read(self, content: str, source: str, *, summary: Optional[str] = None) -> OpaqueHandle:
+    def confine_read(
+        self, content: str, source: str, *, summary: Optional[str] = None
+    ) -> OpaqueHandle:
         """Store sensitive content out of agent context, returning an opaque handle + summary."""
         self._counter += 1
         digest = hashlib.sha256(f"{self._counter}:{content}".encode()).hexdigest()[:12]

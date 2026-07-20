@@ -20,6 +20,7 @@ adds no API cost; only the agent model under test does.
 
 Pinned against agentdojo 0.1.35.
 """
+
 from __future__ import annotations
 
 from jataayu import jataayu_check_inbound, jataayu_sanitize_inbound
@@ -84,9 +85,7 @@ class JataayuPIDetector(PromptInjectionDetector):
         self.name = f"jataayu_pi_detector({min_status.lower()})"
 
     def detect(self, tool_output: str) -> tuple[bool, float]:
-        result = jataayu_check_inbound(
-            tool_output, surface="tool-output", use_llm=self.use_llm
-        )
+        result = jataayu_check_inbound(tool_output, surface="tool-output", use_llm=self.use_llm)
         score = _STATUS_SCORE.get(result["status"], 0.0)
         is_injection = score >= self._threshold and score > 0.0
         return is_injection, score

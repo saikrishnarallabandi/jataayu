@@ -8,6 +8,7 @@ reuses the already-warm model — no second load. Read-only: it forwards text to
 
 Run:  python3 demo_server.py [--host <ip>] [--port 8874] [--sidecar http://127.0.0.1:18902]
 """
+
 import argparse
 import json
 import os
@@ -51,14 +52,24 @@ class Handler(BaseHTTPRequestHandler):
             raw = self.rfile.read(n) if n else b"{}"
             # forward verbatim to the sidecar /score
             req = urllib.request.Request(
-                self.sidecar.rstrip("/") + "/score", data=raw,
-                headers={"Content-Type": "application/json"}, method="POST")
+                self.sidecar.rstrip("/") + "/score",
+                data=raw,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
             with urllib.request.urlopen(req, timeout=15) as r:
                 self._send(200, r.read())
         except urllib.error.URLError as e:
             # sidecar down / unreachable — report cleanly, never 500 the demo
-            self._send(200, json.dumps({"p_injection": None,
-                                        "error": f"sidecar unreachable: {getattr(e, 'reason', e)}"}))
+            self._send(
+                200,
+                json.dumps(
+                    {
+                        "p_injection": None,
+                        "error": f"sidecar unreachable: {getattr(e, 'reason', e)}",
+                    }
+                ),
+            )
         except Exception as e:
             self._send(200, json.dumps({"p_injection": None, "error": str(e)}))
 

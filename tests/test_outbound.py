@@ -2,6 +2,7 @@
 Tests for Jataayu OutboundGuard — PII and privacy leakage detection.
 No LLM required (use_llm=False throughout).
 """
+
 import pytest
 from jataayu.guards.outbound import OutboundGuard, PrivacyConfig
 from jataayu.core.threat import ThreatLevel, ThreatType
@@ -15,11 +16,13 @@ def guard():
 @pytest.fixture
 def guard_with_codenames():
     """Codenames are deployer-supplied; the package ships none. Synthetic names throughout."""
-    return OutboundGuard(PrivacyConfig(
-        internal_codenames=["Project Bluebird"],
-        gtm_codenames=["Redwood"],
-        use_llm=False,
-    ))
+    return OutboundGuard(
+        PrivacyConfig(
+            internal_codenames=["Project Bluebird"],
+            gtm_codenames=["Redwood"],
+            use_llm=False,
+        )
+    )
 
 
 @pytest.fixture
@@ -34,6 +37,7 @@ def guard_with_names():
 # ---------------------------------------------------------------------------
 # PII / privacy violations — should be caught
 # ---------------------------------------------------------------------------
+
 
 class TestPIIDetection:
     def test_child_school_info(self, guard):
@@ -98,6 +102,7 @@ class TestPIIDetection:
 # Clean content — should NOT be flagged
 # ---------------------------------------------------------------------------
 
+
 class TestCleanOutbound:
     def test_clean_technical_content(self, guard):
         result = guard.check(
@@ -140,6 +145,7 @@ class TestCleanOutbound:
 # Sanitize tests (regex fallback, no LLM)
 # ---------------------------------------------------------------------------
 
+
 class TestSanitize:
     def test_sanitize_protected_name(self, guard_with_names):
         text = "Alice will present her findings at the meeting."
@@ -162,9 +168,11 @@ class TestSanitize:
 # Surface profile tests
 # ---------------------------------------------------------------------------
 
+
 class TestSurfaceProfiles:
     def test_surface_profiles_exist(self):
         from jataayu.surfaces.profiles import SURFACE_PROFILES
+
         assert "github-issue" in SURFACE_PROFILES
         assert "group-chat" in SURFACE_PROFILES
         assert "direct-message" in SURFACE_PROFILES
@@ -173,6 +181,7 @@ class TestSurfaceProfiles:
 
     def test_surface_profile_structure(self):
         from jataayu.surfaces.profiles import SURFACE_PROFILES
+
         for name, profile in SURFACE_PROFILES.items():
             assert "trust_level" in profile, f"Profile {name} missing trust_level"
             assert "inbound_strict" in profile, f"Profile {name} missing inbound_strict"
@@ -180,10 +189,12 @@ class TestSurfaceProfiles:
 
     def test_github_is_low_trust(self):
         from jataayu.surfaces.profiles import SURFACE_PROFILES
+
         assert SURFACE_PROFILES["github-issue"]["trust_level"] == "low"
 
     def test_direct_message_is_high_trust(self):
         from jataayu.surfaces.profiles import SURFACE_PROFILES
+
         assert SURFACE_PROFILES["direct-message"]["trust_level"] == "high"
 
 
@@ -209,16 +220,22 @@ class TestInternalContextDenylist:
 
     def test_product_codename_surface_aware(self, guard_with_codenames):
         text = "Redwood added a design-partner candidate."
-        assert guard_with_codenames.check(text, surface="group-chat").blocked          # social -> held
-        assert not guard_with_codenames.check(text, surface="github-comment").blocked  # GTM -> allowed
+        assert guard_with_codenames.check(text, surface="group-chat").blocked  # social -> held
+        assert not guard_with_codenames.check(
+            text, surface="github-comment"
+        ).blocked  # GTM -> allowed
 
     def test_codenames_ship_empty(self, guard):
         """The package must not carry anyone's codenames. An unconfigured guard flags neither."""
-        assert not guard.check("Advancing Project Bluebird this week.", surface="group-chat").blocked
+        assert not guard.check(
+            "Advancing Project Bluebird this week.", surface="group-chat"
+        ).blocked
         assert not guard.check("Redwood added a candidate.", surface="group-chat").blocked
         assert PrivacyConfig().internal_codenames == []
         assert PrivacyConfig().gtm_codenames == []
 
     def test_clean_business_update_not_blocked(self, guard):
-        r = guard.check("OpenAI shipped a platform update; here is why it matters.", surface="group-chat")
+        r = guard.check(
+            "OpenAI shipped a platform update; here is why it matters.", surface="group-chat"
+        )
         assert not r.blocked

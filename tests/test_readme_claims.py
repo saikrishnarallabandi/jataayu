@@ -7,6 +7,7 @@ out of README.md and compared to the code, so the two are forced to agree in bot
 If a claim's phrasing changes so this file can no longer find it, the test FAILS rather than
 silently passing — a doc test that quietly stops matching is worse than no test.
 """
+
 import json
 import re
 from pathlib import Path
@@ -66,19 +67,37 @@ def test_fast_path_pattern_breakdown():
     total, inbound, outbound, pii, cred, internal = match.groups()
 
     counts = {
-        "inbound patterns": (inbound, len(INJECTION_PATTERNS), "len(jataayu.guards.inbound.INJECTION_PATTERNS)"),
-        "outbound PII patterns": (pii, len(_PII_PATTERNS), "len(jataayu.guards.outbound._PII_PATTERNS)"),
+        "inbound patterns": (
+            inbound,
+            len(INJECTION_PATTERNS),
+            "len(jataayu.guards.inbound.INJECTION_PATTERNS)",
+        ),
+        "outbound PII patterns": (
+            pii,
+            len(_PII_PATTERNS),
+            "len(jataayu.guards.outbound._PII_PATTERNS)",
+        ),
         "outbound credential patterns": (
-            cred, len(_CREDENTIAL_PATTERNS), "len(jataayu.guards.outbound._CREDENTIAL_PATTERNS)"),
+            cred,
+            len(_CREDENTIAL_PATTERNS),
+            "len(jataayu.guards.outbound._CREDENTIAL_PATTERNS)",
+        ),
         "outbound internal-context patterns": (
-            internal, len(_INTERNAL_CONTEXT_PATTERNS),
-            "len(jataayu.guards.outbound._INTERNAL_CONTEXT_PATTERNS)"),
+            internal,
+            len(_INTERNAL_CONTEXT_PATTERNS),
+            "len(jataayu.guards.outbound._INTERNAL_CONTEXT_PATTERNS)",
+        ),
     }
     for label, (claimed, actual, source) in counts.items():
         _assert(label, claimed, actual, source)
 
     live_outbound = len(_PII_PATTERNS) + len(_CREDENTIAL_PATTERNS) + len(_INTERNAL_CONTEXT_PATTERNS)
-    _assert("outbound patterns in total", outbound, live_outbound, "jataayu.guards.outbound: _PII_PATTERNS + _CREDENTIAL_PATTERNS + _INTERNAL_CONTEXT_PATTERNS")
+    _assert(
+        "outbound patterns in total",
+        outbound,
+        live_outbound,
+        "jataayu.guards.outbound: _PII_PATTERNS + _CREDENTIAL_PATTERNS + _INTERNAL_CONTEXT_PATTERNS",
+    )
     _assert(
         "regex patterns in total",
         total,
@@ -161,9 +180,13 @@ def _result(name: str) -> dict:
 
 
 def test_notinject_default_threshold_claim():
-    match = _find(r"\*\*Jataayu v0\.1, default τ=0\.5\*\* \| \*\*([\d.]+)\*\*", "NotInject default-τ")
+    match = _find(
+        r"\*\*Jataayu v0\.1, default τ=0\.5\*\* \| \*\*([\d.]+)\*\*", "NotInject default-τ"
+    )
     run = _result("cfp_notinject.ckpt300.json")
-    assert run["tau"] == 0.5, f"cfp_notinject.ckpt300.json was scored at τ={run['tau']}, not the default 0.5"
+    assert run["tau"] == 0.5, (
+        f"cfp_notinject.ckpt300.json was scored at τ={run['tau']}, not the default 0.5"
+    )
     actual = round(run["notinject"]["od_acc"] * 100, 2)
     assert float(match.group(1)) == actual, (
         f"README.md publishes NotInject over-defense {match.group(1)}% at the default threshold, "
@@ -189,9 +212,10 @@ _AUTHORITY_FILES = {
 
 
 def test_authority_ablation_table():
-    rows = {label: (delta, defeated) for label, delta, defeated in _AUTHORITY_ROW.findall(
-        README.read_text(encoding="utf-8")
-    )}
+    rows = {
+        label: (delta, defeated)
+        for label, delta, defeated in _AUTHORITY_ROW.findall(README.read_text(encoding="utf-8"))
+    }
     missing = sorted(set(_AUTHORITY_FILES) - set(rows))
     if missing:
         pytest.fail(

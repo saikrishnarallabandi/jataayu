@@ -45,6 +45,7 @@ markdown link, HTML ``<img>``, bare URL), classifies each by:
 Returns a standard ``ThreatResult`` so it composes with the OutboundGuard.
 ``sanitize()`` neutralizes offending URLs (keeps link text, drops the URL).
 """
+
 from __future__ import annotations
 
 import re
@@ -68,16 +69,33 @@ from jataayu.core.threat import ThreatLevel, ThreatResult, ThreatType
 # render mode — hard block.
 _EXFIL_BEACON_HOSTS: tuple[str, ...] = (
     # Request catchers / OOB interaction servers
-    "webhook.site", "requestbin.com", "requestbin.net", "pipedream.net",
-    "beeceptor.com", "requestcatcher.com", "hookbin.com", "postb.in",
-    "interact.sh", "oast.fun", "oast.pro", "oast.live", "oast.site", "oast.online",
-    "burpcollaborator.net", "canarytokens.com", "canarytokens.org",
+    "webhook.site",
+    "requestbin.com",
+    "requestbin.net",
+    "pipedream.net",
+    "beeceptor.com",
+    "requestcatcher.com",
+    "hookbin.com",
+    "postb.in",
+    "interact.sh",
+    "oast.fun",
+    "oast.pro",
+    "oast.live",
+    "oast.site",
+    "oast.online",
+    "burpcollaborator.net",
+    "canarytokens.com",
+    "canarytokens.org",
     # Tunnels commonly used to receive exfil
-    "ngrok.io", "ngrok-free.app", "ngrok.app", "trycloudflare.com",
-    "loca.lt", "serveo.net",
+    "ngrok.io",
+    "ngrok-free.app",
+    "ngrok.app",
+    "trycloudflare.com",
+    "loca.lt",
+    "serveo.net",
     # "Trusted host" relays abused in disclosed agent exfil (route-through bypass)
-    "blob.core.windows.net",          # Azure Blob — AgentFlayer bypass
-    "oaiusercontent.com",             # abused as reflector in some PoCs
+    "blob.core.windows.net",  # Azure Blob — AgentFlayer bypass
+    "oaiusercontent.com",  # abused as reflector in some PoCs
 )
 
 # Image/asset hosts that are generally safe render targets. Kept deliberately
@@ -89,6 +107,7 @@ _DEFAULT_ALLOWED_HOSTS: tuple[str, ...] = ()
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class EgressConfig:
@@ -111,6 +130,7 @@ class EgressConfig:
         min_blob_len: A base64/hex-looking run at least this long (in a path or
             query value) counts as smuggled data.
     """
+
     allowed_domains: list[str] = field(default_factory=lambda: list(_DEFAULT_ALLOWED_HOSTS))
     flag_external_images: bool = True
     flag_external_links: bool = False
@@ -194,11 +214,12 @@ def _clean_url(raw: str) -> str:
 # Guard
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _UrlFinding:
     url: str
     host: str
-    render: str          # "image" | "link" | "bare"
+    render: str  # "image" | "link" | "bare"
     reason: str
     score: float
 
@@ -244,14 +265,18 @@ class EgressChannelGuard:
         """
         if not text or not text.strip():
             return ThreatResult(
-                threat_level=ThreatLevel.CLEAN, original_text=text,
-                surface=surface, explanation="Empty input",
+                threat_level=ThreatLevel.CLEAN,
+                original_text=text,
+                surface=surface,
+                explanation="Empty input",
             )
 
         findings = self._scan(text, context_secrets or [])
         if not findings:
             return ThreatResult(
-                threat_level=ThreatLevel.CLEAN, original_text=text, surface=surface,
+                threat_level=ThreatLevel.CLEAN,
+                original_text=text,
+                surface=surface,
                 explanation="No egress-channel risks detected",
             )
 
@@ -311,8 +336,12 @@ class EgressChannelGuard:
         findings: list[_UrlFinding] = []
         seen: set[tuple[str, str]] = set()
 
-        for render, pattern in (("image", _MD_IMAGE), ("image", _HTML_IMG),
-                                ("link", _MD_LINK), ("bare", _BARE_URL)):
+        for render, pattern in (
+            ("image", _MD_IMAGE),
+            ("image", _HTML_IMG),
+            ("link", _MD_LINK),
+            ("bare", _BARE_URL),
+        ):
             for m in pattern.finditer(text):
                 url = _clean_url(m.group(1) if pattern is not _BARE_URL else m.group(0))
                 key = (render, url)
@@ -339,13 +368,19 @@ class EgressChannelGuard:
 
         # 1) Known secret leaked in the URL — confirmed exfiltration, max score.
         if secrets and self._contains_secret(url, secrets):
-            return _UrlFinding(url, host, render,
-                               "carries a known sensitive value in the URL", 0.97)
+            return _UrlFinding(
+                url, host, render, "carries a known sensitive value in the URL", 0.97
+            )
 
         # 2) Exfil-beacon host — request catcher / abused trusted relay.
         if self._is_beacon(host):
-            return _UrlFinding(url, host, render,
-                               "points at a known exfiltration-beacon / request-catcher host", 0.92)
+            return _UrlFinding(
+                url,
+                host,
+                render,
+                "points at a known exfiltration-beacon / request-catcher host",
+                0.92,
+            )
 
         allowed = self._is_allowed(host)
         data_carrying, why = self._is_data_carrying(query, path)
@@ -353,28 +388,27 @@ class EgressChannelGuard:
         # 3) Allowlisted host: only flagged if it smuggles data.
         if allowed:
             if data_carrying:
-                return _UrlFinding(url, host, render,
-                                   f"allowlisted host but {why}", 0.60)
+                return _UrlFinding(url, host, render, f"allowlisted host but {why}", 0.60)
             return None
 
         # 4) External image — auto-fetches on render → channel by construction.
         if render == "image":
             if data_carrying:
-                return _UrlFinding(url, host, render,
-                                   f"auto-fetched image to external host with {why}", 0.85)
+                return _UrlFinding(
+                    url, host, render, f"auto-fetched image to external host with {why}", 0.85
+                )
             if self.config.flag_external_images:
-                return _UrlFinding(url, host, render,
-                                   "auto-fetched image to non-allowlisted external host", 0.55)
+                return _UrlFinding(
+                    url, host, render, "auto-fetched image to non-allowlisted external host", 0.55
+                )
             return None
 
         # 5) External link / bare URL — needs a click; flag only if data-carrying,
         #    or if the config opts into flagging all external links.
         if data_carrying:
-            return _UrlFinding(url, host, render,
-                               f"link to external host with {why}", 0.62)
+            return _UrlFinding(url, host, render, f"link to external host with {why}", 0.62)
         if render == "link" and self.config.flag_external_links:
-            return _UrlFinding(url, host, render,
-                               "link to non-allowlisted external host", 0.40)
+            return _UrlFinding(url, host, render, "link to non-allowlisted external host", 0.40)
         return None
 
     def _is_beacon(self, host: str) -> bool:
@@ -419,6 +453,7 @@ class EgressChannelGuard:
                     return True
             # base64 of the secret smuggled in the URL
             import base64
+
             try:
                 enc = base64.b64encode(s.encode()).decode().rstrip("=")
                 if enc and enc in url:

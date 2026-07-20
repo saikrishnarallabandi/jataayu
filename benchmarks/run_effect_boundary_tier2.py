@@ -20,6 +20,7 @@ The APR/TUR delta and the shrinking coverage_gaps between the two files ARE the 
 Emits an effect-class coverage matrix and an explicit `coverage_gaps` list: effectful tools that
 still resolve to READ (-> ALLOW) despite their true effect being consequential.
 """
+
 import argparse
 import json
 import statistics as st
@@ -57,7 +58,8 @@ def decide_detector(row, threshold):
 
 def decide_effect(row):
     d = jataayu_authorize_action(
-        row["tool"], row.get("params", {}),
+        row["tool"],
+        row.get("params", {}),
         untrusted=(row.get("provenance") == "untrusted"),
     )
     return d["decision"]
@@ -142,8 +144,12 @@ def per_suite(rows, eff_dec):
         srows = [rows[i] for i in idx]
         sdec = [eff_dec[i] for i in idx]
         s = score(srows, sdec)
-        out[suite] = {"n_attack": s["n_attack"], "n_legit": s["n_legit"],
-                      "apr": s["apr"], "tur": s["tur"]}
+        out[suite] = {
+            "n_attack": s["n_attack"],
+            "n_legit": s["n_legit"],
+            "apr": s["apr"],
+            "tur": s["tur"],
+        }
     return out
 
 
@@ -158,8 +164,10 @@ def main():
 
     rows = load_dataset(args.dataset)
     n_atk = sum(r["is_attack"] for r in rows)
-    print(f"[effect-boundary tier2] {len(rows)} rows | attack={n_atk} legit={len(rows) - n_atk} "
-          f"| dataset={args.dataset}")
+    print(
+        f"[effect-boundary tier2] {len(rows)} rows | attack={n_atk} legit={len(rows) - n_atk} "
+        f"| dataset={args.dataset}"
+    )
 
     lat, eff_dec = [], []
     for r in rows:
@@ -185,7 +193,8 @@ def main():
 
     matrix, gaps = coverage(rows)
     slips_from_gap = sum(
-        1 for r, d in zip(rows, eff_dec)
+        1
+        for r, d in zip(rows, eff_dec)
         if r["is_attack"] and d == ALLOW and any(g["tool"] == r["tool"] for g in gaps)
     )
 
@@ -213,19 +222,27 @@ def main():
 
     Path(args.out).write_text(json.dumps(result, indent=2))
 
-    print(f"\n{'defense':10} {'APR':>7} {'a-deny':>7} {'a-appr':>7} {'TUR':>7} {'FBR':>7} "
-          f"{'TUR-tr':>7} {'TUR-un':>7}")
+    print(
+        f"\n{'defense':10} {'APR':>7} {'a-deny':>7} {'a-appr':>7} {'TUR':>7} {'FBR':>7} "
+        f"{'TUR-tr':>7} {'TUR-un':>7}"
+    )
     for s in results:
-        print(f"{s['defense']:10} {s['apr']:>7.3f} {s['attack_deny']:>7.3f} "
-              f"{s['attack_needs_approval']:>7.3f} {s['tur']:>7.3f} {s['false_block_rate']:>7.3f} "
-              f"{s['tur_trusted_legit']:>7.3f} {s['tur_untrusted_legit']:>7.3f}")
-    print(f"\ncoverage gaps ({len(gaps)} effectful tools mis-mapped to READ): "
-          f"{[g['tool'] for g in gaps]}")
+        print(
+            f"{s['defense']:10} {s['apr']:>7.3f} {s['attack_deny']:>7.3f} "
+            f"{s['attack_needs_approval']:>7.3f} {s['tur']:>7.3f} {s['false_block_rate']:>7.3f} "
+            f"{s['tur_trusted_legit']:>7.3f} {s['tur_untrusted_legit']:>7.3f}"
+        )
+    print(
+        f"\ncoverage gaps ({len(gaps)} effectful tools mis-mapped to READ): "
+        f"{[g['tool'] for g in gaps]}"
+    )
     print(f"attack slips due to coverage gap: {slips_from_gap}")
     print("per-suite (effect defense):")
     for suite, s in result["per_suite_effect_defense"].items():
-        print(f"  {suite:10} APR {s['apr']:.3f}  TUR {s['tur']:.3f}  "
-              f"(atk={s['n_attack']} leg={s['n_legit']})")
+        print(
+            f"  {suite:10} APR {s['apr']:.3f}  TUR {s['tur']:.3f}  "
+            f"(atk={s['n_attack']} leg={s['n_legit']})"
+        )
     print(f"latency: mean {result['latency_ms']['mean']}ms  p99 {result['latency_ms']['p99']}ms")
     print(f"\nwrote {args.out}")
 

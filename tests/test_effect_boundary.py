@@ -5,14 +5,21 @@ The property under test (the CaMeL / arXiv:2606.09549 guarantee): an attacker wh
 still cannot COMMIT an unauthorized or post-authorization-mutated high-effect action, because the
 decision is made on (effect severity x value provenance x capability policy), not on the string.
 """
+
 import hashlib
 
 import pytest
 
 from jataayu.config.policy import AgentPolicy
 from jataayu.guards.effect_boundary import (
-    EffectBoundary, Value, Provenance, EffectClass, Decision, CommitRejected,
-    UncanonicalParams, _canonical,
+    EffectBoundary,
+    Value,
+    Provenance,
+    EffectClass,
+    Decision,
+    CommitRejected,
+    UncanonicalParams,
+    _canonical,
 )
 
 
@@ -30,47 +37,86 @@ def T(d, src="operator"):
 
 
 class TestClassification:
-    @pytest.mark.parametrize("tool,effect", [
-        ("bash", EffectClass.SHELL),
-        ("exec", EffectClass.CODE_EVAL),
-        ("write_file", EffectClass.FILE_WRITE),
-        ("fetch", EffectClass.NETWORK),
-        ("read_env", EffectClass.SECRET_READ),
-        ("memory_write", EffectClass.MEMORY_WRITE),
-        ("read_file", EffectClass.READ),
-    ])
+    @pytest.mark.parametrize(
+        "tool,effect",
+        [
+            ("bash", EffectClass.SHELL),
+            ("exec", EffectClass.CODE_EVAL),
+            ("write_file", EffectClass.FILE_WRITE),
+            ("fetch", EffectClass.NETWORK),
+            ("read_env", EffectClass.SECRET_READ),
+            ("memory_write", EffectClass.MEMORY_WRITE),
+            ("read_file", EffectClass.READ),
+        ],
+    )
     def test_classify(self, boundary, tool, effect):
         assert boundary.classify(tool) == effect
 
-    @pytest.mark.parametrize("tool", [
-        "shell.exec", "run_shell_command", "os.system", "subprocess.run",
-        "subprocess.Popen", "sh", "system", "runShellCommand", "shell/exec",
-    ])
+    @pytest.mark.parametrize(
+        "tool",
+        [
+            "shell.exec",
+            "run_shell_command",
+            "os.system",
+            "subprocess.run",
+            "subprocess.Popen",
+            "sh",
+            "system",
+            "runShellCommand",
+            "shell/exec",
+        ],
+    )
     def test_namespaced_shell_variants(self, boundary, tool):
         # The core bug: these all silently classified as READ -> ALLOW before the fix.
         assert boundary.classify(tool) is EffectClass.SHELL
 
-    @pytest.mark.parametrize("tool", [
-        "eval", "exec", "code.run", "python.exec", "python_eval", "js_eval",
-    ])
+    @pytest.mark.parametrize(
+        "tool",
+        [
+            "eval",
+            "exec",
+            "code.run",
+            "python.exec",
+            "python_eval",
+            "js_eval",
+        ],
+    )
     def test_namespaced_code_eval_variants(self, boundary, tool):
         assert boundary.classify(tool) is EffectClass.CODE_EVAL
 
-    @pytest.mark.parametrize("tool", [
-        "fs.write", "file.delete", "files.append", "overwrite_file",
-    ])
+    @pytest.mark.parametrize(
+        "tool",
+        [
+            "fs.write",
+            "file.delete",
+            "files.append",
+            "overwrite_file",
+        ],
+    )
     def test_namespaced_file_write_variants(self, boundary, tool):
         assert boundary.classify(tool) is EffectClass.FILE_WRITE
 
-    @pytest.mark.parametrize("tool", [
-        "http.post", "webhook.trigger", "web.download", "send_channel_message",
-    ])
+    @pytest.mark.parametrize(
+        "tool",
+        [
+            "http.post",
+            "webhook.trigger",
+            "web.download",
+            "send_channel_message",
+        ],
+    )
     def test_namespaced_network_variants(self, boundary, tool):
         assert boundary.classify(tool) is EffectClass.NETWORK
 
-    @pytest.mark.parametrize("tool", [
-        "vault.read", "secrets.get", "read_credentials", "env.get",
-    ])
+    @pytest.mark.parametrize(
+        "tool",
+        [
+            "vault.read",
+            "secrets.get",
+            "read_credentials",
+            "env.get",
+        ],
+    )
     def test_namespaced_secret_variants(self, boundary, tool):
         assert boundary.classify(tool) is EffectClass.SECRET_READ
 
@@ -78,16 +124,48 @@ class TestClassification:
     # on a strong standalone token OR a qualifier + a generic noun (handling plurals & camelCase);
     # a bare generic noun with no qualifier must NOT fire.
     SECRET_MUST_DENY = [
-        "api_key", "api_keys", "list_api_keys", "get_api_key", "access_key", "access_token",
-        "api_token", "oauth_token", "bearer_token", "private_key", "read_private_key", "ssh_key",
-        "read_ssh_key", "signing_key", "read_signing_key", "client_secret", "secret_key",
-        "get_secret", "credentials", "password", "id_rsa", "cat_id_rsa", "read_pem", "read_pkcs12",
-        "keystore", "getApiKey", "readPrivateKey",
+        "api_key",
+        "api_keys",
+        "list_api_keys",
+        "get_api_key",
+        "access_key",
+        "access_token",
+        "api_token",
+        "oauth_token",
+        "bearer_token",
+        "private_key",
+        "read_private_key",
+        "ssh_key",
+        "read_ssh_key",
+        "signing_key",
+        "read_signing_key",
+        "client_secret",
+        "secret_key",
+        "get_secret",
+        "credentials",
+        "password",
+        "id_rsa",
+        "cat_id_rsa",
+        "read_pem",
+        "read_pkcs12",
+        "keystore",
+        "getApiKey",
+        "readPrivateKey",
     ]
     SECRET_MUST_STAY_READ = [
-        "get_public_key", "key_value_get", "list_keys", "get_map_keys", "press_key", "key_press",
-        "keyboard_input", "rsa_tutorial", "ssh_config_lint", "read_monkey", "tokenize_text",
-        "get_donkey_facts", "whiskey_inventory",
+        "get_public_key",
+        "key_value_get",
+        "list_keys",
+        "get_map_keys",
+        "press_key",
+        "key_press",
+        "keyboard_input",
+        "rsa_tutorial",
+        "ssh_config_lint",
+        "read_monkey",
+        "tokenize_text",
+        "get_donkey_facts",
+        "whiskey_inventory",
     ]
 
     @pytest.mark.parametrize("tool", SECRET_MUST_DENY)
@@ -126,9 +204,16 @@ class TestClassification:
 
     # Canonical agent secret-store readers (finite known set) — must DENY under untrusted.
     SECRET_STORE_MUST_DENY = [
-        "read_netrc", "read_dotenv", "load_dotenv", "read_pgpass", "read_htpasswd",
-        "read_kube_config", "read_kubeconfig", "get_gcp_service_account_key",
-        "get_service_account", "read_token_file",
+        "read_netrc",
+        "read_dotenv",
+        "load_dotenv",
+        "read_pgpass",
+        "read_htpasswd",
+        "read_kube_config",
+        "read_kubeconfig",
+        "get_gcp_service_account_key",
+        "get_service_account",
+        "read_token_file",
     ]
 
     @pytest.mark.parametrize("tool", SECRET_STORE_MUST_DENY)
@@ -138,8 +223,9 @@ class TestClassification:
         assert pv.decision is Decision.DENY
         assert pv.commit_token is None
 
-    @pytest.mark.parametrize("tool", ["cat_env", "list_env", "show_env", "view_env",
-                                      "read_env", "dump_env"])
+    @pytest.mark.parametrize(
+        "tool", ["cat_env", "list_env", "show_env", "view_env", "read_env", "dump_env"]
+    )
     def test_all_env_read_verbs_denied(self, boundary, tool):
         # Every read verb on the environment must deny consistently (not just get/read/dump).
         assert boundary.classify(tool) is EffectClass.SECRET_READ
@@ -151,8 +237,9 @@ class TestClassification:
         # Adding env tokens must not turn a non-read env name into a false credential read.
         assert boundary.classify(tool) is not EffectClass.SECRET_READ
 
-    @pytest.mark.parametrize("tool", ["dill_load", "marshal_loads", "yaml.load",
-                                      "yaml_load", "load_yaml"])
+    @pytest.mark.parametrize(
+        "tool", ["dill_load", "marshal_loads", "yaml.load", "yaml_load", "load_yaml"]
+    )
     def test_unsafe_deserialization_is_code_eval(self, boundary, tool):
         assert boundary.classify(tool) is EffectClass.CODE_EVAL
         pv = boundary.preview(tool, {"data": "..."}, [U("payload")])
@@ -163,9 +250,16 @@ class TestClassification:
         # The safe loader is not RCE and must not be swept into CODE_EVAL.
         assert boundary.classify(tool) is not EffectClass.CODE_EVAL
 
-    @pytest.mark.parametrize("tool", [
-        "read_file", "get_weather", "list_files", "search_docs", "recall",
-    ])
+    @pytest.mark.parametrize(
+        "tool",
+        [
+            "read_file",
+            "get_weather",
+            "list_files",
+            "search_docs",
+            "recall",
+        ],
+    )
     def test_recognized_reads_stay_read(self, boundary, tool):
         assert boundary.classify(tool) is EffectClass.READ
 
@@ -187,10 +281,17 @@ class TestVerbPositionMatching:
     """
 
     # Direction 1: a dangerous name must NOT be masked by a benign token sitting next to it.
-    @pytest.mark.parametrize("tool", [
-        "read_file_and_exec", "get_python_and_eval", "list_dir_then_system",
-        "search_repo_exec", "shell_exec", "fs.read.exec",
-    ])
+    @pytest.mark.parametrize(
+        "tool",
+        [
+            "read_file_and_exec",
+            "get_python_and_eval",
+            "list_dir_then_system",
+            "search_repo_exec",
+            "shell_exec",
+            "fs.read.exec",
+        ],
+    )
     def test_dangerous_verb_not_masked_by_read_token(self, boundary, tool):
         assert boundary.classify(tool) in (EffectClass.SHELL, EffectClass.CODE_EVAL)
         pv = boundary.preview(tool, {"cmd": "rm -rf /"}, [U("rm -rf /")])
@@ -198,10 +299,17 @@ class TestVerbPositionMatching:
 
     # Direction 2: a benign read must NOT be escalated by a dangerous-looking noun in object
     # position. These all DENIED before the positional fix.
-    @pytest.mark.parametrize("tool", [
-        "list_shell_history", "get_python_docs", "search_javascript_tutorials",
-        "read_bash_profile", "get_terminal_theme", "list_code_snippets",
-    ])
+    @pytest.mark.parametrize(
+        "tool",
+        [
+            "list_shell_history",
+            "get_python_docs",
+            "search_javascript_tutorials",
+            "read_bash_profile",
+            "get_terminal_theme",
+            "list_code_snippets",
+        ],
+    )
     def test_benign_read_not_escalated_by_dangerous_noun(self, boundary, tool):
         assert boundary.classify(tool) is EffectClass.READ
         pv = boundary.preview(tool, {"x": 1}, [U("payload")])
@@ -209,15 +317,19 @@ class TestVerbPositionMatching:
 
     # A read verb only counts in a verb position — appending or prefixing one must not make an
     # arbitrary name a *recognized* read (it still falls back to READ, but not via this rule).
-    @pytest.mark.parametrize("tool,verb_recognized", [
-        ("read_file", True),
-        ("file.read", True),
-        ("exfiltrate_everything_status", False),
-        ("frobnicate_widget_info", False),
-        ("wibble_lookup", False),
-    ])
+    @pytest.mark.parametrize(
+        "tool,verb_recognized",
+        [
+            ("read_file", True),
+            ("file.read", True),
+            ("exfiltrate_everything_status", False),
+            ("frobnicate_widget_info", False),
+            ("wibble_lookup", False),
+        ],
+    )
     def test_read_verb_must_be_in_verb_position(self, tool, verb_recognized):
         from jataayu.guards.effect_boundary import _READ_VERBS, _verb_tokens
+
         _, _, head = _verb_tokens(tool)
         assert bool(head & _READ_VERBS) is verb_recognized
 
@@ -234,11 +346,23 @@ class TestVerbPositionMatching:
 class TestNamespacedShellDenied:
     """rm -rf from untrusted input must be DENIED across every shell spelling (the headline bug)."""
 
-    @pytest.mark.parametrize("tool", [
-        "shell.exec", "run_shell_command", "os.system", "subprocess.run",
-        "subprocess.Popen", "system", "bash", "sh.run", "execute_shell", "Shell.Exec",
-        "shell_exec", "eval_python",
-    ])
+    @pytest.mark.parametrize(
+        "tool",
+        [
+            "shell.exec",
+            "run_shell_command",
+            "os.system",
+            "subprocess.run",
+            "subprocess.Popen",
+            "system",
+            "bash",
+            "sh.run",
+            "execute_shell",
+            "Shell.Exec",
+            "shell_exec",
+            "eval_python",
+        ],
+    )
     def test_untrusted_shell_variant_denied(self, boundary, tool):
         pv = boundary.preview(tool, {"cmd": "rm -rf /"}, [U("rm -rf /")])
         assert pv.decision is Decision.DENY
@@ -322,14 +446,20 @@ class TestReadConfinement:
         assert boundary.dereference(handle) == secret
 
 
-
-
 class Hostile:
     """A key whose repr raises — the reason string must not take the guard down with it."""
-    def __str__(self): raise RuntimeError("boom")
-    def __repr__(self): raise RuntimeError("boom")
-    def __hash__(self): return 1
-    def __eq__(self, other): return self is other
+
+    def __str__(self):
+        raise RuntimeError("boom")
+
+    def __repr__(self):
+        raise RuntimeError("boom")
+
+    def __hash__(self):
+        return 1
+
+    def __eq__(self, other):
+        return self is other
 
 
 def _cyclic_dict():
@@ -383,7 +513,7 @@ class TestCanonicalization:
         "none": {None: "a"},
         "tuple": {(1, 2): "a"},
         "object": {object(): "a"},
-        "mixed": {1: "a", "b": 2},                       # sort_keys cannot order these
+        "mixed": {1: "a", "b": 2},  # sort_keys cannot order these
         "nested_in_list": {"outer": [{"ok": 1}, {2: "b"}]},
         "deeply_nested": {"a": {"b": {(): 1}}},
         "hostile_repr": {Hostile(): "a"},
@@ -456,6 +586,7 @@ class TestCanonicalization:
     def test_repr_controlled_int_key_bypass(self, boundary):
         """Regression, 8f49dba: int keys were tagged via f"{key!r}", so a subclass overriding
         __repr__ chose its own tag and {Evil(1): "x"} canonicalized as {2: "x"}."""
+
         class Evil(int):
             def __repr__(self):
                 return "2"
@@ -469,7 +600,8 @@ class TestCanonicalization:
         """Cycle tracking is per-path; the same dict twice as siblings is a DAG, not a loop."""
         shared = {"x": 1}
         assert _canonical("t", {"a": shared, "b": shared}) == _canonical(
-            "t", {"a": {"x": 1}, "b": {"x": 1}})
+            "t", {"a": {"x": 1}, "b": {"x": 1}}
+        )
 
     def test_unserializable_values_still_pass_through_json_default(self, boundary):
         """The value path is untouched: a non-JSON value is stringified, not rejected."""

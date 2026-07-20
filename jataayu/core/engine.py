@@ -6,6 +6,7 @@ Provides:
   - LLM backend configuration (Ollama or API)
   - Common utility methods
 """
+
 from __future__ import annotations
 
 import os
@@ -90,9 +91,7 @@ class LLMBackend:
     def _gateway_url(self) -> str:
         url = os.environ.get("JATAAYU_GATEWAY_BASE_URL", "")
         if not url:
-            raise RuntimeError(
-                "gateway backend selected but JATAAYU_GATEWAY_BASE_URL is not set"
-            )
+            raise RuntimeError("gateway backend selected but JATAAYU_GATEWAY_BASE_URL is not set")
         return _normalize_openai_compat_base_url(url)
 
     def _gateway_token(self) -> str:
@@ -127,6 +126,7 @@ class LLMBackend:
 
     def _call_ollama(self, system_prompt: str, user_message: str, max_tokens: int) -> str:
         import requests
+
         resp = requests.post(
             f"{self.base_url}/api/chat",
             json={
@@ -161,6 +161,7 @@ class LLMBackend:
         ).strip().lower() in ("1", "true", "yes"):
             verify = False
             import urllib3
+
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
         resp = requests.post(
@@ -182,6 +183,7 @@ class LLMBackend:
 
     def _call_anthropic(self, system_prompt: str, user_message: str, max_tokens: int) -> str:
         import requests
+
         resp = requests.post(
             f"{self.base_url}/v1/messages",
             headers={
@@ -227,11 +229,14 @@ class JataayuEngine(ABC):
 
     def get_surface_profile(self, surface: str) -> dict:
         """Resolve a surface name to its profile dict."""
-        return SURFACE_PROFILES.get(surface, {
-            "trust_level": "medium",
-            "description": f"Unknown surface: {surface}",
-            "watch_for": [],
-        })
+        return SURFACE_PROFILES.get(
+            surface,
+            {
+                "trust_level": "medium",
+                "description": f"Unknown surface: {surface}",
+                "watch_for": [],
+            },
+        )
 
     def is_strict_inbound(self, surface: str) -> bool:
         return self.get_surface_profile(surface).get("inbound_strict", False)

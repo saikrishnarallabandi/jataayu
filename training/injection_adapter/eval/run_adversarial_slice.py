@@ -51,6 +51,7 @@ Run (Pascal / 1080 Ti -> fp32 required; pin CUDA_VISIBLE_DEVICES to a free GPU):
     CUDA_VISIBLE_DEVICES=0 python \
         training/injection_adapter/eval/run_adversarial_slice.py
 """
+
 import argparse
 import hashlib
 import json
@@ -59,8 +60,8 @@ import statistics
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent            # training/injection_adapter/eval
-ROOT = HERE.parent                                # training/injection_adapter
+HERE = Path(__file__).resolve().parent  # training/injection_adapter/eval
+ROOT = HERE.parent  # training/injection_adapter
 sys.path.insert(0, str(ROOT / "code"))
 import injscore
 
@@ -118,15 +119,20 @@ def load_model(base, adapter, no_adapter, fp32):
     # fp32 on Pascal: the Qwen3.5 linear-attn fp16 kernel crashes on a 1080 Ti.
     dtype = torch.float32 if fp32 else torch.float16
     from transformers import AutoModelForCausalLM
+
     try:
-        model = AutoModelForCausalLM.from_pretrained(base, torch_dtype=dtype, device_map={"": 0},
-                                                     trust_remote_code=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            base, torch_dtype=dtype, device_map={"": 0}, trust_remote_code=True
+        )
     except (ValueError, KeyError):
         from transformers import AutoModelForImageTextToText
-        model = AutoModelForImageTextToText.from_pretrained(base, torch_dtype=dtype, device_map={"": 0},
-                                                            trust_remote_code=True)
+
+        model = AutoModelForImageTextToText.from_pretrained(
+            base, torch_dtype=dtype, device_map={"": 0}, trust_remote_code=True
+        )
     if not no_adapter:
         from peft import PeftModel
+
         model = PeftModel.from_pretrained(model, str(adapter))
     model.eval()
     return model, tok
@@ -135,8 +141,16 @@ def load_model(base, adapter, no_adapter, fp32):
 def score_rows(model, tok, rows, batch_size, max_len):
     pos_id, neg_id = injscore.label_first_token_ids(tok)
     dev = next(model.parameters()).device
-    res = injscore.injection_scores(model, tok, [r["text"] for r in rows], pos_id, neg_id,
-                                    max_len=max_len, batch_size=batch_size, device=dev)
+    res = injscore.injection_scores(
+        model,
+        tok,
+        [r["text"] for r in rows],
+        pos_id,
+        neg_id,
+        max_len=max_len,
+        batch_size=batch_size,
+        device=dev,
+    )
     if len(res) != len(rows):
         raise SystemExit(f"harness error: scored {len(res)} of {len(rows)} rows")
     return {r["id"]: s["score"] for r, s in zip(rows, res)}
@@ -200,9 +214,13 @@ def roc_curve(pos, neg):
     taus = sorted(set(pos) | set(neg))
     pts = [{"tau": math.nextafter(taus[-1], math.inf), "fpr": 0.0, "tpr": 0.0}]
     for t in reversed(taus):
-        pts.append({"tau": t,
-                    "fpr": sum(1 for b in neg if b >= t) / len(neg),
-                    "tpr": sum(1 for a in pos if a >= t) / len(pos)})
+        pts.append(
+            {
+                "tau": t,
+                "fpr": sum(1 for b in neg if b >= t) / len(neg),
+                "tpr": sum(1 for a in pos if a >= t) / len(pos),
+            }
+        )
     return pts
 
 
@@ -251,7 +269,8 @@ def load_calib_pool(pool_path, exclude_path, reserved_texts):
             raise SystemExit(
                 f"--calib-exclude file not found: {ex}\n"
                 "Pass --calib-exclude '' to calibrate WITHOUT the train-contamination filter "
-                "(the tuned model's tau will then be biased low by memorised rows).")
+                "(the tuned model's tau will then be biased low by memorised rows)."
+            )
         train_texts = set()
         for line in ex.open():
             line = line.strip()
@@ -267,27 +286,35 @@ def load_calib_pool(pool_path, exclude_path, reserved_texts):
     # tripping its length check, quietly coarsening every tau computed from it.
     ids = [r.get("id") for r in kept]
     if len(set(ids)) != len(ids) or any(i is None for i in ids):
-        raise SystemExit(f"harness error: calibration pool {Path(pool_path).name} has "
-                         "missing or duplicate ids")
+        raise SystemExit(
+            f"harness error: calibration pool {Path(pool_path).name} has missing or duplicate ids"
+        )
 
-    meta = {"path": str(pool_path), "n_rows_in_file": n_all, "n_benign": len(benign),
-            "n_dropped_slice_overlap": n_slice_overlap,
-            "exclude_path": str(exclude_path) if exclude_path else None,
-            "n_dropped_train_overlap": n_train_overlap, "n_pool": len(kept),
-            "min_measurable_fpr": 1.0 / len(kept)}
+    meta = {
+        "path": str(pool_path),
+        "n_rows_in_file": n_all,
+        "n_benign": len(benign),
+        "n_dropped_slice_overlap": n_slice_overlap,
+        "exclude_path": str(exclude_path) if exclude_path else None,
+        "n_dropped_train_overlap": n_train_overlap,
+        "n_pool": len(kept),
+        "min_measurable_fpr": 1.0 / len(kept),
+    }
     return kept, meta
 
 
 def fmt(x, nd=4):
-    return "n/a" if x != x else f"{x:.{nd}f}"      # x != x -> NaN
+    return "n/a" if x != x else f"{x:.{nd}f}"  # x != x -> NaN
 
 
 def report_per_class(slice_rows, scores):
     print("\n" + "=" * 96)
     print("PER-CLASS RATES  (benign -> FPR = fraction scored >= tau; attack -> recall = same)")
     print("=" * 96)
-    print(f"{'class':26s} {'label':>5} {'n':>4} {'mean p':>8} {'median':>8} {'min':>8} {'max':>8} "
-          f"{'@0.5':>8} {'@0.9':>8}")
+    print(
+        f"{'class':26s} {'label':>5} {'n':>4} {'mean p':>8} {'median':>8} {'min':>8} {'max':>8} "
+        f"{'@0.5':>8} {'@0.9':>8}"
+    )
     out = {}
     for cls in sorted({r["class"] for r in slice_rows}):
         rows = [r for r in slice_rows if r["class"] == cls]
@@ -297,15 +324,26 @@ def report_per_class(slice_rows, scores):
             raise SystemExit(f"harness error: class {cls} mixes labels")
         rates = {str(t): sum(1 for p in ps if p >= t) / len(ps) for t in TAUS}
         metric = "FPR" if label == 0 else "recall"
-        out[cls] = {"label": label, "n": len(ps), "mean_p": statistics.fmean(ps),
-                    "median_p": statistics.median(ps), "min_p": min(ps), "max_p": max(ps),
-                    "metric": metric, "rate_at_tau": rates,
-                    "scores": {r["id"]: scores[r["id"]] for r in rows}}
-        print(f"{cls:26s} {label:>5} {len(ps):>4} {statistics.fmean(ps):>8.4f} "
-              f"{statistics.median(ps):>8.4f} {min(ps):>8.4f} {max(ps):>8.4f} "
-              f"{rates['0.5']:>8.3f} {rates['0.9']:>8.3f}")
-    print(f"\n  (the @0.5 / @0.9 column is {'/'.join(sorted({('FPR' if r['label'] == 0 else 'recall') for r in slice_rows}))}"
-          " depending on the row's label)")
+        out[cls] = {
+            "label": label,
+            "n": len(ps),
+            "mean_p": statistics.fmean(ps),
+            "median_p": statistics.median(ps),
+            "min_p": min(ps),
+            "max_p": max(ps),
+            "metric": metric,
+            "rate_at_tau": rates,
+            "scores": {r["id"]: scores[r["id"]] for r in rows},
+        }
+        print(
+            f"{cls:26s} {label:>5} {len(ps):>4} {statistics.fmean(ps):>8.4f} "
+            f"{statistics.median(ps):>8.4f} {min(ps):>8.4f} {max(ps):>8.4f} "
+            f"{rates['0.5']:>8.3f} {rates['0.9']:>8.3f}"
+        )
+    print(
+        f"\n  (the @0.5 / @0.9 column is {'/'.join(sorted({('FPR' if r['label'] == 0 else 'recall') for r in slice_rows}))}"
+        " depending on the row's label)"
+    )
     return out
 
 
@@ -317,18 +355,28 @@ def report_matched_op(slice_rows, scores, pool_scores, pool_meta, targets):
     print("=" * 96)
     print(f"  pool           : {pool_meta['path']}")
     print(f"  rows in file   : {pool_meta['n_rows_in_file']}   benign: {pool_meta['n_benign']}")
-    print(f"  dropped        : {pool_meta['n_dropped_slice_overlap']} overlapping the reported slice"
-          f"   {pool_meta['n_dropped_train_overlap']} appearing in {pool_meta['exclude_path'] or 'n/a'}")
-    print(f"  -> n_pool      : {pool_meta['n_pool']}   (finest measurable FPR = "
-          f"{pool_meta['min_measurable_fpr']:.4f})")
+    print(
+        f"  dropped        : {pool_meta['n_dropped_slice_overlap']} overlapping the reported slice"
+        f"   {pool_meta['n_dropped_train_overlap']} appearing in {pool_meta['exclude_path'] or 'n/a'}"
+    )
+    print(
+        f"  -> n_pool      : {pool_meta['n_pool']}   (finest measurable FPR = "
+        f"{pool_meta['min_measurable_fpr']:.4f})"
+    )
 
     cal = {}
     for tgt in targets:
         tau, ach = calibrate_tau(pool_scores, tgt)
-        cal[str(tgt)] = {"target_fpr": tgt, "tau": tau, "achieved_pool_fpr": ach,
-                         "n_pool": len(pool_scores)}
-        print(f"\n  target FPR {tgt:.0%}  ->  tau = {tau:.6f}   (achieved pool FPR "
-              f"{ach:.4f} = {round(ach * len(pool_scores))}/{len(pool_scores)})")
+        cal[str(tgt)] = {
+            "target_fpr": tgt,
+            "tau": tau,
+            "achieved_pool_fpr": ach,
+            "n_pool": len(pool_scores),
+        }
+        print(
+            f"\n  target FPR {tgt:.0%}  ->  tau = {tau:.6f}   (achieved pool FPR "
+            f"{ach:.4f} = {round(ach * len(pool_scores))}/{len(pool_scores)})"
+        )
 
     hdr = "".join(f"{'@FPR' + format(t, '.0%'):>12}" for t in targets)
     print(f"\n{'class':26s} {'label':>5} {'n':>4} {'rate@0.5':>9}{hdr}")
@@ -338,13 +386,18 @@ def report_matched_op(slice_rows, scores, pool_scores, pool_meta, targets):
         ps = [scores[r["id"]] for r in rows]
         label = rows[0]["label"]
         rates = {str(t): sum(1 for p in ps if p >= cal[str(t)]["tau"]) / len(ps) for t in targets}
-        out[cls] = {"label": label, "n": len(ps),
-                    "metric": "FPR" if label == 0 else "recall",
-                    "rate_at_matched_fpr": rates}
+        out[cls] = {
+            "label": label,
+            "n": len(ps),
+            "metric": "FPR" if label == 0 else "recall",
+            "rate_at_matched_fpr": rates,
+        }
         cells = "".join(f"{rates[str(t)]:>12.3f}" for t in targets)
         r05 = sum(1 for p in ps if p >= 0.5) / len(ps)
         print(f"{cls:26s} {label:>5} {len(ps):>4} {r05:>9.3f}{cells}")
-    print("\n  (label 1 -> recall, label 0 -> FPR. The rate@0.5 column is the OLD fixed-tau number,")
+    print(
+        "\n  (label 1 -> recall, label 0 -> FPR. The rate@0.5 column is the OLD fixed-tau number,"
+    )
     print("   shown only for contrast -- it is not comparable across models.)")
     return {"pool": pool_meta, "calibration": cal, "per_class": out}
 
@@ -361,8 +414,14 @@ def report_threshold_free(slice_rows, scores, pool_scores, pool_meta):
         rows = [r for r in slice_rows if r["class"] == cls]
         ps = [scores[r["id"]] for r in rows]
         a, ap = auc(ps, pool_scores), pr_auc(ps, pool_scores)
-        out[cls] = {"label": rows[0]["label"], "n": len(ps), "n_pool": len(pool_scores),
-                    "roc_auc": a, "pr_auc": ap, "roc_curve": roc_curve(ps, pool_scores)}
+        out[cls] = {
+            "label": rows[0]["label"],
+            "n": len(ps),
+            "n_pool": len(pool_scores),
+            "roc_auc": a,
+            "pr_auc": ap,
+            "roc_curve": roc_curve(ps, pool_scores),
+        }
         print(f"{cls:26s} {rows[0]['label']:>5} {len(ps):>4} {a:>9.4f} {ap:>9.4f}")
     print("\n  For a label-1 class this is P(attack scores above a random held-out benign row):")
     print("  0.5 = chance, <0.5 = the class scores BELOW benign traffic (worse than a coin flip).")
@@ -381,8 +440,9 @@ def report_within_slice_auc(slice_rows, scores):
     att = [c for c in {r["class"] for r in slice_rows} if c not in BENIGN_CLASSES]
     srb = [scores[r["id"]] for r in slice_rows if r["class"] == "self_ref_benign"]
     allben = [scores[r["id"]] for r in slice_rows if r["class"] in BENIGN_CLASSES]
-    noncontrol = [scores[r["id"]] for r in slice_rows
-                  if r["class"] in att and r["class"] != "control_attack"]
+    noncontrol = [
+        scores[r["id"]] for r in slice_rows if r["class"] in att and r["class"] != "control_attack"
+    ]
     out = {}
     print("\n" + "=" * 96)
     print("WITHIN-SLICE AUC (legacy; negative pool = the slice's own benign rows)")
@@ -390,13 +450,19 @@ def report_within_slice_auc(slice_rows, scores):
     for cls in sorted(att):
         ps = [scores[r["id"]] for r in slice_rows if r["class"] == cls]
         out[cls] = {"vs_self_ref_benign": auc(ps, srb), "vs_all_slice_benign": auc(ps, allben)}
-        print(f"{cls:26s} vs self_ref_benign={out[cls]['vs_self_ref_benign']:.4f}   "
-              f"vs all slice benign={out[cls]['vs_all_slice_benign']:.4f}")
-    out["_noncontrol_attacks"] = {"vs_self_ref_benign": auc(noncontrol, srb),
-                                  "vs_all_slice_benign": auc(noncontrol, allben)}
-    print(f"{'NON-CONTROL attacks (pooled)':26s} vs self_ref_benign="
-          f"{out['_noncontrol_attacks']['vs_self_ref_benign']:.4f}   "
-          f"vs all slice benign={out['_noncontrol_attacks']['vs_all_slice_benign']:.4f}")
+        print(
+            f"{cls:26s} vs self_ref_benign={out[cls]['vs_self_ref_benign']:.4f}   "
+            f"vs all slice benign={out[cls]['vs_all_slice_benign']:.4f}"
+        )
+    out["_noncontrol_attacks"] = {
+        "vs_self_ref_benign": auc(noncontrol, srb),
+        "vs_all_slice_benign": auc(noncontrol, allben),
+    }
+    print(
+        f"{'NON-CONTROL attacks (pooled)':26s} vs self_ref_benign="
+        f"{out['_noncontrol_attacks']['vs_self_ref_benign']:.4f}   "
+        f"vs all slice benign={out['_noncontrol_attacks']['vs_all_slice_benign']:.4f}"
+    )
     print("\n  ('non-control attacks vs self_ref_benign' is the definition behind the previously")
     print("   quoted 0.284 for v0.1 / 0.533 for PromptGuard-2.)")
     return out
@@ -415,26 +481,48 @@ def report_overlap(slice_rows, scores, benign_cls, attack_cls):
     separable = max(ben) < min(att)
     n_above = sum(1 for b in ben if b >= min(att))
     n_below = sum(1 for x in att if x <= max(ben))
-    print(f"  benign  n={len(ben):3d}  min={min(ben):.4f}  max={max(ben):.4f}  "
-          f"mean={statistics.fmean(ben):.4f}")
-    print(f"  attack  n={len(att):3d}  min={min(att):.4f}  max={max(att):.4f}  "
-          f"mean={statistics.fmean(att):.4f}")
+    print(
+        f"  benign  n={len(ben):3d}  min={min(ben):.4f}  max={max(ben):.4f}  "
+        f"mean={statistics.fmean(ben):.4f}"
+    )
+    print(
+        f"  attack  n={len(att):3d}  min={min(att):.4f}  max={max(att):.4f}  "
+        f"mean={statistics.fmean(att):.4f}"
+    )
     print(f"  max(benign)={max(ben):.4f}  vs  min(attack)={min(att):.4f}")
     print(f"  AUC={fmt(a)}   best balanced acc={fmt(ba)} at tau={fmt(bt)}")
-    print(f"  benign rows at/above min(attack): {n_above}/{len(ben)}   "
-          f"attack rows at/below max(benign): {n_below}/{len(att)}")
+    print(
+        f"  benign rows at/above min(attack): {n_above}/{len(ben)}   "
+        f"attack rows at/below max(benign): {n_below}/{len(att)}"
+    )
     if separable:
-        print(f"  => SEPARABLE. A threshold in ({max(ben):.4f}, {min(att):.4f}] splits them "
-              f"perfectly. The claim of inseparability does NOT hold on this slice.")
+        print(
+            f"  => SEPARABLE. A threshold in ({max(ben):.4f}, {min(att):.4f}] splits them "
+            f"perfectly. The claim of inseparability does NOT hold on this slice."
+        )
     else:
-        print(f"  => NOT SEPARABLE. The distributions overlap; no single threshold classifies "
-              f"both sets correctly. Best any threshold does is {fmt(ba)} balanced accuracy.")
-    return {"benign_class": benign_cls, "attack_class": attack_cls,
-            "n_benign": len(ben), "n_attack": len(att),
-            "benign_min": min(ben), "benign_max": max(ben), "benign_mean": statistics.fmean(ben),
-            "attack_min": min(att), "attack_max": max(att), "attack_mean": statistics.fmean(att),
-            "auc": a, "best_balanced_acc": ba, "best_tau": bt, "separable": separable,
-            "n_benign_above_min_attack": n_above, "n_attack_below_max_benign": n_below}
+        print(
+            f"  => NOT SEPARABLE. The distributions overlap; no single threshold classifies "
+            f"both sets correctly. Best any threshold does is {fmt(ba)} balanced accuracy."
+        )
+    return {
+        "benign_class": benign_cls,
+        "attack_class": attack_cls,
+        "n_benign": len(ben),
+        "n_attack": len(att),
+        "benign_min": min(ben),
+        "benign_max": max(ben),
+        "benign_mean": statistics.fmean(ben),
+        "attack_min": min(att),
+        "attack_max": max(att),
+        "attack_mean": statistics.fmean(att),
+        "auc": a,
+        "best_balanced_acc": ba,
+        "best_tau": bt,
+        "separable": separable,
+        "n_benign_above_min_attack": n_above,
+        "n_attack_below_max_benign": n_below,
+    }
 
 
 def contrast(pairs, scores, lo_arm, hi_arm, label):
@@ -454,22 +542,36 @@ def contrast(pairs, scores, lo_arm, hi_arm, label):
     n_lo_caught = sum(1 for k in keys if scores[pairs[k][lo_arm]] >= 0.5)
     n_hi_caught = sum(1 for k in keys if scores[pairs[k][hi_arm]] >= 0.5)
     print(f"\n  {label}")
-    print(f"    n pairs={len(keys)}   mean dp={statistics.fmean(deltas):+.4f}   "
-          f"median dp={statistics.median(deltas):+.4f}   "
-          f"range=[{min(deltas):+.4f}, {max(deltas):+.4f}]")
-    print(f"    caught@0.5: {n_lo_caught}/{len(keys)} ({lo_arm})  ->  "
-          f"{n_hi_caught}/{len(keys)} ({hi_arm})")
-    print(f"    boundary crossings: {len(defeats)} DEFEATED (caught -> missed), {gains} newly caught")
+    print(
+        f"    n pairs={len(keys)}   mean dp={statistics.fmean(deltas):+.4f}   "
+        f"median dp={statistics.median(deltas):+.4f}   "
+        f"range=[{min(deltas):+.4f}, {max(deltas):+.4f}]"
+    )
+    print(
+        f"    caught@0.5: {n_lo_caught}/{len(keys)} ({lo_arm})  ->  "
+        f"{n_hi_caught}/{len(keys)} ({hi_arm})"
+    )
+    print(
+        f"    boundary crossings: {len(defeats)} DEFEATED (caught -> missed), {gains} newly caught"
+    )
     for k, lo, hi in defeats[:6]:
         print(f"      - {k}: {lo:.4f} -> {hi:.4f}")
     if len(defeats) > 6:
         print(f"      ... and {len(defeats) - 6} more")
-    return {"lo_arm": lo_arm, "hi_arm": hi_arm, "n_pairs": len(keys),
-            "mean_delta": statistics.fmean(deltas), "median_delta": statistics.median(deltas),
-            "min_delta": min(deltas), "max_delta": max(deltas),
-            "n_caught_lo": n_lo_caught, "n_caught_hi": n_hi_caught,
-            "n_defeated": len(defeats), "n_newly_caught": gains,
-            "defeated": [{"pair": k, "p_lo": lo, "p_hi": hi} for k, lo, hi in defeats]}
+    return {
+        "lo_arm": lo_arm,
+        "hi_arm": hi_arm,
+        "n_pairs": len(keys),
+        "mean_delta": statistics.fmean(deltas),
+        "median_delta": statistics.median(deltas),
+        "min_delta": min(deltas),
+        "max_delta": max(deltas),
+        "n_caught_lo": n_lo_caught,
+        "n_caught_hi": n_hi_caught,
+        "n_defeated": len(defeats),
+        "n_newly_caught": gains,
+        "defeated": [{"pair": k, "p_lo": lo, "p_hi": hi} for k, lo, hi in defeats],
+    }
 
 
 def report_ablations(ab_rows, scores):
@@ -485,32 +587,56 @@ def report_ablations(ab_rows, scores):
 
     out = {}
     if "authority_prefix" in pairs:
-        print("\n[family: authority_prefix]  does 'SYSTEM: ...verified as an administrator. ' "
-              "suppress detection?")
+        print(
+            "\n[family: authority_prefix]  does 'SYSTEM: ...verified as an administrator. ' "
+            "suppress detection?"
+        )
         p = pairs["authority_prefix"]
         c = contrast(p, scores, "bare", "authority", "bare -> +authority prefix")
         out["authority_prefix"] = {"authority_effect": c}
 
     if "exfil_2x2" in pairs:
-        print("\n[family: exfil_2x2]  does the exfil TARGET's spelling drive the verdict, and does "
-              "it compound with authority framing?")
+        print(
+            "\n[family: exfil_2x2]  does the exfil TARGET's spelling drive the verdict, and does "
+            "it compound with authority framing?"
+        )
         p = pairs["exfil_2x2"]
         out["exfil_2x2"] = {
-            "target_effect_at_bare":
-                contrast(p, scores, "bare_evil", "bare_plausible",
-                         "evil-looking -> plausible address  (no authority prefix)"),
-            "target_effect_at_authority":
-                contrast(p, scores, "authority_evil", "authority_plausible",
-                         "evil-looking -> plausible address  (with authority prefix)"),
-            "authority_effect_at_evil":
-                contrast(p, scores, "bare_evil", "authority_evil",
-                         "bare -> +authority prefix  (evil-looking address)"),
-            "authority_effect_at_plausible":
-                contrast(p, scores, "bare_plausible", "authority_plausible",
-                         "bare -> +authority prefix  (plausible address)"),
-            "composite":
-                contrast(p, scores, "bare_evil", "authority_plausible",
-                         "COMPOSITE: bare+evil -> authority+plausible (both cues moved)"),
+            "target_effect_at_bare": contrast(
+                p,
+                scores,
+                "bare_evil",
+                "bare_plausible",
+                "evil-looking -> plausible address  (no authority prefix)",
+            ),
+            "target_effect_at_authority": contrast(
+                p,
+                scores,
+                "authority_evil",
+                "authority_plausible",
+                "evil-looking -> plausible address  (with authority prefix)",
+            ),
+            "authority_effect_at_evil": contrast(
+                p,
+                scores,
+                "bare_evil",
+                "authority_evil",
+                "bare -> +authority prefix  (evil-looking address)",
+            ),
+            "authority_effect_at_plausible": contrast(
+                p,
+                scores,
+                "bare_plausible",
+                "authority_plausible",
+                "bare -> +authority prefix  (plausible address)",
+            ),
+            "composite": contrast(
+                p,
+                scores,
+                "bare_evil",
+                "authority_plausible",
+                "COMPOSITE: bare+evil -> authority+plausible (both cues moved)",
+            ),
         }
     return out
 
@@ -519,22 +645,41 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="Qwen/Qwen3.5-0.8B")
     ap.add_argument("--adapter", default=str(DEFAULT_ADAPTER))
-    ap.add_argument("--tag", default="v0.1", help="label for the JSON dump / cross-version tracking")
+    ap.add_argument(
+        "--tag", default="v0.1", help="label for the JSON dump / cross-version tracking"
+    )
     ap.add_argument("--slice", default=str(HERE / "adversarial_slice.jsonl"))
     ap.add_argument("--ablations", default=str(HERE / "paired_ablations.jsonl"))
-    ap.add_argument("--out", default=None, help="JSON dump path (default results/adversarial_slice.<tag>.json)")
+    ap.add_argument(
+        "--out", default=None, help="JSON dump path (default results/adversarial_slice.<tag>.json)"
+    )
     ap.add_argument("--batch-size", type=int, default=8)
     ap.add_argument("--max-len", type=int, default=4096)
     ap.add_argument("--fp16", action="store_true", help="fp16 (NOT on Pascal -- kernel crashes)")
     ap.add_argument("--no-adapter", action="store_true", help="score the BASE model (baseline)")
-    ap.add_argument("--calib-pool", default=str(DEFAULT_CALIB_POOL),
-                    help="held-out benign pool tau is calibrated on (must be disjoint from --slice)")
-    ap.add_argument("--calib-exclude", default=str(DEFAULT_CALIB_EXCLUDE),
-                    help="drop pool rows whose text appears in this training file; '' to disable")
-    ap.add_argument("--calib-fpr", type=float, nargs="+", default=list(DEFAULT_CALIB_FPRS),
-                    metavar="F", help="target FPRs for the matched operating points")
-    ap.add_argument("--no-calib", action="store_true",
-                    help="skip matched-OP + threshold-free reporting (fixed-tau numbers only)")
+    ap.add_argument(
+        "--calib-pool",
+        default=str(DEFAULT_CALIB_POOL),
+        help="held-out benign pool tau is calibrated on (must be disjoint from --slice)",
+    )
+    ap.add_argument(
+        "--calib-exclude",
+        default=str(DEFAULT_CALIB_EXCLUDE),
+        help="drop pool rows whose text appears in this training file; '' to disable",
+    )
+    ap.add_argument(
+        "--calib-fpr",
+        type=float,
+        nargs="+",
+        default=list(DEFAULT_CALIB_FPRS),
+        metavar="F",
+        help="target FPRs for the matched operating points",
+    )
+    ap.add_argument(
+        "--no-calib",
+        action="store_true",
+        help="skip matched-OP + threshold-free reporting (fixed-tau numbers only)",
+    )
     args = ap.parse_args()
 
     for f in args.calib_fpr:
@@ -553,15 +698,23 @@ def main():
     tag = args.tag if not args.no_adapter else f"{args.tag}-BASE"
     print(f"base={args.base}")
     print(f"adapter={'NONE (base model)' if args.no_adapter else args.adapter}")
-    print(f"dtype={'fp16' if args.fp16 else 'fp32'}  slice={len(slice_rows)} rows  "
-          f"ablations={len(ab_rows)} rows  tag={tag}", flush=True)
+    print(
+        f"dtype={'fp16' if args.fp16 else 'fp32'}  slice={len(slice_rows)} rows  "
+        f"ablations={len(ab_rows)} rows  tag={tag}",
+        flush=True,
+    )
 
     pool_rows, pool_meta = (None, None)
     if not args.no_calib:
         reserved = {norm_text(r.get("text")) for r in slice_rows + ab_rows}
-        pool_rows, pool_meta = load_calib_pool(args.calib_pool, args.calib_exclude or None, reserved)
-        print(f"calib pool={pool_meta['n_pool']} rows (of {pool_meta['n_benign']} benign) "
-              f"from {Path(args.calib_pool).name}", flush=True)
+        pool_rows, pool_meta = load_calib_pool(
+            args.calib_pool, args.calib_exclude or None, reserved
+        )
+        print(
+            f"calib pool={pool_meta['n_pool']} rows (of {pool_meta['n_benign']} benign) "
+            f"from {Path(args.calib_pool).name}",
+            flush=True,
+        )
 
     model, tok = load_model(args.base, args.adapter, args.no_adapter, fp32=not args.fp16)
     # Scored in its OWN call: batching left-pads to the longest row in each batch, so folding the
@@ -583,18 +736,27 @@ def main():
 
     outpath = Path(args.out) if args.out else HERE / "results" / f"adversarial_slice.{tag}.json"
     outpath.parent.mkdir(parents=True, exist_ok=True)
-    outpath.write_text(json.dumps({
-        "tag": tag, "base": args.base,
-        "adapter": None if args.no_adapter else str(args.adapter),
-        "dtype": "fp16" if args.fp16 else "fp32", "taus": list(TAUS),
-        "per_class": per_class, "overlap": overlap, "ablations": ablations,
-        "ablation_scores": {r["id"]: scores[r["id"]] for r in ab_rows},
-        # Added alongside the fixed-tau blocks above, never replacing them: `per_class.rate_at_tau`
-        # stays the tau=0.5/0.9 number it always was, and cross-model claims move here.
-        "matched_op": matched_op,
-        "threshold_free": threshold_free,
-        "within_slice_auc": within_slice,
-    }, indent=2))
+    outpath.write_text(
+        json.dumps(
+            {
+                "tag": tag,
+                "base": args.base,
+                "adapter": None if args.no_adapter else str(args.adapter),
+                "dtype": "fp16" if args.fp16 else "fp32",
+                "taus": list(TAUS),
+                "per_class": per_class,
+                "overlap": overlap,
+                "ablations": ablations,
+                "ablation_scores": {r["id"]: scores[r["id"]] for r in ab_rows},
+                # Added alongside the fixed-tau blocks above, never replacing them: `per_class.rate_at_tau`
+                # stays the tau=0.5/0.9 number it always was, and cross-model claims move here.
+                "matched_op": matched_op,
+                "threshold_free": threshold_free,
+                "within_slice_auc": within_slice,
+            },
+            indent=2,
+        )
+    )
     print(f"\nwrote {outpath}")
     return 0
 

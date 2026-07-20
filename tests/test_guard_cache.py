@@ -5,6 +5,7 @@ and never re-checked, so `protected_names=["Alice"]` on any call after the first
 accepted and silently dropped. These tests deliberately do NOT reset the guards
 between the two calls — the reset is what hid the bug from the original suite.
 """
+
 import pytest
 
 from jataayu import jataayu_check_inbound, jataayu_check_outbound

@@ -39,6 +39,7 @@ separation-by-provenance is Jataayu's, and no request classifier does it.
 Usage:
   python run_agentharm_effect_boundary.py [--json results/agentharm_effect_boundary.json]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -82,42 +83,74 @@ EFFECT_MAP: dict[str, EffectClass] = {
     "purchase_credit_card_details": EffectClass.SECRET_READ,
     "get_pinterest_accounts": EffectClass.SECRET_READ,
     # --- outbound network writes: post / send / upload / transfer / purchase (sev 4) ---
-    "post_on_x": EffectClass.NETWORK, "post_x_reply": EffectClass.NETWORK,
-    "repost_x_post": EffectClass.NETWORK, "report_x_post": EffectClass.NETWORK,
-    "follow_x_account": EffectClass.NETWORK, "send_direct_message_x": EffectClass.NETWORK,
-    "post_on_facebook": EffectClass.NETWORK, "post_on_instagram": EffectClass.NETWORK,
-    "post_instagram_reply": EffectClass.NETWORK, "send_direct_message_instagram": EffectClass.NETWORK,
-    "comment_on_mastodon": EffectClass.NETWORK, "post_forum_comment": EffectClass.NETWORK,
-    "post_to_blog": EffectClass.NETWORK, "post_to_amazon": EffectClass.NETWORK,
-    "dm_reddit_user": EffectClass.NETWORK, "share_on_pinterest": EffectClass.NETWORK,
-    "send_email": EffectClass.NETWORK, "send_message": EffectClass.NETWORK,
-    "send_message_whatsapp": EffectClass.NETWORK, "send_direct_message_tinder": EffectClass.NETWORK,
+    "post_on_x": EffectClass.NETWORK,
+    "post_x_reply": EffectClass.NETWORK,
+    "repost_x_post": EffectClass.NETWORK,
+    "report_x_post": EffectClass.NETWORK,
+    "follow_x_account": EffectClass.NETWORK,
+    "send_direct_message_x": EffectClass.NETWORK,
+    "post_on_facebook": EffectClass.NETWORK,
+    "post_on_instagram": EffectClass.NETWORK,
+    "post_instagram_reply": EffectClass.NETWORK,
+    "send_direct_message_instagram": EffectClass.NETWORK,
+    "comment_on_mastodon": EffectClass.NETWORK,
+    "post_forum_comment": EffectClass.NETWORK,
+    "post_to_blog": EffectClass.NETWORK,
+    "post_to_amazon": EffectClass.NETWORK,
+    "dm_reddit_user": EffectClass.NETWORK,
+    "share_on_pinterest": EffectClass.NETWORK,
+    "send_email": EffectClass.NETWORK,
+    "send_message": EffectClass.NETWORK,
+    "send_message_whatsapp": EffectClass.NETWORK,
+    "send_direct_message_tinder": EffectClass.NETWORK,
     "submit_tinder_match": EffectClass.NETWORK,
-    "upload_file": EffectClass.NETWORK, "upload_youtube_video": EffectClass.NETWORK,
-    "upload_tiktok_video": EffectClass.NETWORK, "personal_website_upload": EffectClass.NETWORK,
-    "transfer_money": EffectClass.NETWORK, "transfer_money_crypto": EffectClass.NETWORK,
-    "paypal_transfer": EffectClass.NETWORK, "make_online_purchases": EffectClass.NETWORK,
-    "submit_amazon_order": EffectClass.NETWORK, "submit_alpha_bay_order": EffectClass.NETWORK,
-    "submit_assignment": EffectClass.NETWORK, "redeem_gift_cards": EffectClass.NETWORK,
-    "download_from_alpha_bay": EffectClass.NETWORK, "download_software": EffectClass.NETWORK,
+    "upload_file": EffectClass.NETWORK,
+    "upload_youtube_video": EffectClass.NETWORK,
+    "upload_tiktok_video": EffectClass.NETWORK,
+    "personal_website_upload": EffectClass.NETWORK,
+    "transfer_money": EffectClass.NETWORK,
+    "transfer_money_crypto": EffectClass.NETWORK,
+    "paypal_transfer": EffectClass.NETWORK,
+    "make_online_purchases": EffectClass.NETWORK,
+    "submit_amazon_order": EffectClass.NETWORK,
+    "submit_alpha_bay_order": EffectClass.NETWORK,
+    "submit_assignment": EffectClass.NETWORK,
+    "redeem_gift_cards": EffectClass.NETWORK,
+    "download_from_alpha_bay": EffectClass.NETWORK,
+    "download_software": EffectClass.NETWORK,
     # --- file writes: download / create media / convert / edit (sev 3) ---
-    "download_file": EffectClass.FILE_WRITE, "download_image": EffectClass.FILE_WRITE,
-    "download_pdf": EffectClass.FILE_WRITE, "edit_txt": EffectClass.FILE_WRITE,
-    "convert_text_to_pdf": EffectClass.FILE_WRITE, "convert_pdf_to_text": EffectClass.FILE_WRITE,
-    "create_ai_video": EffectClass.FILE_WRITE, "run_stable_diffusion_model": EffectClass.FILE_WRITE,
-    "create_instagram_post": EffectClass.FILE_WRITE, "create_instagram_story": EffectClass.FILE_WRITE,
-    "create_meme_image": EffectClass.FILE_WRITE, "fill_in_story_template": EffectClass.FILE_WRITE,
+    "download_file": EffectClass.FILE_WRITE,
+    "download_image": EffectClass.FILE_WRITE,
+    "download_pdf": EffectClass.FILE_WRITE,
+    "edit_txt": EffectClass.FILE_WRITE,
+    "convert_text_to_pdf": EffectClass.FILE_WRITE,
+    "convert_pdf_to_text": EffectClass.FILE_WRITE,
+    "create_ai_video": EffectClass.FILE_WRITE,
+    "run_stable_diffusion_model": EffectClass.FILE_WRITE,
+    "create_instagram_post": EffectClass.FILE_WRITE,
+    "create_instagram_story": EffectClass.FILE_WRITE,
+    "create_meme_image": EffectClass.FILE_WRITE,
+    "fill_in_story_template": EffectClass.FILE_WRITE,
     "delete_access_logs": EffectClass.FILE_WRITE,
     # --- reads: search / fetch / query / list (sev 1) ---
-    "get_webpage": EffectClass.READ, "query_google_search": EffectClass.READ,
-    "query_bing_search": EffectClass.READ, "query_onion_search": EffectClass.READ,
-    "read_file": EffectClass.READ, "get_dir_list": EffectClass.READ,
-    "get_public_databases": EffectClass.READ, "search_asset_libraries": EffectClass.READ,
-    "search_hotels": EffectClass.READ, "search_web_hosting": EffectClass.READ,
-    "query_posts_on_instagram": EffectClass.READ, "query_posts_on_x": EffectClass.READ,
-    "query_x_user_info": EffectClass.READ, "query_x_users": EffectClass.READ,
-    "get_latest_posts_on_x": EffectClass.READ, "scrape_reddit_usernames": EffectClass.READ,
-    "verify_database_security": EffectClass.READ, "log_security_audit": EffectClass.READ,
+    "get_webpage": EffectClass.READ,
+    "query_google_search": EffectClass.READ,
+    "query_bing_search": EffectClass.READ,
+    "query_onion_search": EffectClass.READ,
+    "read_file": EffectClass.READ,
+    "get_dir_list": EffectClass.READ,
+    "get_public_databases": EffectClass.READ,
+    "search_asset_libraries": EffectClass.READ,
+    "search_hotels": EffectClass.READ,
+    "search_web_hosting": EffectClass.READ,
+    "query_posts_on_instagram": EffectClass.READ,
+    "query_posts_on_x": EffectClass.READ,
+    "query_x_user_info": EffectClass.READ,
+    "query_x_users": EffectClass.READ,
+    "get_latest_posts_on_x": EffectClass.READ,
+    "scrape_reddit_usernames": EffectClass.READ,
+    "verify_database_security": EffectClass.READ,
+    "log_security_audit": EffectClass.READ,
     "get_public_databases ": EffectClass.READ,
 }
 
@@ -130,8 +163,9 @@ def load(fn):
     return json.load(open(DATA / fn))["behaviors"]
 
 
-def eval_behavior(boundary: EffectBoundary, behaviors, provenance: Provenance,
-                  register_effects: bool = True):
+def eval_behavior(
+    boundary: EffectBoundary, behaviors, provenance: Provenance, register_effects: bool = True
+):
     """For each behavior, preview every tool in its chain; block if any DENY/APPROVAL.
 
     register_effects=True wires AgentHarm's tool taxonomy into the boundary's
@@ -159,11 +193,16 @@ def eval_behavior(boundary: EffectBoundary, behaviors, provenance: Provenance,
                 break
             if pv.decision is Decision.NEEDS_APPROVAL and worst is Decision.ALLOW:
                 worst, blocking = Decision.NEEDS_APPROVAL, t
-        rows.append({
-            "id": b["id"], "category": b.get("category"),
-            "n_tools": len(tools), "max_effect": max_eff.value,
-            "decision": worst.value, "blocking_tool": blocking,
-        })
+        rows.append(
+            {
+                "id": b["id"],
+                "category": b.get("category"),
+                "n_tools": len(tools),
+                "max_effect": max_eff.value,
+                "decision": worst.value,
+                "blocking_tool": blocking,
+            }
+        )
     return rows
 
 
@@ -175,7 +214,9 @@ def summarize(rows):
     blocked = deny + appr  # anything not auto-allowed
     return {
         "n": n,
-        "deny": deny, "needs_approval": appr, "allow": allow,
+        "deny": deny,
+        "needs_approval": appr,
+        "allow": allow,
         "blocked_or_held": blocked,
         "block_rate": round(blocked / n, 4) if n else 0.0,
         "deny_rate": round(deny / n, 4) if n else 0.0,
@@ -199,14 +240,20 @@ def main():
 
     framings = {
         "A_injection_untrusted": (EffectBoundary(policy=None), Provenance.UNTRUSTED, True),
-        "B_directmisuse_restrictive": (EffectBoundary(policy=RESTRICTIVE), Provenance.TRUSTED, True),
+        "B_directmisuse_restrictive": (
+            EffectBoundary(policy=RESTRICTIVE),
+            Provenance.TRUSTED,
+            True,
+        ),
         "C_directmisuse_permissive": (EffectBoundary(policy=PERMISSIVE), Provenance.TRUSTED, True),
         "D_injection_outofbox": (EffectBoundary(policy=None), Provenance.UNTRUSTED, False),
     }
 
-    out = {"dataset": {"n_harmful": len(harmful), "n_benign": len(benign)},
-           "effect_map": {k: v.value for k, v in EFFECT_MAP.items()},
-           "framings": {}}
+    out = {
+        "dataset": {"n_harmful": len(harmful), "n_benign": len(benign)},
+        "effect_map": {k: v.value for k, v in EFFECT_MAP.items()},
+        "framings": {},
+    }
 
     print(f"AgentHarm public: {len(harmful)} harmful, {len(benign)} benign behaviors\n")
     for name, (boundary, prov, reg) in framings.items():
@@ -215,9 +262,11 @@ def main():
         hsum, bsum = summarize(hrows), summarize(brows)
         sep = round(hsum["block_rate"] - bsum["block_rate"], 4)
         out["framings"][name] = {
-            "harmful": hsum, "benign": bsum,
+            "harmful": hsum,
+            "benign": bsum,
             "intent_separation": sep,
-            "harmful_rows": hrows, "benign_rows": brows,
+            "harmful_rows": hrows,
+            "benign_rows": brows,
         }
         print(f"[{name}]")
         print(f"   harmful  block/hold: {hsum['block_rate']:.1%}  (deny {hsum['deny_rate']:.1%})")

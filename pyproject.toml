@@ -39,8 +39,7 @@ gateway = [
 dev = [
     "pytest>=7",
     "pytest-timeout>=2.1",
-    "ruff",
-    "black",
+    "ruff>=0.2.0",
     # the MCP gateway's server tests drive a real aiohttp server; without this
     # they cannot run, which is how the gateway once shipped unable to serve.
     "aiohttp>=3.9",

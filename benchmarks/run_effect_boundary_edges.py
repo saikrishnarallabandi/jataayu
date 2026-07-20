@@ -20,12 +20,17 @@ NOT touch, because they only look at the preview() decision:
 
 Writes benchmarks/results/effect_boundary_edges.json with per-case pass/fail tallies.
 """
+
 import json
 from pathlib import Path
 
 from jataayu.config.policy import AgentPolicy
 from jataayu.guards.effect_boundary import (
-    CommitRejected, Decision, EffectBoundary, Provenance, Value,
+    CommitRejected,
+    Decision,
+    EffectBoundary,
+    Provenance,
+    Value,
 )
 
 HERE = Path(__file__).parent
@@ -39,8 +44,11 @@ def run_commit_cases():
 
     # A1: happy path — unmutated commit executes.
     eb = EffectBoundary()
-    pv = eb.preview("write_file", {"path": "notes.md", "content": "hello"},
-                    values=[Value("hello", Provenance.TRUSTED, source="operator")])
+    pv = eb.preview(
+        "write_file",
+        {"path": "notes.md", "content": "hello"},
+        values=[Value("hello", Provenance.TRUSTED, source="operator")],
+    )
     ran = {"v": False}
 
     def _exec():
@@ -55,30 +63,45 @@ def run_commit_cases():
         detail_a1 = "unmutated commit executed"
     except Exception as e:  # noqa: BLE001
         detail_a1 = f"unexpected: {type(e).__name__}: {e}"
-    cases.append({"case": "A1_happy_path_commit", "expect": "executes",
-                  "passed": ok_a1, "detail": detail_a1})
+    cases.append(
+        {"case": "A1_happy_path_commit", "expect": "executes", "passed": ok_a1, "detail": detail_a1}
+    )
 
     # A2: mutated params after authorization -> CommitRejected.
     eb = EffectBoundary()
-    pv = eb.preview("write_file", {"path": "notes.md", "content": "hello"},
-                    values=[Value("hello", Provenance.TRUSTED, source="operator")])
+    pv = eb.preview(
+        "write_file",
+        {"path": "notes.md", "content": "hello"},
+        values=[Value("hello", Provenance.TRUSTED, source="operator")],
+    )
     fired = {"v": False}
     ok_a2, detail_a2 = False, ""
     try:
-        eb.commit(pv, {"path": "/etc/passwd", "content": "pwned"}, lambda: fired.__setitem__("v", True))
+        eb.commit(
+            pv, {"path": "/etc/passwd", "content": "pwned"}, lambda: fired.__setitem__("v", True)
+        )
         detail_a2 = "NO exception raised — mutation NOT blocked (FAIL)"
     except CommitRejected as e:
         ok_a2 = not fired["v"]
         detail_a2 = f"CommitRejected raised, executor did not fire: {e}"
     except Exception as e:  # noqa: BLE001
         detail_a2 = f"wrong exception type: {type(e).__name__}: {e}"
-    cases.append({"case": "A2_mutated_params_rejected", "expect": "CommitRejected",
-                  "passed": ok_a2, "detail": detail_a2})
+    cases.append(
+        {
+            "case": "A2_mutated_params_rejected",
+            "expect": "CommitRejected",
+            "passed": ok_a2,
+            "detail": detail_a2,
+        }
+    )
 
     # A3: committing a non-ALLOW preview (untrusted -> NETWORK NEEDS_APPROVAL) -> CommitRejected.
     eb = EffectBoundary()
-    pv = eb.preview("send_email", {"to": "x@y.com", "body": "hi"},
-                    values=[Value("hi", Provenance.UNTRUSTED, source="web-page")])
+    pv = eb.preview(
+        "send_email",
+        {"to": "x@y.com", "body": "hi"},
+        values=[Value("hi", Provenance.UNTRUSTED, source="web-page")],
+    )
     fired = {"v": False}
     ok_a3, detail_a3 = False, ""
     try:
@@ -91,8 +114,14 @@ def run_commit_cases():
         detail_a3 = f"CommitRejected raised on {pv.decision.value} preview: {e}"
     except Exception as e:  # noqa: BLE001
         detail_a3 = f"wrong exception type: {type(e).__name__}: {e}"
-    cases.append({"case": "A3_commit_unauthorized_preview_rejected", "expect": "CommitRejected",
-                  "passed": ok_a3, "detail": detail_a3})
+    cases.append(
+        {
+            "case": "A3_commit_unauthorized_preview_rejected",
+            "expect": "CommitRejected",
+            "passed": ok_a3,
+            "detail": detail_a3,
+        }
+    )
 
     return cases
 
@@ -104,33 +133,57 @@ def run_capability_cases():
     # B1: forbid 'exec'; a TRUSTED shell action must still be DENIED (capability wins).
     pol = AgentPolicy(name="restricted", forbidden_capabilities=["exec"])
     eb = EffectBoundary(policy=pol)
-    pv = eb.preview("bash", {"command": "pytest -q"},
-                    values=[Value("pytest -q", Provenance.TRUSTED, source="operator")])
+    pv = eb.preview(
+        "bash",
+        {"command": "pytest -q"},
+        values=[Value("pytest -q", Provenance.TRUSTED, source="operator")],
+    )
     ok_b1 = pv.decision is Decision.DENY and "exec" in pv.violations
-    cases.append({"case": "B1_forbidden_capability_deny", "expect": "DENY",
-                  "passed": ok_b1,
-                  "detail": f"decision={pv.decision.value} violations={pv.violations} reason={pv.reason!r}"})
+    cases.append(
+        {
+            "case": "B1_forbidden_capability_deny",
+            "expect": "DENY",
+            "passed": ok_b1,
+            "detail": f"decision={pv.decision.value} violations={pv.violations} reason={pv.reason!r}",
+        }
+    )
 
     # B2: allowlist mode (only fs_read allowed); a TRUSTED network action needs network_write
     #     which is not in the allowlist -> DENY.
     pol = AgentPolicy(name="read-only", allowed_capabilities=["fs_read"])
     eb = EffectBoundary(policy=pol)
-    pv = eb.preview("send_email", {"to": "a@b.com", "body": "hi"},
-                    values=[Value("hi", Provenance.TRUSTED, source="operator")])
+    pv = eb.preview(
+        "send_email",
+        {"to": "a@b.com", "body": "hi"},
+        values=[Value("hi", Provenance.TRUSTED, source="operator")],
+    )
     ok_b2 = pv.decision is Decision.DENY and "network_write" in pv.violations
-    cases.append({"case": "B2_allowlist_capability_not_listed_deny", "expect": "DENY",
-                  "passed": ok_b2,
-                  "detail": f"decision={pv.decision.value} violations={pv.violations} reason={pv.reason!r}"})
+    cases.append(
+        {
+            "case": "B2_allowlist_capability_not_listed_deny",
+            "expect": "DENY",
+            "passed": ok_b2,
+            "detail": f"decision={pv.decision.value} violations={pv.violations} reason={pv.reason!r}",
+        }
+    )
 
     # B3: control — capability allowed -> ALLOW (proves the DENY above is the policy, not provenance).
     pol = AgentPolicy(name="permitted", allowed_capabilities=["network_write"])
     eb = EffectBoundary(policy=pol)
-    pv = eb.preview("send_email", {"to": "a@b.com", "body": "hi"},
-                    values=[Value("hi", Provenance.TRUSTED, source="operator")])
+    pv = eb.preview(
+        "send_email",
+        {"to": "a@b.com", "body": "hi"},
+        values=[Value("hi", Provenance.TRUSTED, source="operator")],
+    )
     ok_b3 = pv.decision is Decision.ALLOW and not pv.violations
-    cases.append({"case": "B3_control_capability_allowed_allow", "expect": "ALLOW",
-                  "passed": ok_b3,
-                  "detail": f"decision={pv.decision.value} violations={pv.violations} reason={pv.reason!r}"})
+    cases.append(
+        {
+            "case": "B3_control_capability_allowed_allow",
+            "expect": "ALLOW",
+            "passed": ok_b3,
+            "detail": f"decision={pv.decision.value} violations={pv.violations} reason={pv.reason!r}",
+        }
+    )
 
     return cases
 

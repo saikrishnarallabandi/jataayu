@@ -46,8 +46,7 @@ def _serialize_message(m: ChatMessage) -> dict:
     out: dict = {"role": role, "text": _text_of(m.get("content"))}
     if role == "assistant" and m.get("tool_calls"):
         out["tool_calls"] = [
-            {"function": tc.function, "args": dict(tc.args), "id": tc.id}
-            for tc in m["tool_calls"]
+            {"function": tc.function, "args": dict(tc.args), "id": tc.id} for tc in m["tool_calls"]
         ]
     if role == "tool":
         tc = m.get("tool_call")
@@ -72,8 +71,13 @@ def _serialize_tools(runtime: FunctionsRuntime) -> list[dict]:
 class SubagentLLM(BasePipelineElement):
     """Agent-under-test backed by a Claude Code subagent over file RPC."""
 
-    def __init__(self, rpc_dir: str, model_label: str = "claude-subagent",
-                 poll_interval: float = 1.0, timeout: float = 3600.0) -> None:
+    def __init__(
+        self,
+        rpc_dir: str,
+        model_label: str = "claude-subagent",
+        poll_interval: float = 1.0,
+        timeout: float = 3600.0,
+    ) -> None:
         self.rpc_dir = Path(rpc_dir)
         self.rpc_dir.mkdir(parents=True, exist_ok=True)
         self.name = model_label
@@ -120,8 +124,11 @@ class SubagentLLM(BasePipelineElement):
         tool_calls = None
         if raw_calls:
             tool_calls = [
-                FunctionCall(function=c["function"], args=c.get("args", {}) or {},
-                             id=c.get("id") or f"call_{n}_{i}")
+                FunctionCall(
+                    function=c["function"],
+                    args=c.get("args", {}) or {},
+                    id=c.get("id") or f"call_{n}_{i}",
+                )
                 for i, c in enumerate(raw_calls)
             ]
         content = [TextContentBlock(type="text", content=text)] if text else None

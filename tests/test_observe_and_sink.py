@@ -5,18 +5,25 @@ The contract under test is backwards compatibility: `decision` keeps meaning "wh
 ENFORCED" and stays 3-valued, so every existing caller that string-compares it keeps
 working. The truthful verdict lives in the new `would_decision` key.
 """
+
 import pytest
 
 from jataayu import jataayu_authorize_action, set_decision_sink, SecurityError
 from jataayu.core import audit
 from jataayu.guards.effect_boundary import (
-    EffectBoundary, Value, Provenance, EffectClass, Decision, CommitRejected,
+    EffectBoundary,
+    Value,
+    Provenance,
+    EffectClass,
+    Decision,
+    CommitRejected,
 )
 from tests import test_effect_boundary as _eb
 
 # Via the module, not `from ... import TestClassification` — a bare Test* name at module
 # level would make pytest re-collect that whole class here, without its fixtures.
 SECRET_MUST_DENY = _eb.TestClassification.SECRET_MUST_DENY
+
 
 def U(d):
     return Value(d, Provenance.UNTRUSTED, source="web-page")
@@ -25,9 +32,15 @@ def U(d):
 def T(d):
     return Value(d, Provenance.TRUSTED, source="operator")
 
+
 LEGACY_KEYS = {
-    "tool_name", "effect_class", "provenance", "decision",
-    "reason", "violations", "commit_token",
+    "tool_name",
+    "effect_class",
+    "provenance",
+    "decision",
+    "reason",
+    "violations",
+    "commit_token",
 }
 
 
@@ -43,7 +56,9 @@ class TestObserveMode:
     def test_readme_pattern_does_not_raise_in_observe_mode(self):
         """The exact pattern the README tells users to write must not fire in observe mode."""
         decision = jataayu_authorize_action(
-            "shell.exec", {"command": "rm -rf /"}, mode="observe",
+            "shell.exec",
+            {"command": "rm -rf /"},
+            mode="observe",
         )
 
         # Verbatim from the README:
@@ -191,7 +206,9 @@ class TestDecisionSink:
         records = []
         set_decision_sink(records.append, capture_content=False)
         EffectBoundary(sink=records.append, capture_content=True).preview(
-            "read_file", {"path": "/tmp/x"}, [U("x")],
+            "read_file",
+            {"path": "/tmp/x"},
+            [U("x")],
         )
         assert records[0]["params"] == {"path": "/tmp/x"}
 
@@ -225,6 +242,7 @@ class TestDecisionSink:
     def test_a_sink_raising_a_base_exception_does_not_propagate(self):
         """'Never raises' has to mean BaseException too — SystemExit, gevent.Timeout,
         a library's cancellation type — or a telemetry callback eats the deny."""
+
         class Boom(BaseException):
             pass
 
@@ -241,6 +259,7 @@ class TestDecisionSink:
 
     def test_keyboard_interrupt_from_a_sink_still_propagates(self):
         """Deliberate carve-out: Ctrl-C is the operator, not a broken sink."""
+
         def interrupted(record):
             raise KeyboardInterrupt
 
@@ -265,6 +284,7 @@ class TestSinkCannotMutateTheDecision:
     def test_sink_cannot_rewrite_the_callers_params(self):
         """capture_content puts params in the record; a sink that redacts in place must
         not rewrite the dict that was classified and bound into the commit token."""
+
         def redact(record):
             record["params"]["cmd"] = "rm -rf /"
 
@@ -341,8 +361,9 @@ class TestSinkCannotMutateTheDecision:
         import threading
 
         params = {"env": {"PATH": "/usr/bin"}, "lock": threading.Lock()}
-        set_decision_sink(lambda r: r["params"]["env"].update(PATH="/tmp/evil"),
-                          capture_content=True)
+        set_decision_sink(
+            lambda r: r["params"]["env"].update(PATH="/tmp/evil"), capture_content=True
+        )
         EffectBoundary().preview("read_file", params, [U("p")])
 
         assert params["env"] == {"PATH": "/usr/bin"}
@@ -356,7 +377,7 @@ class TestSinkCannotMutateTheDecision:
 
         class Opaque:
             def __init__(self):
-                self.lock = threading.Lock()   # undeepcopyable, so it degrades to repr
+                self.lock = threading.Lock()  # undeepcopyable, so it degrades to repr
 
             def __repr__(self):
                 return "<opaque>"
@@ -459,7 +480,9 @@ class TestStrictUnknownTools:
 
         policy = AgentPolicy(name="a", forbidden_capabilities=["fs_read"])
         pv = EffectBoundary(policy=policy, strict=True).preview(
-            "frobnicate.widget", {"x": 1}, [U("payload")],
+            "frobnicate.widget",
+            {"x": 1},
+            [U("payload")],
         )
         assert pv.decision is Decision.DENY
         assert "fs_read" in pv.violations
@@ -579,9 +602,7 @@ class TestFromDirAgentOverwriteWarning:
         from jataayu.config.policy import PolicyLoader
         import logging
 
-        (tmp_path / "01-base.yml").write_text(
-            "version: 1\nagents:\n  prod:\n    mode: enforce\n"
-        )
+        (tmp_path / "01-base.yml").write_text("version: 1\nagents:\n  prod:\n    mode: enforce\n")
         (tmp_path / "02-overlay.yml").write_text(
             "version: 1\nagents:\n  prod:\n    mode: observe\n"
         )
@@ -589,26 +610,21 @@ class TestFromDirAgentOverwriteWarning:
         with caplog.at_level(logging.WARNING, logger="jataayu"):
             PolicyLoader.from_dir(tmp_path)
 
-        assert any("prod" in r.message and "replace" in r.message.lower()
-                   for r in caplog.records), "expected a warning about prod being overwritten"
+        assert any(
+            "prod" in r.message and "replace" in r.message.lower() for r in caplog.records
+        ), "expected a warning about prod being overwritten"
 
     def test_no_warning_when_each_agent_appears_once(self, tmp_path, caplog):
         from jataayu.config.policy import PolicyLoader
         import logging
 
-        (tmp_path / "01.yml").write_text(
-            "version: 1\nagents:\n  alpha:\n    mode: enforce\n"
-        )
-        (tmp_path / "02.yml").write_text(
-            "version: 1\nagents:\n  beta:\n    mode: enforce\n"
-        )
+        (tmp_path / "01.yml").write_text("version: 1\nagents:\n  alpha:\n    mode: enforce\n")
+        (tmp_path / "02.yml").write_text("version: 1\nagents:\n  beta:\n    mode: enforce\n")
 
         with caplog.at_level(logging.WARNING, logger="jataayu"):
             PolicyLoader.from_dir(tmp_path)
 
-        overwrite_warnings = [
-            r for r in caplog.records if "replace" in r.message.lower()
-        ]
+        overwrite_warnings = [r for r in caplog.records if "replace" in r.message.lower()]
         assert overwrite_warnings == []
 
 
@@ -628,7 +644,7 @@ class TestBoolKwargsAreNotCoerced:
         from jataayu.config.policy import AgentPolicy
 
         policy = AgentPolicy(name="a")
-        policy.strict_unknown_tools = "false"   # bypasses the loader, e.g. built in code
+        policy.strict_unknown_tools = "false"  # bypasses the loader, e.g. built in code
         with pytest.raises(ValueError, match="strict_unknown_tools must be true or false"):
             EffectBoundary(policy=policy)
 
@@ -683,6 +699,7 @@ class TestSinkMustBeCallable:
 
     def test_a_callable_object_is_accepted(self):
         """callable(), not isinstance(FunctionType) — a __call__ object is a valid sink."""
+
         class Collector:
             def __init__(self):
                 self.seen = []

@@ -9,6 +9,7 @@ Usage:
     python benchmarks/agentdojo/summarize_slice.py runs/agentdojo/slice_<TS>
     python benchmarks/agentdojo/summarize_slice.py            # newest slice_* dir
 """
+
 from __future__ import annotations
 
 import collections
@@ -30,8 +31,10 @@ def _utid(x: str) -> int:
 
 
 def summarize(base: str) -> None:
-    noatk: dict = collections.defaultdict(dict)          # ut -> {variant: utility}
-    atk: dict = collections.defaultdict(lambda: collections.defaultdict(list))  # ut -> variant -> [(inj, util, sec)]
+    noatk: dict = collections.defaultdict(dict)  # ut -> {variant: utility}
+    atk: dict = collections.defaultdict(
+        lambda: collections.defaultdict(list)
+    )  # ut -> variant -> [(inj, util, sec)]
 
     for f in glob.glob(f"{base}/**/*.json", recursive=True):
         d = json.load(open(f))
@@ -53,15 +56,14 @@ def summarize(base: str) -> None:
         if not r:
             return None, None, 0
         util = sum(1 for _, u, _ in r if u) / len(r)
-        asr = sum(1 for _, _, s in r if s) / len(r)   # security==True means injected goal achieved
+        asr = sum(1 for _, _, s in r if s) / len(r)  # security==True means injected goal achieved
         return util, asr, len(r)
 
     def fmt(x):
         return f"{x:.2f}" if x is not None else "  - "
 
     print(f"slice: {base}\n")
-    hdr = (f"{'user_task':<13} | {'no-atk util':^15} | {'under-atk util':^15} | "
-           f"{'ASR (n)':^22}")
+    hdr = f"{'user_task':<13} | {'no-atk util':^15} | {'under-atk util':^15} | {'ASR (n)':^22}"
     print(hdr)
     print("-" * len(hdr))
     print(f"{'':<13} | {'base':>6} {'jat':>6} | {'base':>6} {'jat':>6} | {'base':>9} {'jat':>9}")
@@ -73,16 +75,22 @@ def summarize(base: str) -> None:
         bu, ba, bn = under_attack(ut, "baseline")
         ju, ja, jn = under_attack(ut, "jataayu")
         if bn:
-            bu_all.append(bu); ba_all.append(ba)
+            bu_all.append(bu)
+            ba_all.append(ba)
         if jn:
-            ju_all.append(ju); ja_all.append(ja)
-        print(f"{ut:<13} | {fmt(nb):>6} {fmt(nj):>6} | {fmt(bu):>6} {fmt(ju):>6} | "
-              f"{fmt(ba):>6}({bn:>2}) {fmt(ja):>5}({jn:>2})")
+            ju_all.append(ju)
+            ja_all.append(ja)
+        print(
+            f"{ut:<13} | {fmt(nb):>6} {fmt(nj):>6} | {fmt(bu):>6} {fmt(ju):>6} | "
+            f"{fmt(ba):>6}({bn:>2}) {fmt(ja):>5}({jn:>2})"
+        )
 
     print("-" * len(hdr))
     mean = lambda xs: sum(xs) / len(xs) if xs else float("nan")
-    print(f"{'AGG':<13} | {'':>6} {'':>6} | {mean(bu_all):>6.2f} {mean(ju_all):>6.2f} | "
-          f"{mean(ba_all):>9.2f} {mean(ja_all):>9.2f}")
+    print(
+        f"{'AGG':<13} | {'':>6} {'':>6} | {mean(bu_all):>6.2f} {mean(ju_all):>6.2f} | "
+        f"{mean(ba_all):>9.2f} {mean(ja_all):>9.2f}"
+    )
 
     print("\nDELTAS (jataayu - baseline):")
     for ut in uts:

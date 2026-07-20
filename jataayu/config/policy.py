@@ -88,6 +88,7 @@ API without loading anything yourself:
     jataayu_check_outbound(draft, surface="discord-channel",
                            policy_file="jataayu-policy.yml", agent="github-bot")
 """
+
 from __future__ import annotations
 
 import logging
@@ -101,6 +102,7 @@ _logger = logging.getLogger("jataayu")
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class AgentPolicy:
@@ -123,6 +125,7 @@ class AgentPolicy:
             classifier does not recognize. Default False.
         extra: Additional custom config fields.
     """
+
     name: str
     protected_names: list[str] = field(default_factory=list)
     internal_codenames: list[str] = field(default_factory=list)
@@ -166,6 +169,7 @@ class AgentPolicy:
             PrivacyConfig instance configured from this policy.
         """
         from jataayu.guards.outbound import PrivacyConfig
+
         return PrivacyConfig(
             protected_names=self.protected_names,
             internal_codenames=self.internal_codenames,
@@ -367,7 +371,7 @@ def _string_list(value: Any, where: str, key: str) -> list[str]:
         if not isinstance(item, str):
             raise ValueError(
                 f"{where}: {key} entries must be strings, got "
-                f"{type(item).__name__} {item!r} — quote it (e.g. {key}: [\"{item}\"])"
+                f'{type(item).__name__} {item!r} — quote it (e.g. {key}: ["{item}"])'
             )
     return items
 
@@ -409,11 +413,11 @@ def _validate_effect_fields(mode: Any, tool_effects: Any, where: str) -> None:
     from jataayu.guards.effect_boundary import EffectClass
 
     if mode not in VALID_MODES:
-        raise ValueError(
-            f"{where}: invalid mode {mode!r} — expected one of {list(VALID_MODES)}"
-        )
+        raise ValueError(f"{where}: invalid mode {mode!r} — expected one of {list(VALID_MODES)}")
     if not isinstance(tool_effects, dict):
-        raise ValueError(f"{where}: tool_effects must be a mapping, got {type(tool_effects).__name__}")
+        raise ValueError(
+            f"{where}: tool_effects must be a mapping, got {type(tool_effects).__name__}"
+        )
     # 'none' is excluded: mapping a tool to EffectClass.NONE bypasses all provenance-based
     # denials and forbidden_capabilities checks (no capability tag, not in any effect set).
     valid = {e.value for e in EffectClass if e is not EffectClass.NONE}
@@ -440,6 +444,7 @@ class Policy:
         defaults: Global defaults applied to all agents.
         source_path: Path to the YAML file this was loaded from (if any).
     """
+
     version: int = 1
     agents: dict[str, AgentPolicy] = field(default_factory=dict)
     global_surface_overrides: dict[str, dict] = field(default_factory=dict)
@@ -479,12 +484,17 @@ class Policy:
         from jataayu.surfaces.profiles import SURFACE_PROFILES
 
         # Start with built-in profile
-        profile = dict(SURFACE_PROFILES.get(surface, {
-            "trust_level": "medium",
-            "inbound_strict": True,
-            "outbound_strict": False,
-            "risk_multiplier": 1.0,
-        }))
+        profile = dict(
+            SURFACE_PROFILES.get(
+                surface,
+                {
+                    "trust_level": "medium",
+                    "inbound_strict": True,
+                    "outbound_strict": False,
+                    "risk_multiplier": 1.0,
+                },
+            )
+        )
 
         # Apply global surface overrides from policy
         if surface in self.global_surface_overrides:
@@ -508,6 +518,7 @@ class Policy:
 # ---------------------------------------------------------------------------
 # Policy loader
 # ---------------------------------------------------------------------------
+
 
 class PolicyLoader:
     """
@@ -575,7 +586,9 @@ class PolicyLoader:
                         "%s replaces the earlier definition completely. "
                         "Security settings from the earlier file (tool_effects, "
                         "forbidden_capabilities, etc.) are discarded.",
-                        directory, agent, yaml_file.name,
+                        directory,
+                        agent,
+                        yaml_file.name,
                     )
                 merged["agents"][agent] = cfg
             # Use first file's defaults
@@ -596,9 +609,7 @@ class PolicyLoader:
     def from_dict(raw: dict, source_path: Optional[str] = None) -> Policy:
         """Parse a policy dict (already loaded from YAML) into a Policy object."""
         if not isinstance(raw, dict):
-            raise ValueError(
-                f"policy must be a mapping at the top level, got {type(raw).__name__}"
-            )
+            raise ValueError(f"policy must be a mapping at the top level, got {type(raw).__name__}")
         _reject_surfaces_block(raw)
         version = _parse_version(raw)
         defaults = _mapping_section(raw, "defaults")
@@ -628,9 +639,7 @@ class PolicyLoader:
                     f"{type(agent_cfg).__name__} — an agent key with an empty body "
                     f"configures nothing"
                 )
-            agents[agent_name] = PolicyLoader._parse_agent(
-                agent_name, agent_cfg, defaults
-            )
+            agents[agent_name] = PolicyLoader._parse_agent(agent_name, agent_cfg, defaults)
 
         return Policy(
             version=version,
@@ -684,12 +693,24 @@ class PolicyLoader:
             mode=mode,
             tool_effects=tool_effects,
             strict_unknown_tools=inherited_bool("strict_unknown_tools", False),
-            extra={k: v for k, v in cfg.items()
-                   if k not in ("protected_names",
-                                "internal_codenames", "gtm_codenames",
-                                "check_credentials", "disabled_cred_rules", "check_high_entropy",
-                                "allowed_capabilities", "forbidden_capabilities",
-                                "mode", "tool_effects", "strict_unknown_tools")},
+            extra={
+                k: v
+                for k, v in cfg.items()
+                if k
+                not in (
+                    "protected_names",
+                    "internal_codenames",
+                    "gtm_codenames",
+                    "check_credentials",
+                    "disabled_cred_rules",
+                    "check_high_entropy",
+                    "allowed_capabilities",
+                    "forbidden_capabilities",
+                    "mode",
+                    "tool_effects",
+                    "strict_unknown_tools",
+                )
+            },
         )
 
     @staticmethod
@@ -697,18 +718,19 @@ class PolicyLoader:
         """Load a YAML file, falling back to JSON if PyYAML is not available."""
         try:
             import yaml  # type: ignore[import]
+
             with open(path, "r") as f:
                 return yaml.safe_load(f) or {}
         except ImportError:
             # Graceful degradation — try JSON
             import json
+
             try:
                 with open(path, "r") as f:
                     return json.load(f)
             except Exception:
                 raise ImportError(
-                    "PyYAML is required to load .yml policy files. "
-                    "Install with: pip install pyyaml"
+                    "PyYAML is required to load .yml policy files. Install with: pip install pyyaml"
                 )
         except Exception as e:
             raise ValueError(f"Failed to parse policy file {path!r}: {e}") from e

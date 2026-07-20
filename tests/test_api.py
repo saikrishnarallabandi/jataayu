@@ -2,6 +2,7 @@
 Tests for jataayu_check_inbound() and jataayu_check_outbound() convenience API.
 No LLM required (use_llm=False throughout).
 """
+
 import pytest
 from jataayu.api import jataayu_check_inbound, jataayu_check_outbound
 
@@ -9,6 +10,7 @@ from jataayu.api import jataayu_check_inbound, jataayu_check_outbound
 # ---------------------------------------------------------------------------
 # jataayu_check_inbound
 # ---------------------------------------------------------------------------
+
 
 class TestCheckInbound:
     """Test the public jataayu_check_inbound() API."""
@@ -129,6 +131,7 @@ class TestCheckInbound:
 # ---------------------------------------------------------------------------
 # jataayu_check_outbound
 # ---------------------------------------------------------------------------
+
 
 class TestCheckOutbound:
     """Test the public jataayu_check_outbound() API."""
@@ -254,6 +257,7 @@ class TestCheckOutbound:
 # ---------------------------------------------------------------------------
 # Status value validation
 # ---------------------------------------------------------------------------
+
 
 class TestStatusValues:
     """Ensure status values match the documented contract."""

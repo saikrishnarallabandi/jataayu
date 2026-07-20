@@ -27,6 +27,7 @@ Usage:
   python run_detector_headtohead.py                      # FULL run
   python run_detector_headtohead.py --models protectai/deberta-v3-base-prompt-injection-v2
 """
+
 import argparse
 import json
 import time
@@ -79,31 +80,42 @@ def resolve_injection_map(id2label):
     if len(labels) == 2:
         if len(inj_idx) == 1:
             idx = inj_idx[0]
-            return (f"P(label {idx}='{labels[idx]}')  [id2label={labels}]",
-                    lambda p, idx=idx: p[:, idx])
+            return (
+                f"P(label {idx}='{labels[idx]}')  [id2label={labels}]",
+                lambda p, idx=idx: p[:, idx],
+            )
         # fall back: injection = non-benign class
         if len(ben_idx) == 1:
             idx = 1 - ben_idx[0]
-            return (f"P(label {idx}='{labels[idx]}', non-benign)  [id2label={labels}]",
-                    lambda p, idx=idx: p[:, idx])
+            return (
+                f"P(label {idx}='{labels[idx]}', non-benign)  [id2label={labels}]",
+                lambda p, idx=idx: p[:, idx],
+            )
         # last resort: assume idx 1 is positive
-        return (f"P(label 1='{labels.get(1)}') [AMBIGUOUS, assumed] [id2label={labels}]",
-                lambda p: p[:, 1])
+        return (
+            f"P(label 1='{labels.get(1)}') [AMBIGUOUS, assumed] [id2label={labels}]",
+            lambda p: p[:, 1],
+        )
 
     # >=3 classes -> Prompt-Guard style. inj = 1 - P(benign).
     if len(ben_idx) >= 1:
         b = ben_idx[0]
         combined = "+".join(f"'{labels[i]}'" for i in inj_idx) if inj_idx else "non-benign"
-        return (f"1 - P('{labels[b]}')  == P({combined})  [3-class id2label={labels}]",
-                lambda p, b=b: 1.0 - p[:, b])
+        return (
+            f"1 - P('{labels[b]}')  == P({combined})  [3-class id2label={labels}]",
+            lambda p, b=b: 1.0 - p[:, b],
+        )
     # no benign found: sum injection-labelled classes
     idxs = inj_idx or list(labels.keys())[1:]
-    return (f"sum P({idxs})  [AMBIGUOUS 3-class] [id2label={labels}]",
-            lambda p, idxs=idxs: p[:, idxs].sum(axis=1))
+    return (
+        f"sum P({idxs})  [AMBIGUOUS 3-class] [id2label={labels}]",
+        lambda p, idxs=idxs: p[:, idxs].sum(axis=1),
+    )
 
 
 def load_detector(model_id):
     from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
     tok = AutoTokenizer.from_pretrained(model_id)
     model = AutoModelForSequenceClassification.from_pretrained(model_id)
     model.to(DEVICE).eval()
@@ -117,13 +129,15 @@ def _is_oom(e):
     """CUDA OOM can surface as torch.cuda.OutOfMemoryError OR a plain RuntimeError
     (e.g. from the deberta disentangled-attention TorchScript JIT). Catch both."""
     return isinstance(e, torch.cuda.OutOfMemoryError) or (
-        isinstance(e, RuntimeError) and "out of memory" in str(e).lower())
+        isinstance(e, RuntimeError) and "out of memory" in str(e).lower()
+    )
 
 
 @torch.no_grad()
 def _forward(chunk, tok, model, inj_fn, maxlen, device):
-    enc = tok(chunk, return_tensors="pt", truncation=True,
-              max_length=maxlen, padding=True).to(device)
+    enc = tok(chunk, return_tensors="pt", truncation=True, max_length=maxlen, padding=True).to(
+        device
+    )
     logits = model(**enc).logits
     probs = torch.softmax(logits, dim=-1).cpu().numpy()
     return inj_fn(probs)
@@ -142,7 +156,7 @@ def score_texts(texts, tok, model, inj_fn, maxlen, batch_size=16):
         while i < hi:
             chunk = [texts[j] if texts[j] else "" for j in range(i, min(i + bs, hi))]
             try:
-                out[i:i + len(chunk)] = _forward(chunk, tok, model, inj_fn, maxlen, DEVICE)
+                out[i : i + len(chunk)] = _forward(chunk, tok, model, inj_fn, maxlen, DEVICE)
                 i += len(chunk)
             except Exception as e:
                 if not _is_oom(e):
@@ -174,8 +188,9 @@ def recall_at_fpr(y_true, y_score, target_fpr=0.01):
     return round(float(tpr[j]), 4), round(float(thr[j]), 6)
 
 
-def eval_detector_on_dataset(rows, tok, model, inj_fn, maxlen, threshold=0.5,
-                             batch_size=32, evasion_sample=None):
+def eval_detector_on_dataset(
+    rows, tok, model, inj_fn, maxlen, threshold=0.5, batch_size=32, evasion_sample=None
+):
     texts = [t for t, _ in rows]
     y_true = np.array([lbl for _, lbl in rows])
     scores = score_texts(texts, tok, model, inj_fn, maxlen, batch_size)
@@ -200,8 +215,11 @@ def eval_detector_on_dataset(rows, tok, model, inj_fn, maxlen, threshold=0.5,
     # Deterministic sample (first-N) of caught positives for the evasion RATE estimate,
     # so the probe is tractable on a contended GPU. Full clean metrics use all rows.
     caught0 = caught_all[:evasion_sample] if evasion_sample else caught_all
-    evasion = {"baseline_caught_at_thr": len(caught_all),
-               "evasion_probe_n": len(caught0), "baseline_pos": len(pos_idx)}
+    evasion = {
+        "baseline_caught_at_thr": len(caught_all),
+        "evasion_probe_n": len(caught0),
+        "baseline_pos": len(pos_idx),
+    }
     for tname, tfn in TRANSFORMS.items():
         if not caught0:
             evasion[tname] = {"still_caught": 0, "evasion_rate": None}
@@ -210,8 +228,7 @@ def eval_detector_on_dataset(rows, tok, model, inj_fn, maxlen, threshold=0.5,
         pert = [tfn(t) for t in pert]
         pscores = score_texts(pert, tok, model, inj_fn, maxlen, batch_size)
         still = int((pscores >= threshold).sum())
-        evasion[tname] = {"still_caught": still,
-                          "evasion_rate": round(1 - still / len(caught0), 4)}
+        evasion[tname] = {"still_caught": still, "evasion_rate": round(1 - still / len(caught0), 4)}
     res["evasion"] = evasion
     return res
 
@@ -220,8 +237,12 @@ def eval_jataayu_on_dataset(rows, threshold=0.45, evasion_sample=None):
     """Jataayu fast-path (regex, use_llm=False) on the identical rows. Anchor/sanity."""
     texts = [t for t, _ in rows]
     y_true = np.array([lbl for _, lbl in rows])
-    scores = np.array([float(jataayu_check_inbound(t or "", surface="unknown",
-                                                   use_llm=False)["risk_score"]) for t in texts])
+    scores = np.array(
+        [
+            float(jataayu_check_inbound(t or "", surface="unknown", use_llm=False)["risk_score"])
+            for t in texts
+        ]
+    )
     res = {
         "n": len(rows),
         "n_injection": int(y_true.sum()),
@@ -229,7 +250,9 @@ def eval_jataayu_on_dataset(rows, threshold=0.45, evasion_sample=None):
         "roc_auc": round(float(roc_auc_score(y_true, scores)), 4),
         "pr_auc": round(float(average_precision_score(y_true, scores)), 4),
     }
-    m = metrics_at(y_true, scores, threshold)  # MEDIUM>=0.45, same as run_injection_bench robustness
+    m = metrics_at(
+        y_true, scores, threshold
+    )  # MEDIUM>=0.45, same as run_injection_bench robustness
     res.update({k: m[k] for k in ("precision", "recall", "fpr", "f1", "tp", "fp", "tn", "fn")})
     res["threshold"] = threshold
     r1, t1 = recall_at_fpr(y_true, scores, 0.01)
@@ -239,17 +262,23 @@ def eval_jataayu_on_dataset(rows, threshold=0.45, evasion_sample=None):
     pos_idx = [i for i, (_, lbl) in enumerate(rows) if lbl == 1]
     caught_all = [i for i in pos_idx if scores[i] >= threshold]
     caught0 = caught_all[:evasion_sample] if evasion_sample else caught_all
-    evasion = {"baseline_caught_at_thr": len(caught_all),
-               "evasion_probe_n": len(caught0), "baseline_pos": len(pos_idx)}
+    evasion = {
+        "baseline_caught_at_thr": len(caught_all),
+        "evasion_probe_n": len(caught0),
+        "baseline_pos": len(pos_idx),
+    }
     for tname, tfn in TRANSFORMS.items():
         still = 0
         for i in caught0:
-            s = jataayu_check_inbound(tfn(rows[i][0] or ""), surface="unknown",
-                                      use_llm=False)["risk_score"]
+            s = jataayu_check_inbound(tfn(rows[i][0] or ""), surface="unknown", use_llm=False)[
+                "risk_score"
+            ]
             if s >= threshold:
                 still += 1
-        evasion[tname] = {"still_caught": still,
-                          "evasion_rate": round(1 - still / len(caught0), 4) if caught0 else None}
+        evasion[tname] = {
+            "still_caught": still,
+            "evasion_rate": round(1 - still / len(caught0), 4) if caught0 else None,
+        }
     res["evasion"] = evasion
     return res
 
@@ -260,11 +289,18 @@ def main():
     ap.add_argument("--models", nargs="+", default=COMPETITORS)
     ap.add_argument("--limit", type=int, default=None, help="rows per dataset (smoke test)")
     ap.add_argument("--batch-size", type=int, default=16)
-    ap.add_argument("--evasion-sample", type=int, default=1000,
-                    help="cap on caught-positives used for the evasion-rate probe (0=all)")
+    ap.add_argument(
+        "--evasion-sample",
+        type=int,
+        default=1000,
+        help="cap on caught-positives used for the evasion-rate probe (0=all)",
+    )
     ap.add_argument("--out", default=str(OUT / "detector_headtohead.json"))
-    ap.add_argument("--no-resume", action="store_true",
-                    help="ignore any existing --out file and recompute everything")
+    ap.add_argument(
+        "--no-resume",
+        action="store_true",
+        help="ignore any existing --out file and recompute everything",
+    )
     args = ap.parse_args()
 
     t_start = time.time()
@@ -274,20 +310,27 @@ def main():
         rows = load_binary(d)
         if args.limit:
             # keep a balanced-ish slice deterministically: first N/2 pos, first N/2 neg
-            pos = [r for r in rows if r[1] == 1][:args.limit // 2]
-            neg = [r for r in rows if r[1] == 0][:args.limit - len(pos)]
+            pos = [r for r in rows if r[1] == 1][: args.limit // 2]
+            neg = [r for r in rows if r[1] == 0][: args.limit - len(pos)]
             rows = pos + neg
         loaded[d] = rows
-        print(f"[data] {d}: {len(rows)} rows "
-              f"(inj={sum(1 for _,l in rows if l==1)}, benign={sum(1 for _,l in rows if l==0)})")
+        print(
+            f"[data] {d}: {len(rows)} rows "
+            f"(inj={sum(1 for _, l in rows if l == 1)}, benign={sum(1 for _, l in rows if l == 0)})"
+        )
 
     # Resume: reuse any prior complete entries so a crash under GPU contention
     # never discards finished detectors. Rerunning continues where it left off.
-    results = {"_meta": {"device": DEVICE, "limit": args.limit,
-                         "batch_size": args.batch_size,
-                         "transforms": list(TRANSFORMS.keys()),
-                         "evasion_sample_cap": args.evasion_sample,
-                         "datasets": args.datasets}}
+    results = {
+        "_meta": {
+            "device": DEVICE,
+            "limit": args.limit,
+            "batch_size": args.batch_size,
+            "transforms": list(TRANSFORMS.keys()),
+            "evasion_sample_cap": args.evasion_sample,
+            "datasets": args.datasets,
+        }
+    }
     availability = {}
     if not args.no_resume and Path(args.out).exists():
         try:
@@ -297,7 +340,7 @@ def main():
                     continue
                 results[k] = v
             availability = prior.get("_meta", {}).get("availability", {})
-            print(f"[resume] loaded prior results for: {[k for k in results if k!='_meta']}")
+            print(f"[resume] loaded prior results for: {[k for k in results if k != '_meta']}")
         except Exception as e:
             print(f"[resume] could not load prior ({e}); starting fresh")
 
@@ -325,19 +368,22 @@ def main():
         for d, rows in loaded.items():
             r = eval_jataayu_on_dataset(rows, evasion_sample=esample)
             jat[d] = r
-            print(f"  {d}: AUC={r['roc_auc']} recall={r['recall']} fpr={r['fpr']} "
-                  f"evasion(space/zw/leet)="
-                  f"{r['evasion']['space_out']['evasion_rate']}/"
-                  f"{r['evasion']['zero_width']['evasion_rate']}/"
-                  f"{r['evasion']['leetspeak']['evasion_rate']}")
+            print(
+                f"  {d}: AUC={r['roc_auc']} recall={r['recall']} fpr={r['fpr']} "
+                f"evasion(space/zw/leet)="
+                f"{r['evasion']['space_out']['evasion_rate']}/"
+                f"{r['evasion']['zero_width']['evasion_rate']}/"
+                f"{r['evasion']['leetspeak']['evasion_rate']}"
+            )
         results["jataayu_fastpath"] = jat
         availability["jataayu_fastpath"] = "OK"
         save()
 
     for model_id in args.models:
         print(f"\n=== {model_id} ===")
-        if complete(results.get(model_id)) and not (isinstance(results.get(model_id), dict)
-                                                    and results[model_id].get("_error")):
+        if complete(results.get(model_id)) and not (
+            isinstance(results.get(model_id), dict) and results[model_id].get("_error")
+        ):
             print("  [skip] already computed")
             continue
         try:
@@ -345,8 +391,18 @@ def main():
         except Exception as e:
             msg = f"{type(e).__name__}: {e}"
             short = msg.splitlines()[0][:300]
-            gated = any(c in msg for c in ("401", "403", "gated", "restricted",
-                                           "awaiting", "access to model", "authorized"))
+            gated = any(
+                c in msg
+                for c in (
+                    "401",
+                    "403",
+                    "gated",
+                    "restricted",
+                    "awaiting",
+                    "access to model",
+                    "authorized",
+                )
+            )
             status = "NOT AVAILABLE (gated/license not accepted)" if gated else "LOAD FAILED"
             print(f"  {status}: {short}")
             availability[model_id] = f"{status}: {short}"
@@ -365,18 +421,20 @@ def main():
             if d in det and isinstance(det[d], dict) and "roc_auc" in det[d]:
                 print(f"  {d}: [skip] already computed")
                 continue
-            r = eval_detector_on_dataset(rows, tok, model, inj_fn, maxlen,
-                                         batch_size=args.batch_size,
-                                         evasion_sample=esample)
+            r = eval_detector_on_dataset(
+                rows, tok, model, inj_fn, maxlen, batch_size=args.batch_size, evasion_sample=esample
+            )
             det[d] = r
-            print(f"  {d}: AUC={r['roc_auc']} recall={r['recall']} fpr={r['fpr']} "
-                  f"r@1%fpr={r['recall_at_1pct_fpr']} "
-                  f"evasion(space/zw/leet)="
-                  f"{r['evasion']['space_out']['evasion_rate']}/"
-                  f"{r['evasion']['zero_width']['evasion_rate']}/"
-                  f"{r['evasion']['leetspeak']['evasion_rate']}")
+            print(
+                f"  {d}: AUC={r['roc_auc']} recall={r['recall']} fpr={r['fpr']} "
+                f"r@1%fpr={r['recall_at_1pct_fpr']} "
+                f"evasion(space/zw/leet)="
+                f"{r['evasion']['space_out']['evasion_rate']}/"
+                f"{r['evasion']['zero_width']['evasion_rate']}/"
+                f"{r['evasion']['leetspeak']['evasion_rate']}"
+            )
             availability[model_id] = "OK"
-            save()   # incremental: survive a crash on a later dataset/model
+            save()  # incremental: survive a crash on a later dataset/model
         del model, tok
         if DEVICE == "cuda":
             torch.cuda.empty_cache()

@@ -14,6 +14,7 @@ honestly-caveated number, including where the guard fails.
 Usage:
   python run_injection_bench.py --dataset deepset/prompt-injections --surface unknown
 """
+
 import argparse
 import json
 import time
@@ -130,12 +131,20 @@ def metrics_at(y_true, y_score, thr):
     tn = int(((y_pred == 0) & (y_true == 0)).sum())
     fn = int(((y_pred == 0) & (y_true == 1)).sum())
     prec = tp / (tp + fp) if (tp + fp) else 0.0
-    rec = tp / (tp + fn) if (tp + fn) else 0.0          # catch-rate
-    fpr = fp / (fp + tn) if (fp + tn) else 0.0          # benign false-block rate
+    rec = tp / (tp + fn) if (tp + fn) else 0.0  # catch-rate
+    fpr = fp / (fp + tn) if (fp + tn) else 0.0  # benign false-block rate
     f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
-    return dict(threshold=thr, tp=tp, fp=fp, tn=tn, fn=fn,
-                precision=round(prec, 4), recall=round(rec, 4),
-                fpr=round(fpr, 4), f1=round(f1, 4))
+    return dict(
+        threshold=thr,
+        tp=tp,
+        fp=fp,
+        tn=tn,
+        fn=fn,
+        precision=round(prec, 4),
+        recall=round(rec, 4),
+        fpr=round(fpr, 4),
+        f1=round(f1, 4),
+    )
 
 
 def recall_at_fpr(y_true, y_score, max_fpr):
@@ -151,24 +160,34 @@ def recall_at_fpr(y_true, y_score, max_fpr):
     # trivial point is the only one meeting the budget, no real threshold qualifies —
     # report it rather than emit non-finite JSON.
     if not np.isfinite(thr[i]):
-        return {"recall": 0.0, "fpr": 0.0, "threshold": None,
-                "fpr_budget": max_fpr, "no_operating_point": True}
-    return {"recall": round(float(tpr[i]), 4),
-            "fpr": round(float(fpr[i]), 4),
-            "threshold": round(float(thr[i]), 4),
-            "fpr_budget": max_fpr}
+        return {
+            "recall": 0.0,
+            "fpr": 0.0,
+            "threshold": None,
+            "fpr_budget": max_fpr,
+            "no_operating_point": True,
+        }
+    return {
+        "recall": round(float(tpr[i]), 4),
+        "fpr": round(float(fpr[i]), 4),
+        "threshold": round(float(thr[i]), 4),
+        "fpr_budget": max_fpr,
+    }
 
 
 # --- robustness transforms (the "trivial bypass" probes the literature uses) ---
-def space_out(s):       # insert a space between every character (Prompt-Guard killer)
+def space_out(s):  # insert a space between every character (Prompt-Guard killer)
     return " ".join(list(s))
 
-def zero_width(s):      # inject zero-width space after each char
+
+def zero_width(s):  # inject zero-width space after each char
     return "​".join(list(s))
+
 
 def leet(s):
     table = str.maketrans({"a": "@", "e": "3", "i": "1", "o": "0", "s": "5"})
     return s.translate(table)
+
 
 TRANSFORMS = {"space_out": space_out, "zero_width": zero_width, "leetspeak": leet}
 
@@ -183,7 +202,9 @@ def main():
     rows = load_binary(args.dataset)
     y_true = np.array([lbl for _, lbl in rows])
     n_pos, n_neg = int(y_true.sum()), int((y_true == 0).sum())
-    print(f"[{args.dataset}] {len(rows)} rows | injection={n_pos} benign={n_neg} | surface={args.surface}")
+    print(
+        f"[{args.dataset}] {len(rows)} rows | injection={n_pos} benign={n_neg} | surface={args.surface}"
+    )
 
     scores, preds_block, lat = score_all(rows, args.surface)
 
@@ -195,16 +216,21 @@ def main():
         "n_total": len(rows),
         "n_injection": n_pos,
         "n_benign": n_neg,
-        "latency_ms": {"mean": round(float(lat.mean()), 4),
-                       "p50": round(float(np.percentile(lat, 50)), 4),
-                       "p99": round(float(np.percentile(lat, 99)), 4)},
+        "latency_ms": {
+            "mean": round(float(lat.mean()), 4),
+            "p50": round(float(np.percentile(lat, 50)), 4),
+            "p99": round(float(np.percentile(lat, 99)), 4),
+        },
         # ROC/PR-AUC are undefined when a dataset carries a single class (e.g. Gandalf
         # is injections-only) — report null rather than crash.
         "roc_auc": round(float(roc_auc_score(y_true, scores)), 4) if both_classes else None,
-        "pr_auc": round(float(average_precision_score(y_true, scores)), 4) if both_classes else None,
+        "pr_auc": round(float(average_precision_score(y_true, scores)), 4)
+        if both_classes
+        else None,
         "recall_at_1pct_fpr": recall_at_fpr(y_true, scores, 0.01) if both_classes else None,
-        "operating_points": {name: metrics_at(y_true, scores, thr)
-                             for name, thr in OP_POINTS.items()},
+        "operating_points": {
+            name: metrics_at(y_true, scores, thr) for name, thr in OP_POINTS.items()
+        },
     }
 
     # Robustness: of the injection-positives the fast-path catches at MEDIUM,
@@ -212,8 +238,7 @@ def main():
     if args.robustness:
         pos_idx = [i for i, (_, lbl) in enumerate(rows) if lbl == 1]
         caught0 = [i for i in pos_idx if scores[i] >= 0.45]
-        rob = {"baseline_caught_at_MEDIUM": len(caught0),
-               "baseline_pos": len(pos_idx)}
+        rob = {"baseline_caught_at_MEDIUM": len(caught0), "baseline_pos": len(pos_idx)}
         for tname, fn in TRANSFORMS.items():
             still = 0
             for i in caught0:
@@ -221,8 +246,10 @@ def main():
                 r = jataayu_check_inbound(fn(text), surface=args.surface, use_llm=False)
                 if r["risk_score"] >= 0.45:
                     still += 1
-            rob[tname] = {"still_caught": still,
-                          "evasion_rate": round(1 - still / len(caught0), 4) if caught0 else None}
+            rob[tname] = {
+                "still_caught": still,
+                "evasion_rate": round(1 - still / len(caught0), 4) if caught0 else None,
+            }
         result["robustness"] = rob
 
     fn = OUT / f"{args.dataset.replace('/', '_')}_{args.surface}_fastpath.json"
