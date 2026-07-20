@@ -28,10 +28,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Install
+      - name: Prepare pip
+        run: python -m pip install --upgrade pip
+      - name: Example from checkout before install
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          python -m pip install requests pyyaml
+          python -I examples/quickstart.py
+      - name: Install
+        run: pip install -e ".[dev]"
       - name: Lint (ruff)
         run: ruff check jataayu tests examples demo benchmarks training
       - name: Format (ruff)
