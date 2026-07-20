@@ -74,8 +74,7 @@ class TestOutboundGuardCache:
         """Concurrent callers must get the guard configured for their own names."""
         worker_count = 16
         iterations_per_worker = 100
-        start = Barrier(worker_count)
-
+        start = Barrier(worker_count, timeout=10)
         def exercise(worker_index: int):
             name_sets = (["Alice"], ["Bob"])
             start.wait()
