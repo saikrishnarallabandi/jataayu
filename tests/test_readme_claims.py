@@ -7,6 +7,7 @@ out of README.md and compared to the code, so the two are forced to agree in bot
 If a claim's phrasing changes so this file can no longer find it, the test FAILS rather than
 silently passing — a doc test that quietly stops matching is worse than no test.
 """
+import json
 import re
 from pathlib import Path
 
@@ -141,4 +142,75 @@ def test_surface_profile_table():
             f"(trust, inbound_strict, outbound_strict, xrisk) = {claimed}, "
             f"but jataayu/surfaces/profiles.py has {actual}.\n"
             f"  Fix whichever is wrong."
+        )
+
+
+# The detector metrics below are transcribed by hand out of frozen result JSON. That is a
+# different risk from the counts above -- the JSON does not drift, but a typo in the README does
+# not announce itself, and these are the numbers a reader compares against published work.
+RESULTS = REPO / "training" / "injection_adapter" / "eval" / "results"
+
+
+def _result(name: str) -> dict:
+    path = RESULTS / name
+    assert path.is_file(), (
+        f"{path} is missing, but README.md publishes numbers from it. Commit the result file; "
+        f"do not delete the claim."
+    )
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_notinject_default_threshold_claim():
+    match = _find(r"\*\*Jataayu v0\.1, default τ=0\.5\*\* \| \*\*([\d.]+)\*\*", "NotInject default-τ")
+    run = _result("cfp_notinject.ckpt300.json")
+    assert run["tau"] == 0.5, f"cfp_notinject.ckpt300.json was scored at τ={run['tau']}, not the default 0.5"
+    actual = round(run["notinject"]["od_acc"] * 100, 2)
+    assert float(match.group(1)) == actual, (
+        f"README.md publishes NotInject over-defense {match.group(1)}% at the default threshold, "
+        f"but cfp_notinject.ckpt300.json:notinject.od_acc is {actual}%."
+    )
+
+
+_AUTHORITY_ROW = re.compile(
+    r"^\|\s*\*{0,2}([^|*]+?)\*{0,2}\s*\|\s*\*{0,2}(−[\d.]+|\+[\d.]+)\*{0,2}\s*\|"
+    r"\s*\*{0,2}(\d+) / 20\*{0,2}\s*\|",
+    re.M,
+)
+
+# README row label -> result file holding that arm of the ablation.
+_AUTHORITY_FILES = {
+    "Jataayu v0.1": "adversarial_slice.v0.1.json",
+    "Prompt Guard 2 86M": "adversarial_slice.promptguard2.json",
+    "Prompt Guard 2 22M": "adversarial_slice.promptguard2-22M.json",
+    "Qwen3.5-0.8B base, no adapter": "adversarial_slice.v0.1-BASE.json",
+}
+
+
+def test_authority_ablation_table():
+    rows = {label: (delta, defeated) for label, delta, defeated in _AUTHORITY_ROW.findall(
+        README.read_text(encoding="utf-8")
+    )}
+    missing = sorted(set(_AUTHORITY_FILES) - set(rows))
+    if missing:
+        pytest.fail(
+            f"Could not parse these rows of the authority-framing table in README.md: {missing}.\n"
+            "  Expected rows like: | Prompt Guard 2 86M | −0.015 | 1 / 20 | ... |\n"
+            "  Restore that shape, or fix tests/test_readme_claims.py."
+        )
+
+    for label, filename in _AUTHORITY_FILES.items():
+        claimed_delta, claimed_defeated = rows[label]
+        effect = _result(filename)["ablations"]["authority_prefix"]["authority_effect"]
+        # The README uses U+2212 MINUS SIGN, not ASCII hyphen.
+        actual_delta = round(effect["mean_delta"], 3)
+        assert float(claimed_delta.replace("−", "-").lstrip("+")) == actual_delta, (
+            f"README.md's authority row for {label} claims mean Δ {claimed_delta}, but "
+            f"{filename}:ablations.authority_prefix.authority_effect.mean_delta is {actual_delta}."
+        )
+        assert int(claimed_defeated) == effect["n_defeated"], (
+            f"README.md's authority row for {label} claims {claimed_defeated}/20 pairs defeated, "
+            f"but {filename} records n_defeated={effect['n_defeated']}."
+        )
+        assert effect["n_pairs"] == 20, (
+            f"{filename} has {effect['n_pairs']} authority pairs, but README.md says 20."
         )

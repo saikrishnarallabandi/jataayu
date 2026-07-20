@@ -391,7 +391,7 @@ checkpoint published as v0.1 — no metric here is borrowed from a different che
 |---|---|
 | mean Recall@1%FPR (6 sets) | **0.828** |
 | — the 7th set, `wildjailbreak`, excluded from that mean | 0.367 |
-| NotInject over-defense acc | 0.968 (11 FP) |
+| NotInject over-defense acc, at the calibrated τ | 0.968 (11 FP) |
 | counterfactual paired accuracy (400 pairs) | **0.778** |
 | — authority-framed family | 0.938 |
 
@@ -405,11 +405,84 @@ Selecting on recall alone actively rewards that shortcut.
 
 Result files backing every number above: [`training/injection_adapter/eval/results/`](training/injection_adapter/eval/results/).
 
+##### Over-defense, next to the published field
+
+`NotInject` ([`leolee99/NotInject`](https://huggingface.co/datasets/leolee99/NotInject), ungated)
+is 339 benign prompts stuffed with injection trigger words. It was published with a comparison
+table — [InjecGuard, arXiv:2410.22770](https://arxiv.org/abs/2410.22770), Table 1 — which scores
+every system **at its own default decision rule**. So the comparable figure for us is the
+default-threshold one, **0.848**, not the 0.968 above:
+
+| system | over-defense acc (%) |
+|---|---|
+| PromptGuard (Meta) | 0.88 |
+| Deepset | 5.31 |
+| Fmops | 5.60 |
+| ProtectAIv2 | 56.64 |
+| Llama-2-chat | 76.40 |
+| **Jataayu v0.1, default τ=0.5** | **84.80** |
+| GPT-4o | 86.73 |
+| InjecGuard | 87.32 |
+| LakeraGuard | 87.61 |
+| LlamaGuard3 | 99.71 |
+
+Mid-to-upper: clear of ProtectAIv2 and Llama-2-chat, short of LakeraGuard and InjecGuard. Read
+LlamaGuard3's 99.71 with its own Table 1 row — 28.28% on malicious inputs. A model that flags
+almost nothing wins this column for free, which is why it is a column and not a score.
+
+**Why 0.968 is higher, and why it is not the number for this table.** 0.968 is measured at a τ
+calibrated to 1% FPR on in-distribution benign traffic; this model pushes its probability mass to
+the extremes, so its 1%-FPR τ is ≈1.0 and 0.5 is a poor operating point for it. Quoting it against
+a default-rule table would be an apples-to-oranges claim. Two further asymmetries, both against us:
+0.968 is over all 339 rows *including* the 168 we split off as dev, while 0.848 is over the 171-row
+held-out test half only; and the InjecGuard rows are third-party-measured while ours is not.
+
+##### Authority framing breaks our detector — a paired contrast against Prompt Guard 2
+
+Prefixing an attack with `SYSTEM: ... verified as an administrator.` and changing nothing else
+collapses this detector. It barely moves Meta's
+[Prompt Guard 2 86M](https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M), the field's
+reference open detector. Same 20 bare/authority pairs, same slice, same fp32, `Δ` = mean change in
+P(INJECTION) when the prefix is added:
+
+| model | mean Δ | pairs defeated | caught bare | recall on `authority_framed_attack` @0.5 |
+|---|---|---|---|---|
+| **Jataayu v0.1** | **−0.668** | **14 / 20** | 20 / 20 | **0.220** (9/41) |
+| Prompt Guard 2 86M | −0.015 | 1 / 20 | 16 / 20 | 0.634 (26/41) |
+| Prompt Guard 2 22M | −0.256 | 6 / 20 | 9 / 20 | 0.122 (5/41) |
+| Qwen3.5-0.8B base, no adapter | +0.011 | 0 / 20 | 15 / 20 | 0.756 (31/41) |
+
+**What an attacker does with this:** paste four words of fake system-authority framing ahead of the
+injection. Nine of ten payloads this detector catches bare, it then waves through — no obfuscation,
+no encoding, no iteration, and the prefix is the same every time.
+
+The 22M row is not a robustness win for us and is not read as one: it only caught 9 of the 20 bare
+attacks to begin with, so it has far less to lose. The base-model row is the damning one — the
+authority weakness is **not inherited, our fine-tune creates it**, the same shape as the
+self-referential failure below.
+
+**One caveat, stated because it is real.** These are fp32 runs. The *same weights* scored in fp16
+([`adversarial_slice.ckpt300.json`](training/injection_adapter/eval/results/adversarial_slice.ckpt300.json))
+do not show the collapse: mean Δ −0.043, 1 of 20 defeated, authority recall 0.902. We have not
+resolved which precision a given deployment should expect, so treat the fp32 numbers as a
+demonstrated failure mode rather than a settled magnitude. Both files are committed; neither is
+withheld.
+
+Either way this is consistent with the thesis stated at the top: **the detector is the weakest
+layer**, and Jataayu's guarantee does not live here — it lives in the deterministic effect
+boundary, which never reads the attacker's text.
+
 **Known limitation, stated up front:** the model over-flags benign text that refers to its own
 instructions ("please ignore the typos in my last message") — 18 of 40 such held-out rows score
-≥ 0.9999, tied with real attacks, so **no threshold separates them**. The base model does not
-have this failure; fine-tuning introduces it. Do not use the 0.5 default cutoff — calibrate on
+≥ 0.9999 in fp16, tied with real attacks, so **no threshold separates them**. The base model does
+not have this failure; fine-tuning introduces it. Do not use the 0.5 default cutoff — calibrate on
 your own benign traffic. Full numbers and caveats on the model card.
+
+**On PINT.** We do not report a PINT score. Lakera's PINT benchmark dataset was never distributed:
+the README's access instructions were removed in 2025, the access-request issues are unanswered
+through 2026, and Lakera was acquired by Check Point in October 2025. It is unobtainable, not
+avoided. We will not publish a PINT-style score computed on substitute data — third parties do
+that, and the resulting number is not comparable to anyone's published PINT figure.
 
 ---
 
