@@ -6,6 +6,9 @@ accepted and silently dropped. These tests deliberately do NOT reset the guards
 between the two calls — the reset is what hid the bug from the original suite.
 """
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+
 import pytest
 
 from jataayu import jataayu_check_inbound, jataayu_check_outbound
@@ -66,6 +69,25 @@ class TestOutboundGuardCache:
         guard = _get_outbound_guard(protected_names=names)
         names.append("Bob")
         assert guard.config.protected_names == ["Alice"]
+
+    def test_concurrent_protected_names_do_not_cross_contaminate(self):
+        """Concurrent callers must get the guard configured for their own names."""
+        worker_count = 16
+        iterations_per_worker = 100
+        start = Barrier(worker_count)
+
+        def exercise(worker_index: int):
+            name_sets = (["Alice"], ["Bob"])
+            start.wait()
+            for iteration in range(iterations_per_worker):
+                names = name_sets[(worker_index + iteration) % len(name_sets)]
+                guard = _get_outbound_guard(protected_names=names)
+                assert guard.config.protected_names == names
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = [executor.submit(exercise, i) for i in range(worker_count)]
+            for future in futures:
+                future.result()
 
 
 class TestInboundGuardCache:
