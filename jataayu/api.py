@@ -97,7 +97,7 @@ def _outbound_config(
     protected_names: Optional[list[str]],
     policy=None,
 ) -> PrivacyConfig:
-    """Resolve the effective PrivacyConfig: explicit kwarg > policy value > built-in default.
+    """Resolve the effective PrivacyConfig. Precedence differs per field — see below.
 
     `protected_names` MERGES with the policy's rather than replacing it, for the same
     reason P1 merged `tool_effects`: the policy list is the org's roster and the kwarg is

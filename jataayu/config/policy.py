@@ -1,8 +1,9 @@
 """
 Jataayu YAML Policy Configuration
 ===================================
-Loads per-agent surface policies from YAML files, replacing hardcoded
-profile lookups throughout the Jataayu codebase.
+Loads per-agent policy from YAML: outbound privacy rosters, capability
+isolation, and effect-boundary settings. Surface profiles are NOT loaded from
+here — they are a fixed table in jataayu/surfaces/profiles.py (SURFACE_PROFILES).
 
 This file documents EVERY key the format accepts, and the format accepts nothing else
 that a guard does not read. A key that no guard consumes is rejected at load with a

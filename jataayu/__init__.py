@@ -47,6 +47,12 @@ from jataayu.core.audit import (
 )
 from jataayu.api import jataayu_authorize_action
 
+# Deprecated tuple-returning shims. Importable from the package root because that is
+# where they have always been importable from, and removing them would turn a warning
+# into an ImportError for the exact callers the shims exist to protect. Deliberately
+# absent from __all__: `__all__` documents the canonical surface, and these are not it.
+from jataayu.convenience import check_inbound, check_outbound, sanitize_inbound  # noqa: F401
+
 __all__ = [
     # Canonical guard entry points (dict return format)
     "jataayu_check_inbound",

@@ -153,3 +153,25 @@ class TestCheckOutbound:
         status, output = check_outbound(text, surface="github-comment")
         assert status == "SAFE"
         assert output == text
+
+
+class TestRootImportStaysCompatible:
+    """`from jataayu import check_outbound` worked before the deprecation and must keep
+    working — turning a DeprecationWarning into an ImportError would break precisely the
+    callers the shim exists to protect. Importable, but deliberately not in __all__:
+    __all__ documents the canonical surface, and these are not it."""
+
+    @pytest.mark.parametrize("name", ["check_inbound", "check_outbound", "sanitize_inbound"])
+    def test_importable_from_the_package_root(self, name):
+        import jataayu
+        assert hasattr(jataayu, name), f"from jataayu import {name} regressed to ImportError"
+
+    @pytest.mark.parametrize("name", ["check_inbound", "check_outbound", "sanitize_inbound"])
+    def test_not_advertised_in_dunder_all(self, name):
+        import jataayu
+        assert name not in jataayu.__all__
+
+    def test_root_import_still_warns(self):
+        from jataayu import check_outbound
+        with pytest.warns(DeprecationWarning):
+            check_outbound("Weather is fine.", surface="discord-channel")
