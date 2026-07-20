@@ -7,6 +7,7 @@ out of README.md and compared to the code, so the two are forced to agree in bot
 If a claim's phrasing changes so this file can no longer find it, the test FAILS rather than
 silently passing — a doc test that quietly stops matching is worse than no test.
 """
+import json
 import re
 from pathlib import Path
 
@@ -141,4 +142,124 @@ def test_surface_profile_table():
             f"(trust, inbound_strict, outbound_strict, xrisk) = {claimed}, "
             f"but jataayu/surfaces/profiles.py has {actual}.\n"
             f"  Fix whichever is wrong."
+        )
+
+
+# The detector metrics below are transcribed by hand out of frozen result JSON. That is a
+# different risk from the counts above -- the JSON does not drift, but a typo in the README does
+# not announce itself, and these are the numbers a reader compares against published work.
+RESULTS = REPO / "training" / "injection_adapter" / "eval" / "results"
+
+
+def _result(name: str) -> dict:
+    path = RESULTS / name
+    assert path.is_file(), (
+        f"{path} is missing, but README.md publishes numbers from it. Commit the result file; "
+        f"do not delete the claim."
+    )
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_notinject_default_threshold_claim():
+    match = _find(r"\*\*Jataayu v0\.1, default τ=0\.5\*\* \| \*\*([\d.]+)\*\*", "NotInject default-τ")
+    run = _result("cfp_notinject.ckpt300.json")
+    assert run["tau"] == 0.5, f"cfp_notinject.ckpt300.json was scored at τ={run['tau']}, not the default 0.5"
+    actual = round(run["notinject"]["od_acc"] * 100, 2)
+    assert float(match.group(1)) == actual, (
+        f"README.md publishes NotInject over-defense {match.group(1)}% at the default threshold, "
+        f"but cfp_notinject.ckpt300.json:notinject.od_acc is {actual}%."
+    )
+
+
+_AUTHORITY_ROW = re.compile(
+    r"^\|\s*\*{0,2}([^|*]+?)\*{0,2}\s*\|\s*\*{0,2}(−[\d.]+|\+[\d.]+)\*{0,2}\s*\|"
+    r"\s*\*{0,2}(\d+) / 20\*{0,2}\s*\|",
+    re.M,
+)
+
+# README row label -> result file holding that arm of the ablation. Only the two arms that ran on
+# the same machine, dtype and code revision belong here. The Prompt Guard 2 rows were withdrawn:
+# they were scored through a different runner in a different environment, so a mean-Δ contrast
+# against them measured the environment, not the models. Re-adding a row here means the controlled
+# re-run (one box, one adapter dir, one code revision, dtype varied alone) was actually done.
+_AUTHORITY_FILES = {
+    "Jataayu v0.1": "adversarial_slice.v0.1.json",
+    "Qwen3.5-0.8B base, no adapter": "adversarial_slice.v0.1-BASE.json",
+}
+
+
+def test_authority_ablation_table():
+    rows = {label: (delta, defeated) for label, delta, defeated in _AUTHORITY_ROW.findall(
+        README.read_text(encoding="utf-8")
+    )}
+    missing = sorted(set(_AUTHORITY_FILES) - set(rows))
+    if missing:
+        pytest.fail(
+            f"Could not parse these rows of the authority-framing table in README.md: {missing}.\n"
+            "  Expected rows like: | Jataayu v0.1 | −0.668 | 14 / 20 | ... |\n"
+            "  Restore that shape, or fix tests/test_readme_claims.py."
+        )
+
+    readded = sorted(label for label in rows if "Prompt Guard" in label)
+    assert not readded, (
+        f"README.md's authority-framing table has Prompt Guard 2 rows again: {readded}.\n"
+        "  That cross-model magnitude was withdrawn -- our arm and Prompt Guard 2's were scored\n"
+        "  through different runners in different environments, so the contrast is not like-for-\n"
+        "  like. Only re-add it off a controlled re-run, and update _AUTHORITY_FILES with it."
+    )
+
+    for label, filename in _AUTHORITY_FILES.items():
+        claimed_delta, claimed_defeated = rows[label]
+        effect = _result(filename)["ablations"]["authority_prefix"]["authority_effect"]
+        # The README uses U+2212 MINUS SIGN, not ASCII hyphen.
+        actual_delta = round(effect["mean_delta"], 3)
+        assert float(claimed_delta.replace("−", "-").lstrip("+")) == actual_delta, (
+            f"README.md's authority row for {label} claims mean Δ {claimed_delta}, but "
+            f"{filename}:ablations.authority_prefix.authority_effect.mean_delta is {actual_delta}."
+        )
+        assert int(claimed_defeated) == effect["n_defeated"], (
+            f"README.md's authority row for {label} claims {claimed_defeated}/20 pairs defeated, "
+            f"but {filename} records n_defeated={effect['n_defeated']}."
+        )
+        assert effect["n_pairs"] == 20, (
+            f"{filename} has {effect['n_pairs']} authority pairs, but README.md says 20."
+        )
+
+
+def test_uncontrolled_second_run_figures():
+    """The second run is quoted in prose to show the disagreement, so it needs the same guard."""
+    effect = _result("adversarial_slice.ckpt300.json")["ablations"]["authority_prefix"][
+        "authority_effect"
+    ]
+    match = _find(
+        r"reports mean Δ (−[\d.]+) and (\d+) of 20 defeated", "ckpt300 disagreement figures"
+    )
+    actual = round(effect["mean_delta"], 3)
+    assert float(match.group(1).replace("−", "-")) == actual, (
+        f"README.md quotes the second run at mean Δ {match.group(1)}, but "
+        f"adversarial_slice.ckpt300.json records {actual}."
+    )
+    assert int(match.group(2)) == effect["n_defeated"], (
+        f"README.md quotes the second run at {match.group(2)} of 20 defeated, but "
+        f"adversarial_slice.ckpt300.json records {effect['n_defeated']}."
+    )
+
+
+def test_self_referential_counts_disagree_as_published():
+    """README says 18/40 in one run and 1/40 in the other. Both halves are checked."""
+    claimed = {
+        "adversarial_slice.ckpt300.json": int(
+            _find(r"\"(\d+) of 40 held-out rows score", "self-ref ckpt300 count").group(1)
+        ),
+        "adversarial_slice.v0.1.json": int(
+            _find(r"puts (\d+) of 40 rows in\s*\n?\s*that band", "self-ref release count").group(1)
+        ),
+    }
+    for filename, n_claimed in claimed.items():
+        scores = _result(filename)["per_class"]["self_ref_benign"]["scores"]
+        actual = sum(1 for v in scores.values() if v >= 0.9999)
+        assert len(scores) == 40, f"{filename} has {len(scores)} self_ref_benign rows, not 40."
+        assert n_claimed == actual, (
+            f"README.md claims {n_claimed} of 40 self-referential rows score >= 0.9999 in "
+            f"{filename}, but the file has {actual}."
         )
