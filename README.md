@@ -334,21 +334,28 @@ The outbound row needs a Hugging Face download. For an offline, fully determinis
 0.85 ms p99**, much faster only because the curated messages are far shorter than the downloaded
 ones — same code, different text length. That gap is the point of the paragraph above.
 
-**Cost of the decision sink.** `preview()` builds a decision record on every call, whether or not
-a sink is installed. Measured *warm* over 6,000 calls per arm, median of 5 runs of
+**Cost of the decision sink.** `preview()` builds a decision record only when a sink is actually
+installed — per-instance or process-wide, resolved on every call, so a sink installed after a
+guard is constructed still receives records. With no sink anywhere (the default) the record is
+never built. Measured *warm* over 6,000 calls per arm, median of 6 runs of
 `python benchmarks/run_sink_overhead_bench.py`
 ([saved result](benchmarks/results/sink_overhead.json)):
 
 | | mean | p99 | vs. no sink |
 |---|---|---|---|
-| no sink installed | 0.0119 ms | 0.027 ms | — |
-| trivial sink (`lambda rec: ...`) | 0.0206 ms | 0.042 ms | +0.009 ms (1.7x) |
-| trivial sink, `capture_content=True` | 0.0225 ms | 0.045 ms | +0.011 ms (1.9x) |
+| no sink installed | 0.0104 ms | 0.025 ms | — |
+| trivial sink (`lambda rec: ...`) | 0.0205 ms | 0.043 ms | +0.010 ms (2.0x) |
+| trivial sink, `capture_content=True` | 0.0226 ms | 0.046 ms | +0.012 ms (2.2x) |
 
-Installing a sink is the largest *relative* cost on this path — it deep-copies the record so a
-sink cannot mutate live decision state — but it is ~9 microseconds, and past that only your
-sink's own body scales. `capture_content=True` adds the params dict to that copy: cheap on these
-small params, but it grows with your parameter size, and it puts tool arguments in your telemetry.
+Installing a sink is the largest *relative* cost on this path — it builds the record and then
+deep-copies it, so a sink cannot mutate live decision state — but it is ~10 microseconds, and past
+that only your sink's own body scales. `capture_content=True` adds the params dict to that copy:
+cheap on these small params, but it grows with your parameter size, and it puts tool arguments in
+your telemetry.
+
+Skipping the unread record is worth roughly a microsecond per call; it is not what dominates this
+path. `jataayu_authorize_action` constructs a fresh `EffectBoundary` per call (~2.7 µs of the
+~20 µs), which is deliberate — the guard stays stateless and cannot leak policy across calls.
 
 ### Detection performance
 

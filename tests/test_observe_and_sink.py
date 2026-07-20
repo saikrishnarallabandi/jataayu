@@ -191,6 +191,19 @@ class TestDecisionSink:
         )
         assert records[0]["params"] == {"path": "/tmp/x"}
 
+    def test_a_sink_installed_after_construction_still_receives_records(self):
+        """preview() skips building the record when no sink is installed. The sink it checks
+        must be resolved per call: set_decision_sink() is process-wide and documented as
+        callable at any point, and the gateway installs one long after guards are built."""
+        boundary = EffectBoundary()
+        records = []
+        set_decision_sink(records.append)
+
+        boundary.preview("shell.exec", {"command": "rm -rf /"}, [U("x")])
+
+        assert len(records) == 1
+        assert records[0]["decision"] == "deny"
+
     def test_no_sink_installed_is_a_noop(self):
         assert jataayu_authorize_action("read_file", {"x": 1})["decision"] == "allow"
 

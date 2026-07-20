@@ -2,12 +2,12 @@
 """
 Jataayu decision-sink overhead — what telemetry costs on the authorization hot path.
 
-`EffectBoundary.preview()` builds a decision record on EVERY call, installed sink or not, and
+`EffectBoundary.preview()` builds a decision record only when a sink is installed, and
 `emit_decision` hands the sink a deep copy so it cannot mutate live decision state. That is a
-fixed per-action cost on the one path that runs before every tool call, so it is worth a number.
+per-action cost on the one path that runs before every tool call, so it is worth a number.
 
 Three arms, same actions:
-  no sink                 record built, emit_decision returns immediately
+  no sink                 no record built; preview() resolves the sink to None and moves on
   trivial sink            record built + deep-copied + delivered
   trivial sink + content  as above, with the caller's params dict in the copy
 

@@ -1,33 +1,33 @@
 {
   "benchmark": "Jataayu decision-sink overhead (effect boundary preview)",
   "api": "EffectBoundary.preview + core.audit.emit_decision (deterministic, no LLM)",
-  "dataset": "/home2/srallaba/projects/jataayu/benchmarks/data/effect_boundary_v1.jsonl",
+  "dataset": "benchmarks/data/effect_boundary_v1.jsonl",
   "reps": 20,
   "note": "warm per-call latency; one warm-up pass timed and discarded",
   "arms": {
     "no_sink": {
       "n_calls": 6000,
-      "mean": 0.0118,
-      "p50": 0.0107,
-      "p99": 0.0264,
+      "mean": 0.0104,
+      "p50": 0.009,
+      "p99": 0.0246,
       "overhead_vs_no_sink_ms": 0.0,
       "ratio_vs_no_sink": 1.0
     },
     "trivial_sink": {
       "n_calls": 6000,
-      "mean": 0.0207,
-      "p50": 0.0179,
-      "p99": 0.05,
-      "overhead_vs_no_sink_ms": 0.0089,
-      "ratio_vs_no_sink": 1.754
+      "mean": 0.0205,
+      "p50": 0.0183,
+      "p99": 0.043,
+      "overhead_vs_no_sink_ms": 0.0101,
+      "ratio_vs_no_sink": 1.971
     },
     "trivial_sink_capture_content": {
       "n_calls": 6000,
-      "mean": 0.0225,
-      "p50": 0.0205,
-      "p99": 0.0453,
-      "overhead_vs_no_sink_ms": 0.0107,
-      "ratio_vs_no_sink": 1.907
+      "mean": 0.0226,
+      "p50": 0.0207,
+      "p99": 0.046,
+      "overhead_vs_no_sink_ms": 0.0122,
+      "ratio_vs_no_sink": 2.173
     }
   }
 }
