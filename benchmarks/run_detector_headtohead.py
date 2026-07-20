@@ -27,7 +27,9 @@ Usage:
   python run_detector_headtohead.py                      # FULL run
   python run_detector_headtohead.py --models protectai/deberta-v3-base-prompt-injection-v2
 """
-import argparse, json, time
+import argparse
+import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -345,7 +347,7 @@ def main():
             short = msg.splitlines()[0][:300]
             gated = any(c in msg for c in ("401", "403", "gated", "restricted",
                                            "awaiting", "access to model", "authorized"))
-            status = "NOT AVAILABLE (gated/license not accepted)" if gated else f"LOAD FAILED"
+            status = "NOT AVAILABLE (gated/license not accepted)" if gated else "LOAD FAILED"
             print(f"  {status}: {short}")
             availability[model_id] = f"{status}: {short}"
             results[model_id] = {"_error": short, "_status": status}

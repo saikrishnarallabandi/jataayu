@@ -21,8 +21,12 @@ def boundary():
     return EffectBoundary()
 
 
-U = lambda d, src="web-page": Value(d, Provenance.UNTRUSTED, source=src)
-T = lambda d, src="operator": Value(d, Provenance.TRUSTED, source=src)
+def U(d, src="web-page"):
+    return Value(d, Provenance.UNTRUSTED, source=src)
+
+
+def T(d, src="operator"):
+    return Value(d, Provenance.TRUSTED, source=src)
 
 
 class TestClassification:
@@ -453,7 +457,8 @@ class TestCanonicalization:
         """Regression, 8f49dba: int keys were tagged via f"{key!r}", so a subclass overriding
         __repr__ chose its own tag and {Evil(1): "x"} canonicalized as {2: "x"}."""
         class Evil(int):
-            __repr__ = lambda self: "2"
+            def __repr__(self):
+                return "2"
 
         pv = boundary.preview("read_file", {Evil(1): "x"}, [T("x")])
         assert pv.decision is Decision.DENY

@@ -28,7 +28,9 @@ setting (base / enhanced). Fast path by default; --llm turns on the slow path.
 Usage:
   python run_injecagent_bench.py --data DIR [--llm] [--limit N]
 """
-import argparse, json, time
+import argparse
+import json
+import time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 

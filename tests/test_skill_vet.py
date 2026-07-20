@@ -5,7 +5,6 @@ All tests run with use_llm=False so they're deterministic and offline; they
 exercise the pattern pre-filter, capability tagging, dangerous-combo detection,
 verdict rollup, skill loading, the convenience API, and the CLI command.
 """
-import json
 
 import pytest
 
@@ -180,7 +179,8 @@ def test_check_interface_delegates_to_vet():
 # ---------------------------------------------------------------------------
 
 def test_own_assistant_skill_is_safe():
-    import jataayu, os
+    import jataayu
+    import os
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(jataayu.__file__)))
     skill_md = os.path.join(repo_root, "skills", "assistant", "SKILL.md")
     if not os.path.exists(skill_md):

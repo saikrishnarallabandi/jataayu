@@ -31,7 +31,7 @@ import json
 import re
 from pathlib import Path
 
-from jataayu.core.audit import SessionTrace, AuditRisk
+from jataayu.core.audit import SessionTrace
 
 
 # ---------------------------------------------------------------------------

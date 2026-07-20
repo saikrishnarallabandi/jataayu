@@ -10,7 +10,7 @@ import time
 import pytest
 import requests
 
-from jataayu.integrations.mcp_gateway import JataayuMCPGateway, _jsonrpc_error, _jsonrpc_ok
+from jataayu.integrations.mcp_gateway import JataayuMCPGateway
 
 # The server tests below drive a real aiohttp server. aiohttp ships in the `dev`
 # extra precisely so CI runs them — the gateway once shipped unable to serve a

@@ -18,8 +18,12 @@ from tests import test_effect_boundary as _eb
 # level would make pytest re-collect that whole class here, without its fixtures.
 SECRET_MUST_DENY = _eb.TestClassification.SECRET_MUST_DENY
 
-U = lambda d: Value(d, Provenance.UNTRUSTED, source="web-page")
-T = lambda d: Value(d, Provenance.TRUSTED, source="operator")
+def U(d):
+    return Value(d, Provenance.UNTRUSTED, source="web-page")
+
+
+def T(d):
+    return Value(d, Provenance.TRUSTED, source="operator")
 
 LEGACY_KEYS = {
     "tool_name", "effect_class", "provenance", "decision",
@@ -519,7 +523,6 @@ class TestSafeCopySetFrozensetCollision:
 
     def test_frozenset_with_colliding_reprs_falls_back_to_repr(self):
         from jataayu.core.audit import _safe_copy
-        import threading
 
         class Undeepcopyable:
             def __deepcopy__(self, memo):
@@ -547,7 +550,6 @@ class TestSafeCopySetFrozensetCollision:
     def test_sink_receives_repr_not_collapsed_frozenset(self):
         """Integration: a param value that is a frozenset with uncopyable elements
         must reach the sink as repr(frozenset) rather than a smaller frozenset."""
-        import threading
 
         class Undeepcopyable:
             def __deepcopy__(self, memo):

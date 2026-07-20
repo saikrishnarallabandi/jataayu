@@ -27,7 +27,9 @@ path (LLM judge) exactly as in run_injecagent_bench.py.
 Usage:
   python3 benchmarks/run_memory_poison_bench.py [--llm] [--workers N] [--limit N]
 """
-import argparse, json, time
+import argparse
+import json
+import time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 

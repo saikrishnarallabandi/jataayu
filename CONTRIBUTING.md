@@ -5,7 +5,7 @@
 ```bash
 pip install -e ".[dev]"
 pytest -q          # ~1,070 tests, ~16s, no network or GPU required
-ruff check jataayu
+ruff check jataayu tests examples demo benchmarks training
 python examples/quickstart.py   # the README's Quick Start, executable and self-asserting
 ```
 
