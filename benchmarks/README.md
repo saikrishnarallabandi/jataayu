@@ -42,5 +42,11 @@ python benchmarks/run_effect_boundary_bench.py \
 It prints APR (attack prevention rate), TUR (task utility retained) and FBR (false-block rate)
 per baseline, and writes the same to `--out`.
 
+The latency figures the top-level README publishes are medians over several runs, not one pass.
+`--repeat N` on `run_effect_boundary_bench.py`, `run_egress_bench.py`,
+`run_outbound_privacy_bench.py` and `run_sink_overhead_bench.py` re-times the corpus N times and
+reports the median of the per-run mean/p50/p99, with the per-run values kept in the JSON. Accuracy
+is deterministic, so only the latency block changes; `--repeat 1` (the default) is a single pass.
+
 Runners that hit Hugging Face or an LLM endpoint need extra dependencies; `.venv/` (AgentDojo
 stack) and `.venv-hf/` (Hugging Face datasets) are local, gitignored virtualenvs for those.

@@ -30,17 +30,21 @@ Generate the corpus with ``python benchmarks/data/gen_egress_v1.py``.
 Usage:
   python benchmarks/run_egress_bench.py
   python benchmarks/run_egress_bench.py --surface github-comment --json
+  python benchmarks/run_egress_bench.py --repeat 10          # median-of-10 latency
 """
 import argparse
 import json
-import statistics as st
+import sys
 import time
-from collections import defaultdict
 from pathlib import Path
 
-from jataayu import jataayu_check_egress
-
 HERE = Path(__file__).parent
+sys.path.insert(0, str(HERE))
+
+from bench_latency import median_of_runs, summarize  # noqa: E402
+
+from jataayu import jataayu_check_egress  # noqa: E402
+
 DATA = HERE / "data" / "egress_v1.jsonl"
 OUT_DIR = HERE / "results"
 OUT_DIR.mkdir(exist_ok=True)
@@ -73,8 +77,13 @@ def main():
     ap.add_argument("--surface", default="github-comment",
                     help="target surface (recorded on the result)")
     ap.add_argument("--out", default=str(OUT_DIR / "egress_v1.json"))
+    ap.add_argument("--repeat", type=int, default=1,
+                    help="score the corpus N times and report the median of the per-run "
+                         "latency statistics (detection is deterministic and unaffected)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
+    if args.repeat < 1:
+        raise SystemExit("--repeat must be >= 1")
 
     rows = load(args.data)
     pos = [r for r in rows if r["is_exfil"]]
@@ -82,12 +91,17 @@ def main():
     print(f"[egress] {len(rows)} records | exfil={len(pos)} benign={len(neg)} "
           f"| surface={args.surface}")
 
-    lat = []
-    scored = []
-    for rec in rows:
-        r, dt = score(rec, args.surface)
-        lat.append(dt)
-        scored.append((rec, r))
+    # with --repeat the corpus is scored again for the timing only; the guard is
+    # deterministic, so every pass produces the same decisions.
+    runs = []
+    for _ in range(args.repeat):
+        lat = []
+        scored = []
+        for rec in rows:
+            r, dt = score(rec, args.surface)
+            lat.append(dt)
+            scored.append((rec, r))
+        runs.append(summarize(lat))
 
     def not_safe(r):
         return r["status"] in ("WARN", "BLOCK")
@@ -185,11 +199,8 @@ def main():
         "confirmed_exfil": confirmed_exfil,
         "text_preservation": text_preservation,
         "benign_false_blocks": benign_altered,
-        "latency_ms": {
-            "mean": round(st.mean(lat), 4),
-            "p50": round(st.median(lat), 4),
-            "p99": round(sorted(lat)[max(0, int(len(lat) * 0.99) - 1)], 4),
-        },
+        "repeat": args.repeat,
+        "latency_ms": median_of_runs(runs),
         "notes": [
             "Recall = not-SAFE rate (the guard neutralizes at WARN and hard-blocks "
             "beacons/secrets at BLOCK). BLOCK is reserved for exfil-beacon hosts and "
@@ -218,7 +229,9 @@ def main():
               f"{tk:>10} {m['missed'] or ''}")
     if benign_altered:
         print(f"\nWARNING — benign false-blocks: {[b['id'] for b in benign_altered]}")
-    print(f"\nlatency: mean {result['latency_ms']['mean']}ms  p99 {result['latency_ms']['p99']}ms")
+    over = f" (median of {args.repeat} runs)" if args.repeat > 1 else ""
+    print(f"\nlatency: mean {result['latency_ms']['mean']}ms  "
+          f"p99 {result['latency_ms']['p99']}ms{over}")
     print(f"wrote {args.out}")
 
     if args.json:

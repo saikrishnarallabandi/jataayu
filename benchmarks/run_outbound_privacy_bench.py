@@ -51,17 +51,22 @@ Usage:
   python benchmarks/run_outbound_privacy_bench.py
   python benchmarks/run_outbound_privacy_bench.py --hf-limit 400 --surface public --json
   python benchmarks/run_outbound_privacy_bench.py --no-hf     # curated corpus only
+  python benchmarks/run_outbound_privacy_bench.py --repeat 10 # median-of-10 latency
 """
 import argparse
 import json
-import statistics as st
+import sys
 import time
 from collections import defaultdict
 from pathlib import Path
 
-from jataayu import jataayu_check_outbound
-
 HERE = Path(__file__).parent
+sys.path.insert(0, str(HERE))
+
+from bench_latency import median_of_runs, summarize  # noqa: E402
+
+from jataayu import jataayu_check_outbound  # noqa: E402
+
 DATA = HERE / "data" / "outbound_privacy_v1.jsonl"
 OUT_DIR = HERE / "results"
 OUT_DIR.mkdir(exist_ok=True)
@@ -292,8 +297,13 @@ def main():
     ap.add_argument("--no-hf", action="store_true",
                     help="skip the public dataset; use the curated corpus only")
     ap.add_argument("--out", default=str(OUT_DIR / "outbound_privacy_v1.json"))
+    ap.add_argument("--repeat", type=int, default=1,
+                    help="score the corpus N times and report the median of the per-run "
+                         "latency statistics (detection is deterministic and unaffected)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
+    if args.repeat < 1:
+        raise SystemExit("--repeat must be >= 1")
 
     curated = load_curated(args.data)
     benign = [r for r in curated if r["split"] == "benign"]
@@ -321,13 +331,17 @@ def main():
           f"standard_pii={len(std)} native={len(native)} benign={len(benign)} "
           f"| source={corpus_source} | surface={args.surface}")
 
-    # score everything
-    lat = []
-    scored = []  # (rec, api_result)
-    for rec in records:
-        r, dt = score_record(rec, args.surface)
-        lat.append(dt)
-        scored.append((rec, r))
+    # score everything; with --repeat the corpus is scored again for the timing only (the
+    # fast path is deterministic, so every pass produces the same findings)
+    runs = []
+    for _ in range(args.repeat):
+        lat = []
+        scored = []  # (rec, api_result)
+        for rec in records:
+            r, dt = score_record(rec, args.surface)
+            lat.append(dt)
+            scored.append((rec, r))
+        runs.append(summarize(lat))
 
     # ---- detection (status-based: flagged = WARN|BLOCK) -------------------
     def flagged(r):
@@ -445,11 +459,8 @@ def main():
         "operating_points_by_risk_score": operating_points,
         "per_category": per_category,
         "over_redaction": over_redaction,
-        "latency_ms": {
-            "mean": round(st.mean(lat), 4),
-            "p50": round(st.median(lat), 4),
-            "p99": round(sorted(lat)[max(0, int(len(lat) * 0.99) - 1)], 4),
-        },
+        "repeat": args.repeat,
+        "latency_ms": median_of_runs(runs),
         "notes": [
             "Names are caught only via protected_names; generic personal names, "
             "crypto/bank addresses, IPs, IMEIs, VINs, dates and job info are "
@@ -480,7 +491,9 @@ def main():
         rr = "-" if m["redaction_recall"] is None else f"{m['redaction_recall']:.3f}"
         print(f"{cat:18} {('in' if m['in_scope'] else 'OUT'):>6} {dr:>7} {rr:>7} "
               f"{m['msgs_with_category']:>5} {m['spans']:>6}")
-    print(f"\nlatency: mean {result['latency_ms']['mean']}ms  p99 {result['latency_ms']['p99']}ms")
+    over = f" (median of {args.repeat} runs)" if args.repeat > 1 else ""
+    print(f"\nlatency: mean {result['latency_ms']['mean']}ms  "
+          f"p99 {result['latency_ms']['p99']}ms{over}")
     print(f"wrote {args.out}")
 
     if args.json:

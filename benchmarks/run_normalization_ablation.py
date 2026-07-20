@@ -38,6 +38,24 @@ OUT_DIR.mkdir(exist_ok=True)
 MEDIUM = 0.45  # the MEDIUM operating point, same as run_injection_bench.py
 
 
+def measure_arm(normalize, pos, surface):
+    """Evasion rates for one `normalize=` arm, anchored on the clean-caught subset."""
+    guard = InboundGuard(use_llm=False, normalize=normalize)
+    caught = [t for t in pos if guard.check(t, surface=surface).risk_score >= MEDIUM]
+    if not caught:
+        raise SystemExit(f"nothing caught at MEDIUM with normalize={normalize}; "
+                         "evasion rate is undefined")
+    arm = {"baseline_caught_at_MEDIUM": len(caught), "transforms": {}}
+    for name, transform in TRANSFORMS.items():
+        still = sum(1 for t in caught
+                    if guard.check(transform(t), surface=surface).risk_score >= MEDIUM)
+        arm["transforms"][name] = {
+            "still_caught": still,
+            "evasion_rate": round(1 - still / len(caught), 4),
+        }
+    return arm
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", default="deepset/prompt-injections")
@@ -63,22 +81,7 @@ def main():
     }
 
     for normalize in (True, False):
-        guard = InboundGuard(use_llm=False, normalize=normalize)
-        caught = [t for t in pos
-                  if guard.check(t, surface=args.surface).risk_score >= MEDIUM]
-        arm = {"baseline_caught_at_MEDIUM": len(caught), "transforms": {}}
-        for name, transform in TRANSFORMS.items():
-            still = sum(1 for t in caught
-                        if guard.check(transform(t), surface=args.surface).risk_score >= MEDIUM)
-            arm["transforms"][name] = {
-                "still_caught": still,
-                # caught is non-empty (guarded below), so this never divides by zero
-                "evasion_rate": round(1 - still / len(caught), 4),
-            }
-        if not caught:
-            raise SystemExit(f"nothing caught at MEDIUM with normalize={normalize}; "
-                             "evasion rate is undefined")
-        result["arms"][f"normalize={normalize}"] = arm
+        result["arms"][f"normalize={normalize}"] = measure_arm(normalize, pos, args.surface)
 
     Path(args.out).write_text(json.dumps(result, indent=2))
 

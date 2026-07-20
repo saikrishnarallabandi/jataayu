@@ -307,13 +307,14 @@ Measured on **Intel Core i7-7800X @ 3.50GHz (12 threads), Python 3.10.13, CPU on
 desktop part, so a modern server should do better. Every row is deterministic and uses no LLM
 and no GPU. Each benchmark times one pass over its corpus, so these are **cold** per-call
 numbers, warm-up included; run-to-run spread is real at this scale, so the table reports the
-**median of 10 runs** of each command.
+**median of 10 runs** of each command — that is what `--repeat 10` produces, and the saved
+JSON carries the per-run values alongside the median so you can see the spread yourself.
 
 | Guard | mean | p99 | corpus | reproduce |
 |---|---|---|---|---|
-| **Effect boundary** (`jataayu_authorize_action`) | **0.027 ms** | 0.062 ms | 300 actions | `python benchmarks/run_effect_boundary_bench.py --dataset benchmarks/data/effect_boundary_v1.jsonl --baselines none detector effect both --out benchmarks/results/effect_boundary_v1.json` |
-| **Egress channel** (`jataayu_check_egress`) | **0.056 ms** | 0.086 ms | 35 messages | `python benchmarks/run_egress_bench.py --data benchmarks/data/egress_v1.jsonl --surface github-comment --out benchmarks/results/egress_v1.json` |
-| **Outbound privacy** (`jataayu_check_outbound`) | **5.55 ms** | **17.9 ms** | 480 messages, downloaded | `python benchmarks/run_outbound_privacy_bench.py --out benchmarks/results/outbound_privacy_v1.json` |
+| **Effect boundary** (`jataayu_authorize_action`) | **0.027 ms** | 0.062 ms | 300 actions | `python benchmarks/run_effect_boundary_bench.py --dataset benchmarks/data/effect_boundary_v1.jsonl --baselines none detector effect both --repeat 10 --out benchmarks/results/effect_boundary_v1.json` |
+| **Egress channel** (`jataayu_check_egress`) | **0.056 ms** | 0.086 ms | 35 messages | `python benchmarks/run_egress_bench.py --data benchmarks/data/egress_v1.jsonl --surface github-comment --repeat 10 --out benchmarks/results/egress_v1.json` |
+| **Outbound privacy** (`jataayu_check_outbound`) | **5.55 ms** | **17.9 ms** | 480 messages, downloaded | `python benchmarks/run_outbound_privacy_bench.py --repeat 10 --out benchmarks/results/outbound_privacy_v1.json` |
 
 **Read the outbound row's tail, not its mean.** Its p99 is ~3.2x its own mean and ~290x the
 effect boundary's p99: it runs 45 patterns over long, multilingual documents, so cost scales
@@ -338,7 +339,7 @@ ones — same code, different text length. That gap is the point of the paragrap
 installed — per-instance or process-wide, resolved on every call, so a sink installed after a
 guard is constructed still receives records. With no sink anywhere (the default) the record is
 never built. Measured *warm* over 6,000 calls per arm, median of 6 runs of
-`python benchmarks/run_sink_overhead_bench.py`
+`python benchmarks/run_sink_overhead_bench.py --repeat 6`
 ([saved result](benchmarks/results/sink_overhead.json)):
 
 | | mean | p99 | vs. no sink |

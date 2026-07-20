@@ -23,16 +23,22 @@ Usage:
   python benchmarks/run_effect_boundary_bench.py --dataset benchmarks/data/effect_boundary_v1.jsonl \
       --baselines none detector effect both --detector-threshold 0.70 \
       --out benchmarks/results/effect_boundary_v1.json --json
+  python benchmarks/run_effect_boundary_bench.py --repeat 10   # median-of-10 latency
 """
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
 
-from jataayu import jataayu_authorize_action, jataayu_check_inbound
-from jataayu.guards.effect_boundary import EffectBoundary
-
 HERE = Path(__file__).parent
+sys.path.insert(0, str(HERE))
+
+from bench_latency import median_of_runs, summarize  # noqa: E402
+
+from jataayu import jataayu_authorize_action, jataayu_check_inbound  # noqa: E402
+from jataayu.guards.effect_boundary import EffectBoundary  # noqa: E402
+
 OUT_DIR = HERE / "results"
 OUT_DIR.mkdir(exist_ok=True)
 
@@ -126,22 +132,32 @@ def main():
     ap.add_argument("--baselines", nargs="+", default=["none", "detector", "effect", "both"])
     ap.add_argument("--detector-threshold", type=float, default=0.70)  # HIGH operating point
     ap.add_argument("--out", default=str(OUT_DIR / "effect_boundary_v1.json"))
+    ap.add_argument("--repeat", type=int, default=1,
+                    help="time the corpus N times and report the median of the per-run "
+                         "statistics (accuracy is deterministic and unaffected)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
+    if args.repeat < 1:
+        raise SystemExit("--repeat must be >= 1")
 
     rows = load_dataset(args.dataset)
     n_atk = sum(r["is_attack"] for r in rows)
     print(f"[effect-boundary] {len(rows)} rows | attack={n_atk} legit={len(rows) - n_atk} "
           f"| dataset={args.dataset}")
 
-    # precompute effect-boundary decisions once (also time them for latency)
-    lat = []
-    eff_dec = []
-    for r in rows:
-        t0 = time.perf_counter()
-        d = decide_effect(r)
-        lat.append((time.perf_counter() - t0) * 1000)
-        eff_dec.append(d)
+    # precompute effect-boundary decisions (also time them for latency); with --repeat the
+    # pass is redone for the timing only — the decisions are deterministic, so the last
+    # pass's are the same as the first's.
+    runs = []
+    for _ in range(args.repeat):
+        lat = []
+        eff_dec = []
+        for r in rows:
+            t0 = time.perf_counter()
+            d = decide_effect(r)
+            lat.append((time.perf_counter() - t0) * 1000)
+            eff_dec.append(d)
+        runs.append(summarize(lat))
     det_dec = [decide_detector(r, args.detector_threshold) for r in rows]
 
     per_defense = {
@@ -167,7 +183,6 @@ def main():
         if r["is_attack"] and d == ALLOW and any(m["tool"] == r["tool"] for m in mismatches)
     )
 
-    import statistics as st
     result = {
         "dataset": args.dataset,
         "tier": 1,
@@ -179,11 +194,8 @@ def main():
         "effect_class_coverage": coverage,
         "coverage_gaps": mismatches,
         "attack_slips_due_to_coverage_gap": slips_from_gap,
-        "latency_ms": {
-            "mean": round(st.mean(lat), 4),
-            "p50": round(st.median(lat), 4),
-            "p99": round(sorted(lat)[max(0, int(len(lat) * 0.99) - 1)], 4),
-        },
+        "repeat": args.repeat,
+        "latency_ms": median_of_runs(runs),
     }
 
     Path(args.out).write_text(json.dumps(result, indent=2))
@@ -197,8 +209,9 @@ def main():
               f"{s['tur_trusted_legit']:>7.3f} {s['tur_untrusted_legit']:>7.3f}")
     print(f"\ncoverage gaps (mis-mapped to READ): {[m['tool'] for m in mismatches]}")
     print(f"attack slips due to coverage gap: {slips_from_gap}")
+    over = f" (median of {args.repeat} runs)" if args.repeat > 1 else ""
     print(f"effect-boundary latency: mean {result['latency_ms']['mean']}ms  "
-          f"p99 {result['latency_ms']['p99']}ms")
+          f"p99 {result['latency_ms']['p99']}ms{over}")
     print(f"\nwrote {args.out}")
 
     if args.json:
