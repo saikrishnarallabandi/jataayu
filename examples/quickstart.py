@@ -15,7 +15,15 @@ the guarantee, and the screening layers after it, because they are defense-in-de
 it top to bottom is the intended way to learn what Jataayu actually promises.
 """
 
-from jataayu import (
+from pathlib import Path
+import sys
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from jataayu import (  # noqa: E402 - checkout bootstrap must run before package import.
     CommitRejected,
     EffectBoundary,
     Provenance,
