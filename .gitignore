@@ -119,3 +119,6 @@ benchmarks/results/qwen_scores/
 # design/agent notes kept local — not maintained to publication standard
 ARCHITECTURE.md
 AGENTS.md
+
+# blog/: local drafts, not published from this repo.
+blog/
