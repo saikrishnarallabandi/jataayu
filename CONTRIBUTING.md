@@ -4,11 +4,12 @@
 
 ```bash
 pip install -e ".[dev]"
-pytest -q          # 1066 tests, ~16s, no network or GPU required
+pytest -q          # 1069 tests, ~16s, no network or GPU required
 ruff check jataayu
+python examples/quickstart.py   # the README's Quick Start, executable and self-asserting
 ```
 
-Both run in CI on Python 3.10 / 3.11 / 3.12.
+All three run in CI on Python 3.10 / 3.11 / 3.12.
 
 ## Where things live
 
@@ -16,6 +17,7 @@ Both run in CI on Python 3.10 / 3.11 / 3.12.
 |------|------|
 | `jataayu/` | The package. `core/` is primitives (effect boundary, taint, audit); `guards/` are the layers built on them. |
 | `tests/` | Unit suite. Fast, offline, deterministic. |
+| `examples/` | User-facing, runnable. `quickstart.py` asserts everything the README's Quick Start teaches, and CI runs it — change a documented behavior and it fails there. Keep it out of `tests/`: it is written to be read. |
 | `benchmarks/` | Scores the library against *external* datasets. Slow, may need network or a GPU. Not part of CI. |
 | `demo/` | The HuggingFace Space source. |
 | `training/` | Detector training pipelines. |

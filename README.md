@@ -92,6 +92,9 @@ LLM backends and the gateway's `aiohttp` are optional extras.
 
 ## Quick Start
 
+Every snippet below is also a runnable, self-asserting example — `python examples/quickstart.py`
+(core install, no network or LLM). CI runs it, so these snippets cannot silently rot.
+
 ### 1. Authorize the action (the core — start here)
 
 Decide by the *harm of the effect* × the *provenance of the input*, deterministically (no LLM):
