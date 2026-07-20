@@ -704,24 +704,29 @@ class EffectBoundary:
 
         # Local import: jataayu.core.audit imports THIS module at its top level, so a
         # module-level import here is a circular import.
-        from jataayu.core.audit import capture_content_enabled, emit_decision
+        from jataayu.core.audit import capture_content_enabled, emit_decision, resolve_sink
 
-        record = {
-            "rail_type": "effect_boundary",
-            "tool_name": tool_name,
-            "effect_class": effect.value,
-            "provenance": provenance.value,
-            "decision": result.decision.value,
-            "would_decision": (would_decision or result.decision).value,
-            "tripwire_triggered": result.tripwire_triggered,
-            "mode": self.mode,
-            "reason": result.reason,
-            "violations": violations,
-            "unrecognized": not recognized,
-        }
-        if capture_content_enabled(self.capture_content):
-            record["params"] = params
-        emit_decision(record, self.sink)
+        # No sink installed anywhere is the default and the common case, and the record is
+        # pure telemetry — building one nobody receives is the dominant cost of a preview.
+        # Resolved per call, never at construction, so a sink installed later still fires.
+        sink = resolve_sink(self.sink)
+        if sink is not None:
+            record = {
+                "rail_type": "effect_boundary",
+                "tool_name": tool_name,
+                "effect_class": effect.value,
+                "provenance": provenance.value,
+                "decision": result.decision.value,
+                "would_decision": (would_decision or result.decision).value,
+                "tripwire_triggered": result.tripwire_triggered,
+                "mode": self.mode,
+                "reason": result.reason,
+                "violations": violations,
+                "unrecognized": not recognized,
+            }
+            if capture_content_enabled(self.capture_content):
+                record["params"] = params
+            emit_decision(record, sink)
 
         return result
 

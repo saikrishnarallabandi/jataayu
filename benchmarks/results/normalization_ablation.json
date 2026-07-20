@@ -1,0 +1,44 @@
+{
+  "benchmark": "Jataayu input-normalization ablation",
+  "api": "InboundGuard(normalize=True|False).check (fast path, no LLM)",
+  "dataset": "deepset/prompt-injections",
+  "surface": "unknown",
+  "threshold": 0.45,
+  "n_attack_rows": 263,
+  "arms": {
+    "normalize=True": {
+      "baseline_caught_at_MEDIUM": 52,
+      "transforms": {
+        "space_out": {
+          "still_caught": 52,
+          "evasion_rate": 0.0
+        },
+        "zero_width": {
+          "still_caught": 52,
+          "evasion_rate": 0.0
+        },
+        "leetspeak": {
+          "still_caught": 52,
+          "evasion_rate": 0.0
+        }
+      }
+    },
+    "normalize=False": {
+      "baseline_caught_at_MEDIUM": 52,
+      "transforms": {
+        "space_out": {
+          "still_caught": 2,
+          "evasion_rate": 0.9615
+        },
+        "zero_width": {
+          "still_caught": 52,
+          "evasion_rate": 0.0
+        },
+        "leetspeak": {
+          "still_caught": 6,
+          "evasion_rate": 0.8846
+        }
+      }
+    }
+  }
+}

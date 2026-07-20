@@ -4,7 +4,7 @@
 
 ```bash
 pip install -e ".[dev]"
-pytest -q          # 647 tests, ~2s, no network or GPU required
+pytest -q          # 1066 tests, ~16s, no network or GPU required
 ruff check jataayu
 ```
 

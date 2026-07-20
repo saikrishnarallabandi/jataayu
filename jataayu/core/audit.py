@@ -172,6 +172,17 @@ def _snapshot(record: dict) -> dict:
     return {k: _safe_copy(v) for k, v in record.items()}
 
 
+def resolve_sink(sink: Optional[DecisionSink] = None) -> Optional[DecisionSink]:
+    """The sink a record would go to: per-instance wins, module-level is the fallback.
+
+    Read at call time, never cached: set_decision_sink() is process-wide and may be called
+    long after a guard was constructed. Callers use this to skip BUILDING a record nobody
+    will receive; emit_decision() applies the same resolution, so a caller that resolves
+    first and passes the result gets the identical target.
+    """
+    return sink if sink is not None else _sink
+
+
 def emit_decision(record: dict, sink: Optional[DecisionSink] = None) -> None:
     """Deliver a COPY of `record` to `sink` (per-instance) or the module-level sink.
 
@@ -186,7 +197,7 @@ def emit_decision(record: dict, sink: Optional[DecisionSink] = None) -> None:
     its cancellation. A sink that raises CancelledError spuriously is indistinguishable
     from a genuinely cancelled one, and the safe reading of "cancelled" is to unwind.
     """
-    target = sink if sink is not None else _sink
+    target = resolve_sink(sink)
     if target is None:
         return
     try:
