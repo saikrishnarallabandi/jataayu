@@ -36,3 +36,8 @@ jobs:
         run: ruff check jataayu
       - name: Test (pytest)
         run: pytest -q
+      # The example asserts every behavior the README's Quick Start teaches, so a snippet
+      # that drifts away from the library fails here instead of shipping. The traceback
+      # names the failing assertion.
+      - name: Example (examples/quickstart.py)
+        run: python examples/quickstart.py
