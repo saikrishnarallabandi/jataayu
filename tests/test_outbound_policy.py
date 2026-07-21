@@ -12,6 +12,7 @@ import textwrap
 import pytest
 
 from jataayu import jataayu_check_outbound
+from jataayu.core.errors import UnknownAgentError
 from jataayu.api import _get_outbound_guard, reset_guards
 
 
@@ -88,8 +89,9 @@ class TestProtectedNamesFromPolicy:
         )
         assert result["status"] == "BLOCK"
 
-    def test_unknown_agent_still_inherits_the_denying_defaults(self, tmp_path):
-        """A typo'd agent name must not fail open."""
+    def test_unknown_agent_raises_rather_than_failing_open(self, tmp_path):
+        """A typo'd agent name must not fail open — and inheriting `defaults:` is not
+        enough, since that still sheds everything the named agent's own block set."""
         policy = write_policy(
             tmp_path,
             """
@@ -101,13 +103,13 @@ class TestProtectedNamesFromPolicy:
                 protected_names: [Alice]
         """,
         )
-        result = jataayu_check_outbound(
-            "The Bluebird launch slipped again.",
-            surface="discord-channel",
-            policy_file=policy,
-            agent="privacy-bt",
-        )
-        assert result["status"] == "BLOCK"
+        with pytest.raises(UnknownAgentError, match="privacy-bt"):
+            jataayu_check_outbound(
+                "The Bluebird launch slipped again.",
+                surface="discord-channel",
+                policy_file=policy,
+                agent="privacy-bt",
+            )
 
     def test_edited_policy_takes_effect_on_the_next_call(self, tmp_path):
         """No policy cache: three variants of one shipped here and all three failed open."""
@@ -354,7 +356,7 @@ class TestDefaultsReachTheWireForEveryOutboundKey:
     reached the wire in full while the config-object tests stayed green.
     """
 
-    @pytest.mark.parametrize("agent", [None, "bot", "bott"])
+    @pytest.mark.parametrize("agent", [None, "bot"])
     def test_protected_names_in_defaults_are_redacted(self, tmp_path, agent):
         policy = write_policy(
             tmp_path,
@@ -375,7 +377,7 @@ class TestDefaultsReachTheWireForEveryOutboundKey:
         assert result["status"] in ("WARN", "BLOCK"), f"Alice reached the wire for agent={agent!r}"
         assert "Alice" not in (result["redacted"] or "")
 
-    @pytest.mark.parametrize("agent", [None, "bot", "bott"])
+    @pytest.mark.parametrize("agent", [None, "bot"])
     def test_check_credentials_false_in_defaults_stops_the_scan(self, tmp_path, agent):
         policy = write_policy(
             tmp_path,
@@ -399,7 +401,7 @@ class TestDefaultsReachTheWireForEveryOutboundKey:
             == "SAFE"
         )
 
-    @pytest.mark.parametrize("agent", [None, "bot", "bott"])
+    @pytest.mark.parametrize("agent", [None, "bot"])
     def test_disabled_cred_rules_in_defaults_silences_the_rule(self, tmp_path, agent):
         secret = "here is the key sk-abcdefghij0123456789abcdefghij0123456789abcd"
         rule = _first_cred_rule(jataayu_check_outbound(secret, surface="discord-channel"))
@@ -421,7 +423,7 @@ class TestDefaultsReachTheWireForEveryOutboundKey:
         )
         assert rule not in after["findings"]
 
-    @pytest.mark.parametrize("agent", [None, "bot", "bott"])
+    @pytest.mark.parametrize("agent", [None, "bot"])
     def test_check_high_entropy_in_defaults_adds_a_finding(self, tmp_path, agent):
         policy = write_policy(
             tmp_path,
@@ -445,7 +447,7 @@ class TestDefaultsReachTheWireForEveryOutboundKey:
             != "SAFE"
         )
 
-    @pytest.mark.parametrize("agent", [None, "bot", "bott"])
+    @pytest.mark.parametrize("agent", [None, "bot"])
     def test_gtm_codenames_in_defaults_are_held(self, tmp_path, agent):
         policy = write_policy(
             tmp_path,

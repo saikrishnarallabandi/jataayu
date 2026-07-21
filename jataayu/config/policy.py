@@ -15,8 +15,9 @@ Policy File Format (jataayu-policy.yml):
 version: 1                       # must be 1; see SUPPORTED_POLICY_VERSIONS
 
 # Global defaults. Every key an agent block accepts may be written here, and an agent
-# that omits the key inherits this value — as does a call naming no agent, or naming
-# one that is not listed.
+# that omits the key inherits this value — as does a call naming no agent (agent=None).
+# Naming an agent this file does not define raises UnknownAgentError; it does not
+# quietly fall back here, because a typo would then shed every restriction.
 defaults:
   check_credentials: true
   check_high_entropy: false
@@ -96,6 +97,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
+
+from jataayu.core.errors import UnknownAgentError
 
 _logger = logging.getLogger("jataayu")
 
@@ -453,22 +456,42 @@ class Policy:
 
     def get_agent_policy(self, agent_name: str) -> AgentPolicy:
         """
-        Get the policy for a specific agent. Falls back to defaults if not found.
+        Get the policy for the named agent, or the `defaults:`-only policy for "".
 
         Args:
-            agent_name: Agent identifier (as defined in policy YAML).
+            agent_name: Agent identifier (as defined in policy YAML), or "" to ask
+                        for the `defaults:` block explicitly.
 
         Returns:
-            AgentPolicy — never raises, returns a defaults-only policy if unknown.
+            AgentPolicy.
+
+        Raises:
+            UnknownAgentError: `agent_name` is non-empty and the file does not define
+                it. Naming an agent asserts it exists; a name that does not resolve
+                means the restrictions the caller believes are in force are not.
         """
         if agent_name in self.agents:
             return self.agents[agent_name]
 
-        # Unknown agent — an agent with an empty config block IS a defaults-only agent,
-        # so parse one rather than re-deriving the inheritance here. Hand-listing the
-        # inherited fields twice has now diverged twice (capability lists, then the
-        # codename lists), and each divergence meant a misspelled agent name silently
-        # switched off the half of the `defaults:` block that denies.
+        # A named-but-undefined agent is a caller error, and the unsafe direction is the
+        # default: `defaults:` is a floor, so the typo sheds every restriction the named
+        # agent carried and (with no `defaults:` block at all) every restriction period.
+        # Same posture as _DEAD_KEYS and SUPPORTED_POLICY_VERSIONS above — this loader
+        # raises rather than serve a policy that looks valid and constrains nothing.
+        if agent_name:
+            known = ", ".join(sorted(self.agents)) or "(none)"
+            raise UnknownAgentError(
+                f"agent {agent_name!r} is not defined in "
+                f"{self.source_path or 'the policy'}. Defined agents: {known}. "
+                f"Pass agent=None to run on the `defaults:` block deliberately."
+            )
+
+        # agent="" / None — the documented "run on defaults" request. An agent with an
+        # empty config block IS a defaults-only agent, so parse one rather than
+        # re-deriving the inheritance here. Hand-listing the inherited fields twice has
+        # now diverged twice (capability lists, then the codename lists), and each
+        # divergence meant the defaults path silently switched off the half of the
+        # `defaults:` block that denies.
         return PolicyLoader._parse_agent(agent_name, {}, self.defaults)
 
     def get_surface_profile(self, surface: str) -> dict:

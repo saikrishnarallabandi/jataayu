@@ -333,8 +333,11 @@ def _load_agent_policy(policy_file: str, agent: Optional[str]):
     the reload explicitly. Do not put the cache back inside a convenience function whose
     whole contract is that it reflects what is on disk right now.
 
-    `get_agent_policy("")` never raises and falls back to the `defaults:` block, so a
-    policy file with no named agent is still load-bearing.
+    `agent=None` resolves to the `defaults:` block, so a policy file with no named
+    agent is still load-bearing. A non-empty `agent` that the file does not define
+    raises UnknownAgentError rather than falling back — naming an agent asserts it
+    exists, and a typo that silently inherits `defaults:` sheds every restriction the
+    named agent carried.
     """
     from jataayu.config.policy import load_policy
 
@@ -512,8 +515,8 @@ def jataayu_check_outbound(
                      check_credentials, disabled_cred_rules and check_high_entropy.
                      Re-read on every call, so an edit takes effect immediately.
         agent: Agent name to resolve in the policy. Omit it to run on the policy's
-               `defaults:` block; an unknown name resolves to `defaults:` too, so a
-               typo cannot switch off the half of the policy that denies.
+               `defaults:` block; a name the file does not define raises
+               UnknownAgentError rather than silently resolving to `defaults:`.
         use_llm: Whether to enable LLM slow-path for rewriting/redaction.
                  Default False (fast regex-only path). This is the only source of
                  `use_llm`: a policy file naming it — or `llm_threshold` /
@@ -599,8 +602,9 @@ def jataayu_recover_outbound(
         policy_file: Optional path to a Jataayu policy YAML. Same keys and same
                      resolution as `jataayu_check_outbound` — a roster moved into the
                      policy file must reach the send site too, not only the check.
-        agent: Agent name to resolve in the policy. Omit it, or name one that is not
-               listed, to run on the policy's `defaults:` block.
+        agent: Agent name to resolve in the policy. Omit it to run on the policy's
+               `defaults:` block; a name the file does not define raises
+               UnknownAgentError.
         llm_backend: Transport — ollama | openai | anthropic | gateway.
         llm_model, llm_url, llm_token: Backend config.
         use_llm: Set False to use deterministic redaction only.

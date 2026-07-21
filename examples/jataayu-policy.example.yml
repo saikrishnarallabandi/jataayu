@@ -21,7 +21,9 @@
 version: 1                    # Must be 1. An unknown version is a load error.
 
 # Global defaults — applied to all agents unless overridden per-agent, and used on their
-# own when a call names no agent (or names one that is not listed below).
+# own when a call names no agent (agent=None). Naming an agent that is not listed below
+# raises UnknownAgentError instead: a typo must not quietly inherit these and shed every
+# restriction the agent you meant was carrying.
 defaults:
   check_credentials: true     # Scan outbound content for leaked credentials
   check_high_entropy: false   # Entropy-based secret detection (more FPs)

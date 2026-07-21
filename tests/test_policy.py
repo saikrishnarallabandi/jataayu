@@ -17,6 +17,7 @@ from jataayu.config.policy import (
     _INHERITED_BOOL_KEYS,
     _INHERITED_LIST_KEYS,
 )
+from jataayu.core.errors import UnknownAgentError
 
 
 # ---------------------------------------------------------------------------
@@ -117,9 +118,18 @@ agents:
 
 
 class TestAgentPolicy:
-    def test_unknown_agent_returns_defaults(self, policy):
-        agent = policy.get_agent_policy("nonexistent-agent")
-        assert agent.name == "nonexistent-agent"
+    def test_unknown_agent_raises(self, policy):
+        """Naming an agent asserts it exists. A typo must not resolve to anything."""
+        with pytest.raises(UnknownAgentError, match="nonexistent-agent"):
+            policy.get_agent_policy("nonexistent-agent")
+
+    def test_the_error_lists_the_agents_that_do_exist(self, policy):
+        with pytest.raises(UnknownAgentError, match="github-bot"):
+            policy.get_agent_policy("github-bott")
+
+    def test_no_agent_returns_defaults(self, policy):
+        agent = policy.get_agent_policy("")
+        assert agent.name == ""
         assert agent.check_credentials is True  # from defaults
 
     def test_agent_protected_names(self, policy):
@@ -191,7 +201,7 @@ class TestPolicyToDict:
 class TestDefaultPolicy:
     def test_default_policy_has_safe_defaults(self):
         p = load_policy()
-        agent = p.get_agent_policy("any-agent")
+        agent = p.get_agent_policy("")
         assert agent.check_credentials is True
         assert agent.mode == "enforce"
 
@@ -399,9 +409,9 @@ class TestDefaultsCapabilityFallback:
             "fs_write",
         ]
 
-    @pytest.mark.parametrize("agent", [None, "prod", "prodd"])
+    @pytest.mark.parametrize("agent", [None, "prod"])
     def test_shell_denies_with_or_without_a_matching_agent(self, policy_path, agent):
-        """Named, unnamed, and typo'd all deny — the typo used to allow."""
+        """Named and unnamed both deny — unnamed inherits the forbidding defaults."""
         from jataayu import jataayu_authorize_action
 
         d = jataayu_authorize_action(
@@ -413,6 +423,20 @@ class TestDefaultsCapabilityFallback:
         )
         assert d["decision"] == "deny"
         assert "exec" in d["violations"]
+
+    def test_a_typod_agent_raises_rather_than_inheriting(self, policy_path):
+        """`defaults:` is a floor, not a substitute: inheriting it would still shed
+        everything the named agent's own block forbade."""
+        from jataayu import jataayu_authorize_action
+
+        with pytest.raises(UnknownAgentError, match="prodd"):
+            jataayu_authorize_action(
+                "shell.exec",
+                {"command": "ls"},
+                untrusted=False,
+                policy_file=policy_path,
+                agent="prodd",
+            )
 
     def test_fallback_does_not_alias_the_defaults_dict(self, policy_path):
         policy = load_policy(policy_path)
@@ -678,7 +702,7 @@ class TestScalarListFieldsAreRejected:
         """get_agent_policy() is reachable without the loader — the same rule applies."""
         policy = Policy(defaults={"forbidden_capabilities": "exec"})
         with pytest.raises(ValueError, match="forbidden_capabilities"):
-            policy.get_agent_policy("unknown")
+            policy.get_agent_policy("")
 
     @pytest.mark.parametrize("agent", [None, "prod", "prodd"])
     def test_a_scalar_never_silently_shreds_into_characters(self, tmp_path, agent):
@@ -708,11 +732,12 @@ class TestScalarListFieldsAreRejected:
 
 
 class TestDefaultsFallbackInheritsEverything:
-    """A misspelled agent name must not silently drop half the `defaults:` block.
+    """A call naming no agent must not silently drop half the `defaults:` block.
 
-    get_agent_policy()'s unknown-agent branch and PolicyLoader._parse_agent() are the
-    two ways an AgentPolicy comes into being; any field one inherits and the other does
-    not is a policy that turns off when you typo the agent name.
+    get_agent_policy()'s no-agent branch and PolicyLoader._parse_agent() are the two
+    ways an AgentPolicy comes into being; any field one inherits and the other does not
+    is a policy that turns off when you omit the agent name. (A *misspelled* name takes
+    neither path — it raises; see test_a_typod_name_raises_instead.)
     """
 
     POLICY = (
@@ -735,19 +760,23 @@ class TestDefaultsFallbackInheritsEverything:
         p.write_text(self.POLICY)
         return load_policy(str(p))
 
-    def test_the_typo_path_matches_the_named_path_field_for_field(self, policy):
+    def test_the_no_agent_path_matches_the_named_path_field_for_field(self, policy):
         named = policy.get_agent_policy("prod").to_dict()
-        typo = policy.get_agent_policy("prodd").to_dict()
-        named.pop("name"), typo.pop("name")
-        assert named == typo
+        unnamed = policy.get_agent_policy("").to_dict()
+        named.pop("name"), unnamed.pop("name")
+        assert named == unnamed
 
     def test_codenames_are_inherited_on_the_fallback_path(self, policy):
-        assert policy.get_agent_policy("prodd").internal_codenames == ["Skunkworks"]
-        assert policy.get_agent_policy("prodd").gtm_codenames == ["Skylark"]
+        assert policy.get_agent_policy("").internal_codenames == ["Skunkworks"]
+        assert policy.get_agent_policy("").gtm_codenames == ["Skylark"]
 
-    @pytest.mark.parametrize("agent", ["prod", "prodd", ""])
+    def test_a_typod_name_raises_instead(self, policy):
+        with pytest.raises(UnknownAgentError, match="prodd"):
+            policy.get_agent_policy("prodd")
+
+    @pytest.mark.parametrize("agent", ["prod", ""])
     def test_a_codename_is_blocked_whatever_the_agent_name(self, policy, agent):
-        """The live failure: agent='prod' blocked, agent='prodd' clean at risk 0.0."""
+        """The live failure: agent='prod' blocked, agent='' clean at risk 0.0."""
         from jataayu.guards.outbound import OutboundGuard
 
         guard = OutboundGuard(policy.get_agent_policy(agent).to_privacy_config())
@@ -755,7 +784,7 @@ class TestDefaultsFallbackInheritsEverything:
         assert not result.is_safe
 
     def test_the_fallback_lists_are_not_aliased_to_defaults(self, policy):
-        got = policy.get_agent_policy("prodd")
+        got = policy.get_agent_policy("")
         assert got.internal_codenames is not policy.defaults["internal_codenames"]
         got.internal_codenames.clear()
         assert policy.defaults["internal_codenames"] == ["Skunkworks"]
@@ -763,7 +792,7 @@ class TestDefaultsFallbackInheritsEverything:
 
 class TestEveryInheritedKeyActuallyInherits:
     """Every key on _INHERITED_LIST_KEYS / _INHERITED_BOOL_KEYS must resolve from
-    `defaults:` on ALL THREE paths an AgentPolicy is reached by.
+    `defaults:` on BOTH paths an AgentPolicy is reached by.
 
     Parametrized off the tuples themselves, deliberately. The predecessor of this class
     hand-listed its keys and every case used `internal_codenames` — so
@@ -772,8 +801,9 @@ class TestEveryInheritedKeyActuallyInherits:
     green. A test that names its own keys cannot catch the field nobody remembered.
     """
 
-    # "" is the no-agent call, "prod" the named one, "prodd" the typo.
-    AGENTS = ["", "prod", "prodd"]
+    # "" is the no-agent call, "prod" the named one. A typo is not a third path — it
+    # raises (TestDefaultsFallbackInheritsEverything::test_a_typod_name_raises_instead).
+    AGENTS = ["", "prod"]
 
     @pytest.mark.parametrize("agent", AGENTS)
     @pytest.mark.parametrize("key", _INHERITED_LIST_KEYS)
@@ -872,7 +902,7 @@ class TestPolicyListsAreNotAliased:
         policy.agents["a"].forbidden_capabilities.clear()
         assert policy.agents["b"].forbidden_capabilities == ["exec"]
         assert policy.defaults["forbidden_capabilities"] == ["exec"]
-        assert policy.get_agent_policy("unknown").forbidden_capabilities == ["exec"]
+        assert policy.get_agent_policy("").forbidden_capabilities == ["exec"]
 
     def test_inherited_codenames_are_not_aliased(self, tmp_path):
         p = tmp_path / "jataayu-policy.yml"
@@ -899,7 +929,7 @@ class TestEmptyBodiesRaiseAClearError:
     def test_empty_defaults_body(self, tmp_path):
         p = tmp_path / "jataayu-policy.yml"
         p.write_text("version: 1\ndefaults:\n")
-        assert load_policy(str(p)).get_agent_policy("anyone").mode == "enforce"
+        assert load_policy(str(p)).get_agent_policy("").mode == "enforce"
 
     def test_a_top_level_list_raises(self, tmp_path):
         p = tmp_path / "jataayu-policy.yml"

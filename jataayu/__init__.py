@@ -21,7 +21,7 @@ but warn.
 
 __version__ = "0.3.1"
 
-from jataayu.core.errors import SecurityError
+from jataayu.core.errors import SecurityError, UnknownAgentError
 from jataayu.core.threat import ThreatResult, ThreatLevel, ThreatType
 from jataayu.guards.inbound import InboundGuard
 from jataayu.guards.outbound import OutboundGuard, PrivacyConfig, RecoveryResult
@@ -106,6 +106,8 @@ __all__ = [
     "set_decision_sink",
     # Raised by callers when a Jataayu verdict is enforced
     "SecurityError",
+    # Raised by the policy loader when an `agent=` name is not defined
+    "UnknownAgentError",
     # Core classes (for advanced usage)
     "ThreatResult",
     "ThreatLevel",
