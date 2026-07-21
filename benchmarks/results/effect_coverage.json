@@ -1,0 +1,24 @@
+{
+  "corpus_size": 164,
+  "sources": [
+    "agentharm",
+    "injecagent"
+  ],
+  "unrecognized": 5,
+  "unrecognized_rate": 0.0305,
+  "target_rate": 0.1,
+  "meets_target": true,
+  "effect_distribution": {
+    "NETWORK": 89,
+    "READ": 72,
+    "SHELL": 2,
+    "SECRET_READ": 1
+  },
+  "unrecognized_names": [
+    "DeepfakeGeneratorGenerateAudioDeepfake",
+    "IndoorRobotGoToRoom",
+    "log_security_audit",
+    "make_online_purchases",
+    "run_stable_diffusion_model"
+  ]
+}

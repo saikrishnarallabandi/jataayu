@@ -314,6 +314,9 @@ _FILE_NOUNS = frozenset(
 
 _NETWORK_STRONG = frozenset(
     {
+        "scrape",
+        "dm",
+        "comment",
         "fetch",
         "curl",
         "wget",
@@ -328,6 +331,51 @@ _NETWORK_STRONG = frozenset(
         "request",
     }
 )
+_STATE_MUTATE_VERBS = frozenset(
+    {
+        "backup",
+        "manage",
+        "submit",
+        "place",
+        "schedule",
+        "leave",
+        "connect",
+        "login",
+        "purchase",
+        "redeem",
+        "follow",
+        "add",
+        "fill",
+        "give",
+        "order",
+        "push",
+        "merge",
+        "migrate",
+        "deploy",
+        "rollback",
+        "refund",
+        "charge",
+        "withdraw",
+        "deposit",
+        "pay",
+        "transition",
+        "grant",
+        "revoke",
+        "unlock",
+        "disable",
+        "cancel",
+        "archive",
+        "approve",
+        "reject",
+        "assign",
+        "insert",
+        "drop",
+        "truncate",
+        "restore",
+        "terminate",
+    }
+)
+
 _NETWORK_VERBS = frozenset(
     {
         "send",
@@ -348,6 +396,10 @@ _NETWORK_VERBS = frozenset(
 # Verbs that mark a genuine READ.
 _READ_VERBS = frozenset(
     {
+        "access",
+        "extract",
+        "verify",
+        "convert",
         "read",
         "get",
         "list",
@@ -379,8 +431,14 @@ _READ_VERBS = frozenset(
 
 
 def _name_tokens(name: str) -> list[str]:
-    """Split a tool name into lowercase components on separators and camelCase boundaries."""
+    """Split a tool name into lowercase components on separators and camelCase boundaries.
+
+    Two camelCase boundaries, not one. The lower->upper rule alone welds an acronym to the word
+    after it: `EpicFHIRGetPatientDetails` gave `fhirget`, hiding the `get` and leaving a real
+    InjecAgent tool unrecognized. The upper->upper-lower rule splits `FHIRGet` -> `FHIR` + `Get`.
+    """
     spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name)
+    spaced = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", " ", spaced)
     return [tok for tok in re.split(r"[^a-zA-Z0-9]+", spaced.lower()) if tok]
 
 
@@ -397,13 +455,35 @@ def _verb_tokens(name: str) -> tuple[set[str], Optional[str], set[str]]:
     makes it the method name (`file.read`, `secrets.get`). The read verbs are ordinary English
     words, so they are matched against `head` alone — otherwise appending or prefixing one would
     make any name a recognized read (`exfiltrate_everything_status`, `wibble_lookup`).
+
+    `head` also admits every non-trailing position, because the dominant MCP
+    naming convention is VendorNounVerbObject and puts the verb in the middle, where a
+    leading-token-only rule cannot see it: `AmazonGetProductDetails` tokenizes to
+    [amazon, get, product, details] and `get` is at index 1. Measured on 164 real tool names
+    from AgentHarm + InjecAgent, 55% of all unrecognized names contained a verb the classifier
+    already knew, just not in head position — so this is the larger half of the coverage gap and
+    it is structural, not vocabulary.
+
+    The interior window deliberately EXCLUDES the trailing token, which is what keeps the two
+    counterexamples above still unrecognized: `exfiltrate_everything_status` and `wibble_lookup`
+    both carry their read verb last, so admitting interior-but-not-final positions cannot reach
+    it. That exclusion is the whole safety property here — widen the window to include the tail
+    and any name suffixed with a read verb becomes a recognized read.
     """
     segment = name.rsplit(".", 1)[-1]
     toks = _name_tokens(segment) or _name_tokens(name)
     if not toks:
         return set(), None, set()
     verbs = {toks[0], toks[-1]}
-    head = verbs if "." in name else {toks[0]}
+    if "." in name:
+        head = verbs
+    else:
+        # Every position except the trailing one. The vendor prefix has no reliable length
+        # (`Amazon`, `BankManager`, `FedExShipManager`), so a fixed window just misses the
+        # long ones; excluding the TAIL is the property that keeps this from becoming the
+        # "verb anywhere" rule, and it is what leaves `wibble_lookup` and
+        # `exfiltrate_everything_status` correctly unrecognized.
+        head = set(toks[:-1])
     return verbs, toks[-1], head
 
 
@@ -772,7 +852,16 @@ class EffectBoundary:
             return EffectClass.FILE_WRITE, True
 
         # Network / external-effect actions.
-        if (tset & _NETWORK_STRONG) or (tset & _NETWORK_VERBS):
+        # _FILE_MUTATE_VERBS reaches here only when the FILE_WRITE branch above declined it for
+        # want of a file noun — i.e. it is a mutation of something that is not a file
+        # (`delete_row`, `GitHubDeleteRepository`, `create_invoice`). Still a write; it just
+        # lands on NETWORK rather than FILE_WRITE.
+        if (
+            (tset & _NETWORK_STRONG)
+            or (tset & _NETWORK_VERBS)
+            or (tset & _STATE_MUTATE_VERBS)
+            or (tset & _FILE_MUTATE_VERBS)
+        ):
             return EffectClass.NETWORK, True
 
         # 3. Read verb in a verb position -> READ.

@@ -407,16 +407,24 @@ class TestSinkCannotMutateTheDecision:
 
 
 class TestToolEffectsMapping:
-    def test_mapping_flips_an_unrecognized_name(self):
-        b = EffectBoundary(tool_effects={"jira.create_issue": "network"})
+    def test_mapping_flips_a_name_the_classifier_reads_differently(self):
+        """The map wins over the classifier, in the direction that RELAXES.
+
+        `jira.create_issue` used to be unrecognized and fell through to READ->ALLOW, so this
+        pair mapped it UP to network. #22 fixed that fall-through — `create` with no file noun
+        is now a NETWORK write on its own — so the mapping direction is inverted to keep the
+        pair testing what it says: an operator's own inventory overrides the built-in verdict.
+        """
+        b = EffectBoundary(tool_effects={"jira.create_issue": "read"})
         pv = b.preview("jira.create_issue", {"title": "x"}, [U("payload")])
+        assert pv.effect_class is EffectClass.READ
+        assert pv.decision is Decision.ALLOW
+
+    def test_unmapped_the_same_name_needs_approval(self):
+        """Control for the test above — unmapped, the classifier calls it a network write."""
+        pv = EffectBoundary().preview("jira.create_issue", {"title": "x"}, [U("payload")])
         assert pv.effect_class is EffectClass.NETWORK
         assert pv.decision is Decision.NEEDS_APPROVAL
-
-    def test_unmapped_the_same_name_is_allowed(self):
-        """Control for the test above — without the map it falls through to READ."""
-        pv = EffectBoundary().preview("jira.create_issue", {"title": "x"}, [U("payload")])
-        assert pv.decision is Decision.ALLOW
 
     def test_mapping_overrides_a_builtin_not_just_gaps(self):
         """The user pain is a false positive on their OWN tool name; fill-gaps can't fix it."""

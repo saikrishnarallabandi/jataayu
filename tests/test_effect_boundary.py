@@ -613,3 +613,86 @@ class TestCanonicalization:
         pv = boundary.preview("read_file", {"a": "x"}, [T("x")])
         with pytest.raises(CommitRejected):
             boundary.commit(pv, {"a": "y"}, lambda: pytest.fail("executor ran"))
+
+
+class TestUnrecognizedRateOnRealToolNames:
+    """The unrecognized rate over EXTERNAL tool names, as a regression ceiling.
+
+    The step-4 fallback classifies an unrecognized name as READ, which is a declared
+    fail-open (`strict_unknown_tools` gates it, `recognized=False` rides on every decision
+    record). That posture is only defensible while unrecognized is rare, so the rate is a
+    first-class number and not a benchmark footnote — issue #22 measured it at 58.5% and
+    set 10% as the bar for flipping the gate on by default.
+
+    The corpus is AgentHarm + InjecAgent, both externally authored. Measuring coverage on
+    names we invented would measure our imagination, which is how effect-boundary-v2 went
+    wrong.
+    """
+
+    @staticmethod
+    def _measure():
+        import sys
+        from pathlib import Path
+
+        bench = Path(__file__).resolve().parent.parent / "benchmarks"
+        if str(bench) not in sys.path:
+            sys.path.insert(0, str(bench))
+        from run_effect_coverage import corpus, measure
+
+        return measure(corpus())
+
+    def test_rate_is_under_the_ceiling(self):
+        r = self._measure()
+        assert r["corpus_size"] >= 150, "corpus shrank — check benchmarks/data is intact"
+        assert r["unrecognized_rate"] <= 0.10, (
+            f"unrecognized rate regressed to {r['unrecognized_rate']:.1%} "
+            f"({r['unrecognized']}/{r['corpus_size']}): {r['unrecognized_names'][:10]}"
+        )
+
+    def test_high_consequence_names_are_not_benign_reads(self):
+        """The names from #22's filing, each of which classified as a benign READ."""
+        from jataayu.guards.effect_boundary import EffectBoundary, EffectClass
+
+        b = EffectBoundary()
+        for name in (
+            "git_push",
+            "db_migrate",
+            "delete_row",
+            "backup_database",
+            "stripe_refund_charge",
+            "create_invoice",
+            "merge_branch",
+            "transition_issue",
+            "GitHubDeleteRepository",
+            "BinanceWithdraw",
+        ):
+            assert b.classify(name) is not EffectClass.READ, f"{name} still reads as benign"
+
+    def test_ordinary_reads_are_not_promoted(self):
+        """The other direction: widening must not turn common reads into writes, or the
+        approval path floods and the guard gets switched off."""
+        from jataayu.guards.effect_boundary import EffectBoundary, EffectClass
+
+        b = EffectBoundary()
+        for name in (
+            "read_file",
+            "get_weather",
+            "list_files",
+            "search_docs",
+            "view_calendar",
+            "describe_table",
+            "count_rows",
+            "lookup_user",
+            "get_product_details",
+            "AmazonGetProductDetails",
+        ):
+            assert b.classify(name) is EffectClass.READ, f"{name} was promoted off READ"
+
+    def test_the_trailing_verb_guard_still_holds(self):
+        """Admitting non-trailing verb positions must not admit trailing ones — otherwise
+        any name suffixed with a read verb becomes a recognized read."""
+        from jataayu.guards.effect_boundary import EffectBoundary
+
+        b = EffectBoundary()
+        for name in ("exfiltrate_everything_status", "wibble_lookup"):
+            assert b._classify(name)[1] is False, f"{name} became recognized"
