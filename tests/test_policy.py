@@ -1196,3 +1196,66 @@ class TestBoolFieldsAreNotCoerced:
         policy = load_policy(str(p))
         assert policy.get_agent_policy("prod").strict_unknown_tools is True
         assert policy.get_agent_policy("dev").strict_unknown_tools is False
+
+
+class TestEveryAgentTakingEntryPointFailsClosed:
+    """Every public function accepting `agent=` must raise on a name the file
+    does not define, and must accept `agent=None` as the `defaults:` request.
+
+    Discovered by introspecting jataayu.api rather than hand-listed, deliberately —
+    the same reason TestEveryInheritedKeyActuallyInherits parametrizes off the
+    module's own key tuples. The guard lives at one chokepoint
+    (Policy.get_agent_policy), so a per-key net buys nothing here; what a hand-written
+    net cannot catch is a FIFTH entry point added later that resolves an agent by
+    some other route and never reaches the chokepoint at all. Adding one to
+    jataayu.api is enough to enrol it here.
+    """
+
+    # Minimal valid non-agent arguments per entry point. use_llm is pinned False
+    # everywhere so nothing in this class can reach a network backend.
+    CALLS = {
+        "jataayu_check_skillset": (([],), {"use_llm": False}),
+        "jataayu_authorize_action": (("read_file", {"path": "/tmp/x"}), {}),
+        "jataayu_check_outbound": (("hello",), {"use_llm": False}),
+        "jataayu_recover_outbound": (("hello",), {"use_llm": False}),
+    }
+
+    @staticmethod
+    def _entry_points():
+        import inspect
+
+        from jataayu import api
+
+        return sorted(
+            n
+            for n in dir(api)
+            if n.startswith("jataayu_")
+            and callable(getattr(api, n))
+            and "agent" in inspect.signature(getattr(api, n)).parameters
+        )
+
+    @pytest.fixture
+    def policy_path(self, tmp_path):
+        p = tmp_path / "jataayu-policy.yml"
+        p.write_text("version: 1\ndefaults:\n  check_credentials: true\nagents:\n  prod: {}\n")
+        return str(p)
+
+    def test_every_entry_point_is_covered_by_this_class(self):
+        """A new `agent=`-taking entry point must be given a call recipe, not skipped."""
+        assert set(self._entry_points()) == set(self.CALLS)
+
+    @pytest.mark.parametrize("name", _entry_points.__func__())
+    def test_an_undefined_agent_raises(self, name, policy_path):
+        from jataayu import api
+
+        args, kwargs = self.CALLS[name]
+        with pytest.raises(UnknownAgentError, match="prodd"):
+            getattr(api, name)(*args, policy_file=policy_path, agent="prodd", **kwargs)
+
+    @pytest.mark.parametrize("name", _entry_points.__func__())
+    def test_no_agent_is_accepted(self, name, policy_path):
+        """The other half: agent=None must stay the documented `defaults:` request."""
+        from jataayu import api
+
+        args, kwargs = self.CALLS[name]
+        getattr(api, name)(*args, policy_file=policy_path, agent=None, **kwargs)
