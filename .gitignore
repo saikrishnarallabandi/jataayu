@@ -122,3 +122,4 @@ AGENTS.md
 
 # blog/: local drafts, not published from this repo.
 blog/
+training/trajectory/data/

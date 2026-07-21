@@ -1,0 +1,8 @@
+counting baseline trained on 91309 prefixes from 19010 trajectories
+
+split                       prefix AUC  audit-untrusted  audit-trusted
+val                              0.704    67.4%/31.9%    0.0%/0.0%  
+test_agentdojo_banking           0.587    83.4%/35.9%    0.0%/0.0%  
+test_basharena                   0.642   100.0%/100.0%   0.0%/0.0%  
+
+(detection% / false-flag% for the audit columns)
