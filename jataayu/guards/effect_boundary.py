@@ -115,7 +115,17 @@ _CODE_EVAL_TOOLS = frozenset(
     {"eval", "exec", "python_eval", "js_eval", "run_code", "code_interpreter"}
 )
 _MEMORY_WRITE_TOOLS = frozenset(
-    {"memory_write", "save_memory", "remember", "store_memory", "kv_set"}
+    {
+        "memory_write",
+        "save_memory",
+        "remember",
+        "store_memory",
+        "kv_set",
+        "memory.append",
+        "memory_append",
+        "memory.set",
+        "memory.save",
+    }
 )
 _SKILL_WRITE_TOOLS = frozenset(
     {"skill_write", "save_skill", "create_skill", "automation_write", "write_skill"}
@@ -706,13 +716,13 @@ class EffectBoundary:
             return EffectClass.SHELL, True
         if t in _SECRET_TOOLS:
             return EffectClass.SECRET_READ, True
-        if t in _MEMORY_WRITE_TOOLS:
+        if t in _MEMORY_WRITE_TOOLS or t_norm in _MEMORY_WRITE_TOOLS:
             return EffectClass.MEMORY_WRITE, True
         if t in _SKILL_WRITE_TOOLS or t_norm in _SKILL_WRITE_TOOLS:
             return EffectClass.FILE_WRITE, True
         if t in _FILE_WRITE_TOOLS:
             return EffectClass.FILE_WRITE, True
-        if t in _NETWORK_TOOLS:
+        if t in _NETWORK_TOOLS or t_norm in {"network_write", "web_write"}:
             return EffectClass.NETWORK, True
 
         # 2. Token-level match for namespaced / snake_case / camelCase names that missed the

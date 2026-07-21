@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Optional
@@ -222,6 +223,9 @@ _MEMORY_READ_TOOLS = frozenset(
         "get_memory",
         "kv_get",
         "search_memory",
+        "memory.read",
+        "memory.get",
+        "memory.search",
     }
 )
 
@@ -363,7 +367,7 @@ class SessionTrace:
         turn: Optional[int] = None,
         summary: str = "",
         flow_id: str = "",
-        source_flow_ids: list[str] = None,
+        source_flow_ids: Optional[list[str]] = None,
         token_flow_audit: Optional[dict] = None,
     ) -> TraceEvent:
         """
@@ -390,6 +394,7 @@ class SessionTrace:
             self._auto_turn = max(self._auto_turn, turn)
 
         t = tool_name.strip().lower()
+        resolved_flow_id = flow_id or uuid.uuid4().hex[:12]
         event = TraceEvent(
             index=len(self.events),
             turn=turn,
@@ -400,7 +405,7 @@ class SessionTrace:
             is_memory_read=t in _MEMORY_READ_TOOLS,
             is_memory_write=effect_class is EffectClass.MEMORY_WRITE,
             summary=summary,
-            flow_id=flow_id or "",
+            flow_id=resolved_flow_id,
             source_flow_ids=source_flow_ids or [],
             token_flow_audit=token_flow_audit,
         )
@@ -501,13 +506,13 @@ class SessionTrace:
         """TokenFlow lineage upgrade: memory write flow_id -> later read -> dangerous effect via source_flow_ids."""
         findings: list[AuditFinding] = []
         for e in self.events:
-            if e.is_memory_write and e.source_flow_ids:
-                # If this memory write was built from untrusted flows, track its flow_id
-                # Later events that reference it via source_flow_ids are tainted lineage
-                for later in self.events:
-                    if later.turn > e.turn and e.flow_id in later.source_flow_ids:
-                        if later.effect_class in _DANGEROUS_EFFECTS:
-                            findings.append(AuditFinding(
+            if not (e.is_memory_write and e.source_flow_ids and (e.untrusted or e.inbound_flagged)):
+                continue
+            for later in self.events:
+                if later.turn > e.turn and e.flow_id in later.source_flow_ids:
+                    if later.effect_class in _DANGEROUS_EFFECTS:
+                        findings.append(
+                            AuditFinding(
                                 pattern="sleeper_memory_flow_lineage",
                                 risk=AuditRisk.HIGH,
                                 explanation=(
@@ -516,7 +521,8 @@ class SessionTrace:
                                     f"leading to {later.effect_class.value} effect — causal flow lineage across turns"
                                 ),
                                 event_indices=[e.index, later.index],
-                            ))
+                            )
+                        )
         return findings
 
     def _detect_untrusted_critical(self) -> list[AuditFinding]:

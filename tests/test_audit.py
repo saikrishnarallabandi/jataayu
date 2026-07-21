@@ -75,6 +75,32 @@ class TestSleeperMemory:
         r = t.audit()
         assert "sleeper_memory_poisoning" not in {f.pattern for f in r.findings}
 
+    def test_record_generates_flow_id_for_lineage(self):
+        t = SessionTrace()
+        e = t.record("memory_write", untrusted=True, source_flow_ids=["web-1"])
+        assert len(e.flow_id) == 12
+
+    def test_flow_lineage_from_untrusted_memory_write_is_high(self):
+        t = SessionTrace()
+        write = t.record(
+            "memory_write",
+            untrusted=True,
+            inbound_flagged=True,
+            turn=1,
+            source_flow_ids=["web-1"],
+        )
+        t.record("file.write", untrusted=True, turn=3, source_flow_ids=[write.flow_id])
+        r = t.audit()
+        assert "sleeper_memory_flow_lineage" in {f.pattern for f in r.findings}
+        assert r.risk == AuditRisk.HIGH
+
+    def test_trusted_memory_lineage_does_not_create_high_finding(self):
+        t = SessionTrace()
+        write = t.record("memory_write", untrusted=False, turn=1, source_flow_ids=["trusted-1"])
+        t.record("file.write", untrusted=False, turn=3, source_flow_ids=[write.flow_id])
+        r = t.audit()
+        assert "sleeper_memory_flow_lineage" not in {f.pattern for f in r.findings}
+
 
 # ---------------------------------------------------------------------------
 # Untrusted into critical effect (single-event)

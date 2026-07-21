@@ -44,8 +44,11 @@ class TestClassification:
             ("exec", EffectClass.CODE_EVAL),
             ("write_file", EffectClass.FILE_WRITE),
             ("fetch", EffectClass.NETWORK),
+            ("network_write", EffectClass.NETWORK),
             ("read_env", EffectClass.SECRET_READ),
             ("memory_write", EffectClass.MEMORY_WRITE),
+            ("memory.append", EffectClass.MEMORY_WRITE),
+            ("create_skill", EffectClass.FILE_WRITE),
             ("read_file", EffectClass.READ),
         ],
     )
