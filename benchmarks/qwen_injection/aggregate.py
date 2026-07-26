@@ -196,7 +196,7 @@ def main(tags):
         row["notinject_fp"] = ni.get("fp_count")
         board.append(row)
 
-    board.sort(key=lambda r: (r["mean_recall_core"] or -1), reverse=True)
+    board.sort(key=lambda r: r["mean_recall_core"] or -1, reverse=True)
     OUTJSON.write_text(json.dumps(board, indent=2))
 
     # ---- markdown ----

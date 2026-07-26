@@ -40,7 +40,13 @@ dev = [
     "build>=1.2",
     "pytest>=7",
     "pytest-timeout>=2.1",
-    "ruff>=0.2.0",
+    # Pinned to a minor, not floated. ruff is a merge GATE, not an ordinary dependency: it
+    # renders verdicts, so a release can turn CI red with no commit behind it. `>=0.2.0` already
+    # did that once when 0.16 broadened the default rule set (487 errors), and again through the
+    # FORMATTER — 0.11 and 0.16 disagree on redundant parens, so `ruff format` run locally
+    # produced output CI rejected. Selecting the lint rules fixed only half of that; the
+    # formatter has no equivalent knob, so the version itself has to be pinned. Bump deliberately.
+    "ruff>=0.16,<0.17",
     # the MCP gateway's server tests drive a real aiohttp server; without this
     # they cannot run, which is how the gateway once shipped unable to serve.
     "aiohttp>=3.9",
