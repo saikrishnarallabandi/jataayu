@@ -11,6 +11,7 @@ Run:  /home/user/envs/jataayu/bin/python code/test_cfp_metric.py
 import json
 import random
 import sys
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -122,9 +123,10 @@ def main():
         0.0,
     )
 
-    # a 3-arm pair loaded end-to-end from a file, exercising the grouping path too
-    tmp = Path("/tmp/claude-1000/-home2-srallaba-projects-project-ascent/cfp_3arm.jsonl")
-    tmp.parent.mkdir(parents=True, exist_ok=True)
+    # a 3-arm pair loaded end-to-end from a file, exercising the grouping path too.
+    # tempfile, not a hardcoded path: this previously pointed at a scratch directory belonging to
+    # one machine (and to an unrelated project), so the test could only pass there.
+    tmp = Path(tempfile.mkdtemp(prefix="jataayu_cfp_")) / "cfp_3arm.jsonl"
     tmp.write_text(
         "".join(
             json.dumps(r) + "\n"

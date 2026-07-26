@@ -186,10 +186,14 @@ def integration_test():
         ok = True
         for text, expected in cases:
             _, body = _post(f"{base}/score", {"text": text}, timeout=30)
-            p = body["p_injection"]
-            pred = body["label"]
+            p = body.get("p_injection")
+            pred = body.get("label")
             ok = ok and (pred == expected)
-            print(f"  p={p:.4f}  pred={pred:>9}  expected={expected:>9}  {text[:48]}")
+            # p is None when /score reports an error despite /health being 200. Formatting None
+            # with :.4f raises TypeError and buries the response body that says what went wrong,
+            # so the diagnostic fails as the failure it is rather than as a formatting crash.
+            shown = f"{p:.4f}" if isinstance(p, (int, float)) else repr(p)
+            print(f"  p={shown}  pred={str(pred):>9}  expected={expected:>9}  {text[:48]}")
             assert pred == expected, body
         assert ok
         print("injectiond integration test passed (4/4)")

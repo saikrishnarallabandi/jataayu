@@ -93,7 +93,11 @@ class Scorer:
             # fp32 on Pascal: the Qwen3.5 linear-attn fp16 kernel crashes on a 1080 Ti.
             kwargs = dict(dtype=torch.float32, trust_remote_code=True)
             if dev.startswith("cuda"):
-                kwargs["device_map"] = {"": 0}  # CUDA_VISIBLE_DEVICES pins the physical GPU
+                # Load onto the SAME device scoring runs on. This used to hardcode index 0, so
+                # `--device cuda:1` loaded the weights on cuda:0 and then ran the forward pass
+                # against cuda:1 — a device mismatch, or worse, silently the wrong GPU.
+                # CUDA_VISIBLE_DEVICES still pins which physical GPU index 0 refers to.
+                kwargs["device_map"] = {"": dev}
             try:
                 from transformers import AutoModelForCausalLM
 
@@ -218,11 +222,16 @@ def serve(
         allow_reuse_address = True
 
     server = Server((host, port), _handler(scorer, max_chars))
+    # Report the port the socket actually BOUND, not the one requested: with port=0 the kernel
+    # picks an ephemeral one, and echoing the request back prints ":0" — a listening service
+    # nobody can find. Same class of bug the MCP gateway hit with bind_port=0.
+    bound_port = server.server_address[1]
     print(
-        f"[injectiond] listening on http://{host}:{port} (loading model, cap={max_chars} chars)",
+        f"[injectiond] listening on http://{host}:{bound_port} "
+        f"(loading model, cap={max_chars} chars)",
         flush=True,
     )
-    log.info("injectiond listening on http://%s:%d (loading model)", host, port)
+    log.info("injectiond listening on http://%s:%d (loading model)", host, bound_port)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
