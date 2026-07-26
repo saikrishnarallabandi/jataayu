@@ -1,0 +1,74 @@
+[
+  {
+    "tag": "ckpt400-confirm",
+    "n_scored": 4101,
+    "coverage": 1.0,
+    "tau": 0.988,
+    "global_benign_fpr": 0.0092,
+    "n_global_benign": 1299,
+    "datasets": {
+      "prompt-injections": {
+        "kind": "mixed",
+        "n_pos": 263,
+        "n_neg": 399,
+        "recall_at_1fpr": 0.5152,
+        "roc_auc": 0.939,
+        "own_fpr_at_tau": 0.0075
+      },
+      "safe-guard-prompt-injection": {
+        "kind": "mixed",
+        "n_pos": 300,
+        "n_neg": 300,
+        "recall_at_1fpr": 0.88,
+        "roc_auc": 0.9895,
+        "own_fpr_at_tau": 0.0233
+      },
+      "jailbreak-classification": {
+        "kind": "mixed",
+        "n_pos": 300,
+        "n_neg": 300,
+        "recall_at_1fpr": 0.9016,
+        "roc_auc": 0.989,
+        "own_fpr_at_tau": 0.0067
+      },
+      "SPML_Chatbot_Prompt_Injection": {
+        "kind": "mixed",
+        "n_pos": 300,
+        "n_neg": 300,
+        "recall_at_1fpr": 0.975,
+        "roc_auc": 0.9995,
+        "own_fpr_at_tau": 0.0
+      },
+      "gandalf_ignore_instructions": {
+        "kind": "attack_only",
+        "n_pos": 400,
+        "n_neg": 0,
+        "recall_at_1fpr": 0.9137
+      },
+      "hackaprompt-dataset": {
+        "kind": "attack_only",
+        "n_pos": 400,
+        "n_neg": 0,
+        "recall_at_1fpr": 0.9337
+      },
+      "wildjailbreak": {
+        "kind": "contrast",
+        "n_pos": 290,
+        "n_neg": 210,
+        "recall_at_1fpr": 0.4293,
+        "roc_auc": 0.6189
+      },
+      "NotInject": {
+        "kind": "notinject",
+        "n_pos": 0,
+        "n_neg": 339,
+        "overdefense_acc": 0.9823,
+        "fp_count": 6
+      }
+    },
+    "mean_recall_core": 0.8532,
+    "mean_auc_mixed": 0.9792,
+    "notinject_overdefense_acc": 0.9823,
+    "notinject_fp": 6
+  }
+]
