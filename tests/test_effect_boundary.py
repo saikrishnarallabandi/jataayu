@@ -615,6 +615,21 @@ class TestCanonicalization:
             boundary.commit(pv, {"a": "y"}, lambda: pytest.fail("executor ran"))
 
 
+def _coverage_module():
+    import sys
+    from pathlib import Path
+
+    bench = Path(__file__).resolve().parent.parent / "benchmarks"
+    if str(bench) not in sys.path:
+        sys.path.insert(0, str(bench))
+    import run_effect_coverage
+
+    return run_effect_coverage
+
+
+_LIVE_CORPORA = bool(_coverage_module().live_corpus())
+
+
 class TestUnrecognizedRateOnRealToolNames:
     """The unrecognized rate over EXTERNAL tool names, as a regression ceiling.
 
@@ -631,15 +646,28 @@ class TestUnrecognizedRateOnRealToolNames:
 
     @staticmethod
     def _measure():
-        import sys
-        from pathlib import Path
+        m = _coverage_module()
+        return m.measure(m.corpus())
 
-        bench = Path(__file__).resolve().parent.parent / "benchmarks"
-        if str(bench) not in sys.path:
-            sys.path.insert(0, str(bench))
-        from run_effect_coverage import corpus, measure
+    @pytest.mark.skipif(
+        not _LIVE_CORPORA,
+        reason="live AgentHarm/InjecAgent corpora are gitignored and absent; nothing to drift from",
+    )
+    def test_frozen_corpus_matches_live(self):
+        """The snapshot is what CI measures, so it must not quietly diverge from the source.
 
-        return measure(corpus())
+        Runs only where the corpora exist — which is exactly where divergence can be
+        detected. Without this the frozen list would age silently and the ceiling would
+        keep passing against a corpus that no longer resembles the benchmarks.
+        """
+        m = _coverage_module()
+        live, frozen = m.live_corpus(), m.frozen_corpus()
+        assert frozen == live, (
+            f"frozen corpus is stale: {len(live - frozen)} name(s) missing, "
+            f"{len(frozen - live)} extra. Regenerate with "
+            f"`python benchmarks/run_effect_coverage.py --freeze`. "
+            f"missing={sorted(live - frozen)[:5]} extra={sorted(frozen - live)[:5]}"
+        )
 
     def test_rate_is_under_the_ceiling(self):
         r = self._measure()
