@@ -236,6 +236,7 @@ class TestDictApi:
 BENIGN_URLS = [
     "https://github.com/saikrishnarallabandi/project-frontierfinance-sidecar-slm/issues/4",
     "https://github.com/acl-org/acl-anthology/blob/master/data/xml/2026.findings.xml",
+    "https://github.com/WecoAI/awesome-autoresearch/commit/da39a3ee5e6b4b0d3255bfef95601890afd80709",
     "https://arxiv.org/abs/2607.08716",
     "https://huggingface.co/datasets/samaya-ai/FrontierFinance",
     "https://example.com/gateway-watcher-and-group-guard-fixes",
