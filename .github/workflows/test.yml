@@ -37,9 +37,9 @@ jobs:
       - name: Install
         run: python -m pip install -e ".[dev]"
       - name: Lint (ruff)
-        run: ruff check jataayu tests examples demo benchmarks training
+        run: ruff check jataayu tests examples demo benchmarks training utils
       - name: Format (ruff)
-        run: ruff format --check jataayu tests examples demo benchmarks training
+        run: ruff format --check jataayu tests examples demo benchmarks training utils
       - name: Test (pytest)
         run: pytest -q
       # The example asserts every behavior the README's Quick Start teaches, so a snippet
