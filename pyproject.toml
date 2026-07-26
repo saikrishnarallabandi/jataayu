@@ -91,6 +91,12 @@ timeout_method = "thread"
 "benchmarks/run_memory_poison_bench.py" = ["E741"]
 "benchmarks/run_slowpath_bench.py" = ["E702", "E741"]
 "demo/verify_space_scoring.py" = ["E402"]
-"training/injection_adapter/code/train_lora.py" = ["E702", "E741"]
+# Data-build and analysis scripts. `for l in open(f)` (E741) and `import x; import y` (E702) are
+# the house idiom throughout them, already conceded per-file for train_lora.py and four benchmark
+# runners above. Globbed rather than fixed because these scripts ARE the provenance record for the
+# shipped v0.1 adapter — one is named .FROZEN.py — and renaming variables inside them to satisfy a
+# style rule buys nothing and obscures what produced the released weights.
+"benchmarks/qwen_injection/*.py" = ["E702", "E741"]
+"training/injection_adapter/code/*.py" = ["E702", "E741"]
 "training/injection_adapter/eval/run_cfp_notinject.py" = ["E741"]
 "training/injection_adapter/eval/score_decoder_lora.py" = ["E741"]
