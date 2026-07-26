@@ -62,6 +62,14 @@ include = ["jataayu*"]
 line-length = 100
 target-version = "py310"
 
+# Pin the rule set explicitly. CI installs `ruff>=0.2.0`, so it picks up whatever ruff is
+# newest at job time; 0.16.0 broadened the implicit default beyond E4/E7/E9/F and turned
+# main red with 487 errors across 12 rule families nobody opted into. These four codes are
+# exactly what the implicit default resolved to before, so this changes no verdict on any
+# current file — it just stops a ruff release from redefining the standard for us.
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Slowest test is 0.50s locally; the slowest legitimate path is a gateway test
