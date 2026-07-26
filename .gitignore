@@ -10,6 +10,11 @@ dist/
 benchmarks/.venv*/
 benchmarks/**/__pycache__/
 benchmarks/data/agentharm/
+# Trajectory corpora: 1.1GB of externally-authored HF datasets plus a vendored agentdojo
+# clone. Re-fetched by training/trajectory/code/, never committed. One parquet here is
+# 151MB, past GitHub's 100MB hard limit, so `git add -A` without this rule builds a commit
+# the push rejects outright.
+benchmarks/data/trajectories/
 benchmarks/data/injecagent/test_cases_*.json
 benchmarks/results/qwen_scores/eval_cache.jsonl
 benchmarks/results/**/*.log
