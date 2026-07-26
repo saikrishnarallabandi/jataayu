@@ -58,11 +58,39 @@ def _injecagent_names() -> set[str]:
     return names
 
 
+FROZEN = DATA / "effect_coverage_corpus.json"
+
+
+def live_corpus() -> set[str]:
+    """Names read from the corpora themselves. Empty when they have not been fetched."""
+    return _agentharm_names() | _injecagent_names()
+
+
+def frozen_corpus() -> set[str]:
+    """The committed snapshot of the same names.
+
+    Only the tool NAMES are vendored, never the behaviors or attack cases. InjecAgent is
+    MIT; AgentHarm is MIT plus a clause restricting use to improving the safety of AI
+    systems, which is what this measures, and its 85 names are already in this repo as the
+    keys of run_agentharm_effect_boundary.EFFECT_MAP.
+    """
+    return set(json.loads(FROZEN.read_text())["names"])
+
+
 def corpus() -> set[str]:
-    names = _agentharm_names() | _injecagent_names()
-    if not names:
-        raise SystemExit(f"no tool names found under {DATA} — is the benchmark data present?")
-    return names
+    """Live corpora when present, otherwise the frozen snapshot.
+
+    The ceiling this feeds is a merge-blocking regression test, so it has to be measurable
+    on a clean checkout where the corpora are gitignored and absent — otherwise CI can only
+    skip it, and the number stops guarding anything. `test_frozen_corpus_matches_live`
+    fails on any machine that HAS the corpora if this snapshot drifts from them.
+    """
+    names = live_corpus()
+    if names:
+        return names
+    if not FROZEN.exists():
+        raise SystemExit(f"no tool names under {DATA} and no frozen corpus at {FROZEN}")
+    return frozen_corpus()
 
 
 def measure(names: set[str]) -> dict:
@@ -85,8 +113,36 @@ def measure(names: set[str]) -> dict:
     }
 
 
+def freeze() -> int:
+    """Rewrite the committed snapshot from the live corpora. Requires them to be present."""
+    names = live_corpus()
+    if not names:
+        raise SystemExit(f"no tool names found under {DATA} — fetch the corpora before freezing")
+    FROZEN.write_text(
+        json.dumps(
+            {
+                "_": (
+                    "Tool NAMES only, from AgentHarm (MIT + AI-safety-use clause) and "
+                    "InjecAgent (MIT, arXiv:2403.02691). No behaviors or attack cases are "
+                    "vendored. Regenerate with: python benchmarks/run_effect_coverage.py --freeze"
+                ),
+                "sources": ["agentharm", "injecagent"],
+                "names": sorted(names),
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    print(f"froze {len(names)} names -> {FROZEN}")
+    return 0
+
+
 def main() -> int:
+    if "--freeze" in sys.argv:
+        return freeze()
+    live = bool(live_corpus())
     r = measure(corpus())
+    print(f"source            {'live corpora' if live else f'frozen snapshot ({FROZEN.name})'}")
     print(f"corpus            {r['corpus_size']} distinct real tool names {r['sources']}")
     print(
         f"UNRECOGNIZED      {r['unrecognized']} = {r['unrecognized_rate']:.1%}"
