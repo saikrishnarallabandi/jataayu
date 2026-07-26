@@ -384,6 +384,14 @@ class EgressChannelGuard:
 
         allowed = self._is_allowed(host)
         data_carrying, why = self._is_data_carrying(query, path)
+        code_forge_artifact = self._is_public_code_forge_artifact(host, path)
+
+        # Public code-forge artifact links often contain 40-char commit SHAs. Those are identifiers,
+        # not smuggled payloads. Keep query-string and known-secret checks strict, but do not replace
+        # normal GitHub/GitLab/Bitbucket commit/blob/tree links with "[link removed]".
+        if code_forge_artifact and data_carrying and not query:
+            data_carrying = False
+            why = ""
 
         # 3) Allowlisted host: only flagged if it smuggles data.
         if allowed:
@@ -418,6 +426,22 @@ class EgressChannelGuard:
         if not host:
             return False
         return any(host == d or host.endswith("." + d) for d in self._allowed)
+
+    @staticmethod
+    def _is_public_code_forge_artifact(host: str, path: str) -> bool:
+        """True for normal public source-control artifact URLs.
+
+        Commit/blob/tree URLs legitimately contain SHA-like path segments. A 40-char SHA in a
+        GitHub commit URL is an artifact identifier, not an exfil payload, and WhatsApp users need
+        those links to survive Jataayu.
+        """
+        h = (host or "").lower()
+        if h not in {"github.com", "www.github.com", "gitlab.com", "www.gitlab.com", "bitbucket.org", "www.bitbucket.org"}:
+            return False
+        parts = [p for p in (path or "").split("/") if p]
+        if len(parts) < 3:
+            return False
+        return parts[2].lower() in {"commit", "commits", "pull", "issues", "tree", "blob", "releases", "compare"}
 
     def _is_data_carrying(self, query: str, path: str) -> tuple[bool, str]:
         """Heuristic: does this URL smuggle data in its query or path?"""
