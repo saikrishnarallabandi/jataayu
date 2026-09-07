@@ -40,8 +40,9 @@ function activate(api, dependencies={}) {
     if(response.error||response.schema_version!==1||response.core_version!==VERSION||response.core_fingerprint!==coreFingerprint||!response.result||typeof response.result!=='object')throw new Error('Invalid or changed Jataayu runtime; reload required');
     const r=response.result;
     if(operation==='authorize'&&!['allow','deny','needs_approval'].includes(r.decision))throw new Error('Invalid authorization verdict');
-    if(['inbound','tool_return','outbound'].includes(operation)&&typeof r.status!=='string')throw new Error('Invalid screening verdict');
-    if(operation==='recover'&&(!['send','withhold'].includes(r.action)||typeof r.text!=='string'))throw new Error('Invalid recovery verdict');
+    if(['inbound','tool_return'].includes(operation)&&!['SAFE','LOW','MEDIUM','HIGH'].includes(r.status))throw new Error('Invalid screening verdict');
+    if(operation==='outbound'&&!['SAFE','WARN','BLOCK'].includes(r.status))throw new Error('Invalid outbound verdict');
+    if(operation==='recover'&&(!['send','withhold'].includes(r.action)||typeof r.text!=='string'||typeof r.changed!=='boolean'))throw new Error('Invalid recovery verdict');
     if(operation==='vet'&&!['SAFE','REVIEW','MALICIOUS'].includes(r.verdict))throw new Error('Invalid skill verdict');
     return r;
   }
@@ -128,7 +129,7 @@ function activate(api, dependencies={}) {
       const r=await request('recover',{content,surface},config.recoverTimeoutMs||90000);
       if(r.action==='send'){
         if(r.changed)record('outbound',{...r,to,surface,content,rewritten:r.text,decision:'recover'});
-        return r.changed?{content:r.text}:undefined;
+        return r.text!==content?{content:r.text}:undefined;
       }
       record('outbound',{...r,to,surface,content,decision:'withhold'});
       try{fleet.alertWithheld?.(r,config);}catch{}

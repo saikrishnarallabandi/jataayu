@@ -88,7 +88,7 @@ class Adapter:
         try:
             content = result if isinstance(result, str) else json.dumps(result)
             verdict = self.call("tool_return", tool_name=tool_name, content=content)
-            if not isinstance(verdict.get("status"), str):
+            if verdict.get("status") not in ("SAFE", "LOW", "MEDIUM", "HIGH"):
                 raise ValueError("Invalid screening result")
             if self.return_mode == "enforce" and (
                 verdict.get("blocked") or verdict["status"] == "HIGH"
