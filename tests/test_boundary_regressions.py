@@ -125,3 +125,30 @@ def test_proxy_streams_screened_events_and_preserves_transport():
             await runner.cleanup()
 
     asyncio.run(scenario())
+
+
+def test_proxy_path_cannot_replace_configured_upstream():
+    async def scenario():
+        from aiohttp import web
+
+        seen = []
+
+        async def upstream(request):
+            seen.append(request.path)
+            return web.json_response({"ok": True})
+
+        app = web.Application()
+        app.router.add_route("*", "/{path:.*}", upstream)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        await web.TCPSite(runner, "127.0.0.1", 0).start()
+        try:
+            gateway = JataayuMCPGateway(f"http://127.0.0.1:{runner.addresses[0][1]}")
+            status, _, _ = await gateway.proxy_request_async(
+                "GET", "/http://127.0.0.1:1/stolen", {}, b""
+            )
+            assert status == 200 and seen == ["/http://127.0.0.1:1/stolen"]
+        finally:
+            await runner.cleanup()
+
+    asyncio.run(scenario())
