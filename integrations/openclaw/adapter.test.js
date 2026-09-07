@@ -44,3 +44,6 @@ function setup(overrides={},dependencies={}){
   assert(missingFleet.hooks.before_dispatch({isGroup:true}).handled);
   console.log('OpenClaw shared-runtime contract tests passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});
+
+// OpenClaw's module resolver consumes register, including CommonJS exports.
+assert.strictEqual(require('./index').register, require('./index').activate);

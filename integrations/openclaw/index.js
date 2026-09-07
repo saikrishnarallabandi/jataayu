@@ -143,4 +143,4 @@ function activate(api, dependencies={}) {
   });
   return {health,request};
 }
-module.exports={id:'jataayu',name:'Jataayu Security',activate,ADAPTER_FINGERPRINT};
+module.exports={id:'jataayu',name:'Jataayu Security',register:activate,activate,ADAPTER_FINGERPRINT};
