@@ -8,6 +8,7 @@ const path=require('node:path');
 const digest=value=>crypto.createHash('sha256').update(String(value)).digest('hex');
 const identifier=value=>typeof value==='string'&&value?digest(value):null;
 const token=value=>typeof value==='string'&&/^[a-zA-Z0-9_.:/-]{1,100}$/.test(value)?value:null;
+const ALLOWED_VERDICTS=new Set(['allow','deny','needs_approval','SAFE','LOW','MEDIUM','HIGH','WARN','BLOCK','REVIEW','MALICIOUS','send','withhold']);
 function createReceipts({config,version,fingerprint,sink,logger=console}){
   const storage=new AsyncLocalStorage();
   // Host configuration is fixed for this adapter instance; recreate it on reload.
@@ -71,8 +72,7 @@ function createReceipts({config,version,fingerprint,sink,logger=console}){
   }
   function verdict(operation,result){
     const status=result.decision||result.status||result.verdict||result.action;
-    const allowed=new Set(['allow','deny','needs_approval','SAFE','LOW','MEDIUM','HIGH','WARN','BLOCK','REVIEW','MALICIOUS','send','withhold']);
-    note({operation,verdict:allowed.has(status)?status:'invalid',would_intervene:result.decision==='deny'||result.decision==='needs_approval'||result.changed===true||result.blocked===true||['HIGH','BLOCK','REVIEW','MALICIOUS','withhold'].includes(status),
+    note({operation,verdict:ALLOWED_VERDICTS.has(status)?status:'invalid',would_intervene:result.decision==='deny'||result.decision==='needs_approval'||result.changed===true||result.blocked===true||['HIGH','BLOCK','REVIEW','MALICIOUS','withhold'].includes(status),
       category:token(result.withheld_category),effect_class:token(result.effect_class),classification_source:token(result.classification_source),
       provenance:token(result.provenance),reason_code:token(result.reason_code),policy_fingerprint:token(result.policy_fingerprint)});
   }

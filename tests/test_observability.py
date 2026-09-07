@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from jataayu.observability import summarize
 from jataayu.runtime import dispatch
 
@@ -136,3 +138,18 @@ def test_policy_fingerprint_handles_directories_and_same_stat_edits(tmp_path):
     after = dispatch(request)["result"]
     assert before["decision"] == "allow" and after["decision"] == "deny"
     assert before["policy_fingerprint"] != after["policy_fingerprint"]
+
+
+@pytest.mark.parametrize("invalid", [None, [], "read", 1, True])
+@pytest.mark.parametrize("operation", ["health", "authorize"])
+def test_runtime_rejects_non_mapping_tool_effects(invalid, operation):
+    with pytest.raises(ValueError, match=r"config\.toolEffects must be an object"):
+        dispatch(
+            {
+                "schema_version": 1,
+                "operation": operation,
+                "tool_name": "read",
+                "params": {},
+                "config": {"toolEffects": invalid},
+            }
+        )

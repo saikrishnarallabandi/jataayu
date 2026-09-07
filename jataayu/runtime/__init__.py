@@ -48,6 +48,9 @@ def dispatch(request):
     config = request.get("config", {})
     if not isinstance(config, dict):
         raise ValueError("config must be an object")
+    tool_effects = config.get("toolEffects", {})
+    if not isinstance(tool_effects, dict):
+        raise ValueError("config.toolEffects must be an object")
     content = request.get("content", "")
     if not isinstance(content, str):
         raise ValueError("content must be text")
@@ -69,10 +72,10 @@ def dispatch(request):
             **policy,
             strict=True,
             include_metadata=True,
-            tool_effects={**TOOL_EFFECTS, **config.get("toolEffects", {})},
+            tool_effects={**TOOL_EFFECTS, **tool_effects},
         )
         # Receipt metadata contains no action arguments, free-text findings or tokens.
-        configured = {str(k).strip().lower() for k in config.get("toolEffects", {})}
+        configured = {str(k).strip().lower() for k in tool_effects}
         name = request["tool_name"].strip().lower()
         if name in configured:
             source = "configured_inventory"
