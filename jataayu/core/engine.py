@@ -9,12 +9,15 @@ Provides:
 
 from __future__ import annotations
 
+import logging
 import os
 from abc import ABC, abstractmethod
 from typing import Optional
 
 from jataayu.core.threat import ThreatResult
 from jataayu.surfaces.profiles import SURFACE_PROFILES
+
+_log = logging.getLogger("jataayu.engine")
 
 
 def _normalize_openai_compat_base_url(url: str) -> str:
@@ -164,17 +167,35 @@ class LLMBackend:
 
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+        body = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+        }
+        # `max_tokens` IS AN AUTHORED REQUEST TRANSPORT OVERRIDE, AND THE GATEWAY'S CODEX
+        # HARNESS CANNOT ACCEPT ONE. Sending it makes an OpenClaw gateway reject the request
+        # with:
+        #     All models failed (2): openai/gpt-5.5: Requested agent harness "codex" does not
+        #     support openai/gpt-5.5 (Codex cannot reproduce authored request transport
+        #     overrides) | <fallback>: ...
+        # which then falls through to the fallback model and, if that is also unhealthy, to
+        # "[LLM unavailable]" -- so every rewrite silently degrades to deterministic redaction.
+        # Measured on a live deployment: the identical request succeeds with the field omitted
+        # and fails with `max_tokens: 32`, nothing else changed. 94 outbound messages were
+        # regex-redacted over three weeks because of this one field.
+        #
+        # The bound is not lost: the gateway applies the agent's own token limits. Only the
+        # self-hosted gateway is exempted -- a real OpenAI endpoint has no such constraint and
+        # keeps the explicit cap.
+        if self.backend != "gateway":
+            body["max_tokens"] = max_tokens
+
         resp = requests.post(
             f"{self.base_url}/v1/chat/completions",
             headers=headers,
-            json={
-                "model": self.model,
-                "max_tokens": max_tokens,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message},
-                ],
-            },
+            json=body,
             verify=verify,
             timeout=60,
         )
@@ -259,8 +280,23 @@ class JataayuEngine(ABC):
         ...
 
     def _call_llm(self, system_prompt: str, user_message: str) -> str:
-        """Call the LLM backend. Returns empty string on failure."""
+        """Call the LLM backend. Returns "[LLM unavailable: ...]" on failure.
+
+        THE FAILURE IS LOGGED, not only encoded in the return value. Callers reduce this string
+        to a bare "llm-unavailable" stage, so without a log the CAUSE is gone: a misconfigured
+        backend name and a 402 and a TLS error all look identical from the outside. That is how
+        a dead rewrite path survived three weeks and 94 deterministically-redacted messages on a
+        live deployment -- every one of them recorded the stage, none recorded the reason.
+        """
         try:
             return self.llm.call(system_prompt, user_message)
         except Exception as e:
+            _log.warning(
+                "LLM call failed (backend=%s model=%s url=%s): %s: %s",
+                getattr(self.llm, "backend", "?"),
+                getattr(self.llm, "model", "?"),
+                getattr(self.llm, "base_url", "?"),
+                type(e).__name__,
+                e,
+            )
             return f"[LLM unavailable: {e}]"

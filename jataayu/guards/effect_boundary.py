@@ -669,7 +669,7 @@ def _check_keys(value, path: str, seen: set[int]) -> None:
                 _check_keys(v, f"{path}[{k!r}]", seen)
         finally:
             seen.discard(id(value))
-    elif isinstance(value, (list, tuple)):
+    elif isinstance(value, list):
         if id(value) in seen:
             raise UncanonicalParams(f"params{path} contains a reference cycle")
         seen.add(id(value))
@@ -678,6 +678,10 @@ def _check_keys(value, path: str, seen: set[int]) -> None:
                 _check_keys(v, f"{path}[{i}]", seen)
         finally:
             seen.discard(id(value))
+    elif value is not None and type(value) not in (str, bool, int, float):
+        raise UncanonicalParams(
+            f"params{path} must contain JSON values; got {type(value).__name__}"
+        )
 
 
 def _canonical(tool_name: str, params: dict) -> str:
@@ -693,7 +697,7 @@ def _canonical(tool_name: str, params: dict) -> str:
             {"tool": tool_name.strip().lower(), "params": params},
             sort_keys=True,
             separators=(",", ":"),
-            default=_json_default,
+            allow_nan=False,
         )
     except UncanonicalParams:
         raise

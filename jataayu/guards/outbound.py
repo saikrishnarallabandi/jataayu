@@ -728,7 +728,12 @@ class OutboundGuard(JataayuEngine):
 
         fast_result = self._fast_path(text, surface)
 
-        if fast_result.risk_score >= 0.9:
+        # Mandatory policy findings cannot be dismissed by a model. Recovery may
+        # rewrite them, but the final candidate must pass these same rules again.
+        mandatory = ThreatType.CREDENTIAL_LEAK in fast_result.threat_types or any(
+            pattern.search(text) for pattern in self._compiled_names
+        )
+        if fast_result.risk_score >= 0.9 or mandatory:
             # Auto-populate sanitized_text / redacted for convenience
             if fast_result.sanitized_text is None:
                 fast_result.sanitized_text = self._regex_redact(text, fast_result)
@@ -1037,7 +1042,22 @@ class OutboundGuard(JataayuEngine):
         try:
             raw_clean = raw.strip().strip("```json").strip("```").strip()
             data = _json.loads(raw_clean)
-        except Exception:
+            import math
+
+            if not isinstance(data, dict):
+                return fast_result
+            level = data.get("threat_level")
+            score = data.get("risk_score")
+            explanation = data.get("explanation", fast_result.explanation)
+            if (
+                level not in {"clean", "low", "medium", "high", "blocked"}
+                or type(score) not in (int, float)
+                or not math.isfinite(score)
+                or not 0 <= score <= 1
+                or not isinstance(explanation, str)
+            ):
+                return fast_result
+        except (TypeError, ValueError, AttributeError):
             return fast_result
 
         level_map = {
