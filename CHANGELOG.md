@@ -1,14 +1,14 @@
+# Changelog
+
+All notable changes to jataayu are documented here.
+This project adheres to [Semantic Versioning](https://semver.org/).
+
 ## 0.4.1 — Decision observability
 
 - Add correlated metadata-only native OpenClaw receipts and an offline report with separate revision/mode/traffic cohorts.
 - Record late/pending result inspection, runtime errors, private-fleet replacements, and classification/provenance reasons.
 - Scope result verdicts by session and call ID. Add tests against an installed OpenClaw hook runner.
 - Preserve shadow/enforcement decisions; asynchronous host result-persistence coverage remains a rollout blocker.
-
-# Changelog
-
-All notable changes to jataayu are documented here.
-This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 

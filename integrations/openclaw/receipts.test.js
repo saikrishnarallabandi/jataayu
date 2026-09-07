@@ -58,5 +58,20 @@ function setup(request,config={}){
   const before=errors;
   for(let i=0;i<100;i++)assert.equal(disabled.wrap('before_tool_call',()=>undefined,'shadow')({},{}),undefined);
   assert.equal(errors,before,'an unset receipt path must not emit write errors');
+  const fs=require('node:fs'),mkdir=fs.mkdirSync,append=fs.appendFile;
+  let setups=0,writes=0,missing=false;
+  try{
+    fs.mkdirSync=()=>{setups++;};
+    fs.appendFile=(_path,_data,_options,done)=>{writes++;done(missing?{code:'ENOENT'}:null);};
+    const writer=createReceipts({config:{decisionLogPath:'/fixture/decisions.jsonl'},version:'test',fingerprint:'test',logger:{error:()=>errors++}});
+    const hook=writer.wrap('before_tool_call',()=>undefined,'shadow');
+    for(let i=0;i<100;i++)hook({},{});
+    assert.equal(setups,1,'successful directory setup is not repeated per event');
+    assert.equal(writes,100);
+    const prior=errors;missing=true;hook({},{});
+    assert.equal(errors,prior+1,'a removed directory produces a visible failed receipt');
+    missing=false;hook({},{});
+    assert.equal(setups,2,'the next event recovers a removed directory');
+  }finally{fs.mkdirSync=mkdir;fs.appendFile=append;}
   console.log('Decision receipt privacy, concurrency, and ordering tests passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});

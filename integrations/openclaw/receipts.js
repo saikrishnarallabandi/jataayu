@@ -10,13 +10,24 @@ const token=value=>typeof value==='string'&&/^[a-zA-Z0-9_.:/-]{1,100}$/.test(val
 function createReceipts({config,version,fingerprint,sink,logger=console}){
   const storage=new AsyncLocalStorage();
   let core=null;
+  let directoryReady=false;
   const reportFailure=()=>{try{logger.error('[jataayu-receipt] write_failed; decision telemetry is incomplete');}catch{}};
   function write(row){
     try{
       if(sink){const pending=sink(row);if(pending?.catch)pending.catch(reportFailure);return;}
       if(!config.decisionLogPath)return;
-      fs.mkdirSync(path.dirname(config.decisionLogPath),{recursive:true,mode:0o700});
-      fs.appendFile(config.decisionLogPath,JSON.stringify(row)+'\n',{mode:0o600},error=>{if(error)reportFailure();});
+      if(!directoryReady){
+        fs.mkdirSync(path.dirname(config.decisionLogPath),{recursive:true,mode:0o700});
+        directoryReady=true;
+      }
+      fs.appendFile(config.decisionLogPath,JSON.stringify(row)+'\n',{mode:0o600},error=>{
+        if(error){
+          // If an operator removes the directory, retry setup on the next event.
+          // Report the failed append; never silently claim that receipt was saved.
+          if(error.code==='ENOENT')directoryReady=false;
+          reportFailure();
+        }
+      });
     }catch{reportFailure();}
   }
   function note(values){const state=storage.getStore();if(state)Object.assign(state.fields,values);}

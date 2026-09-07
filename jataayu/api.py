@@ -388,12 +388,14 @@ def jataayu_authorize_action(
         strict: Require approval for untrusted calls to tool names the classifier does not
               recognize (default False — unrecognized names fall back to READ).
 
-        include_metadata: Include the classification source for adapter decision receipts.
+        include_metadata: Add classification_source and policy_fingerprint for adapter receipts,
+              in either enforce or observe mode. Disabled by default.
 
     Returns:
         dict: tool_name, effect_class, provenance, decision ('allow'|'deny'|'needs_approval'),
-              reason, violations, commit_token. In observe mode only, three keys are ADDED:
-              mode, would_decision, tripwire_triggered. Enforce-mode output is unchanged.
+              reason, violations, commit_token. Observe mode also adds mode, would_decision,
+              and tripwire_triggered. With include_metadata=True, either mode additionally
+              includes classification_source and the effective policy_fingerprint.
 
     To record every decision, install a process-wide sink::
 
