@@ -293,7 +293,10 @@ class JataayuEngine(ABC):
         except Exception as e:
             _log.warning(
                 "LLM call failed (backend=%s model=%s url=%s): %s: %s",
-                getattr(self.llm, "backend", "?"), getattr(self.llm, "model", "?"),
-                getattr(self.llm, "base_url", "?"), type(e).__name__, e,
+                getattr(self.llm, "backend", "?"),
+                getattr(self.llm, "model", "?"),
+                getattr(self.llm, "base_url", "?"),
+                type(e).__name__,
+                e,
             )
             return f"[LLM unavailable: {e}]"
