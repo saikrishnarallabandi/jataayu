@@ -1,0 +1,246 @@
+{
+  "id": "jataayu",
+  "name": "Jataayu Security Guard",
+  "kind": "security",
+  "description": "ENFORCED inbound prompt-injection gate (blocks HIGH-risk turns before the agent runs) + advisory inbound/outbound tools. Fail-open.",
+  "version": "0.4.0",
+  "contracts": {
+    "tools": [
+      "jataayu_check_inbound",
+      "jataayu_check_outbound"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "default": true
+      },
+      "python": {
+        "type": "string",
+        "default": "python3",
+        "description": "Path to Python interpreter with jataayu installed (e.g. a conda/venv python)"
+      },
+      "jataayuPath": {
+        "type": "string",
+        "default": "",
+        "description": "Optional path to the jataayu package if not importable on sys.path"
+      },
+      "protectedNames": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [],
+        "description": "Names/tickers the outbound guard should redact from shared surfaces"
+      },
+      "blockOnInboundHigh": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enforced: block the turn when Jataayu flags HIGH prompt-injection risk. Fail-open on errors. Set false for warn/log-only."
+      },
+      "classifierMode": {
+        "type": "string",
+        "enum": [
+          "off",
+          "shadow"
+        ],
+        "default": "off",
+        "description": "off = no classifier. shadow = consult the injectiond sidecar alongside the regex gate and LOG its verdict; changes NO gate outcome. There is deliberately no gate/block mode."
+      },
+      "classifierUrl": {
+        "type": "string",
+        "default": "http://127.0.0.1:18902",
+        "description": "Base URL of the injectiond injection-classifier sidecar (POST /score)."
+      },
+      "classifierTimeoutMs": {
+        "type": "number",
+        "default": 2000,
+        "description": "Hard deadline for the shadow /score call. On timeout/error the record notes classifier_error and the gate outcome is unchanged."
+      },
+      "llmBackend": {
+        "type": "string",
+        "enum": [
+          "gateway",
+          "ollama",
+          "openai",
+          "anthropic"
+        ],
+        "description": "Transport Jataayu uses to REWRITE leaky outbound content. Must be one the library knows: gateway|ollama|openai|anthropic. 'openclaw' is NOT a backend name -- it was set here for weeks and silently made every rewrite fall back to deterministic redaction (94 messages)."
+      },
+      "llmModel": {
+        "type": "string",
+        "description": "Model id for llmBackend. For 'gateway' these are the ids at <gateway>/v1/models, i.e. openclaw/<agent>, which run that agent's own model."
+      },
+      "llmUrl": {
+        "type": "string",
+        "description": "Base URL for llmBackend, host root WITHOUT /v1 (e.g. https://localhost:18789). Passed explicitly rather than via JATAAYU_GATEWAY_BASE_URL because env.vars does not reach plugin child processes on this deployment."
+      },
+      "llmToken": {
+        "type": "string",
+        "description": "Bearer for llmBackend='gateway'. Must equal gateway.auth.token."
+      },
+      "recoverUseLlm": {
+        "type": "boolean",
+        "default": false,
+        "description": "Let the LLM rephrase flagged outbound content. False = deterministic redaction only."
+      },
+      "recoverAttempts": {
+        "type": "integer",
+        "default": 2,
+        "description": "LLM rewrite rounds before falling back to redaction."
+      },
+      "recoverTimeoutMs": {
+        "type": "integer",
+        "default": 90000,
+        "description": "Timeout for the recover subprocess."
+      },
+      "llmInsecureTls": {
+        "type": "boolean",
+        "default": false,
+        "description": "Waive TLS verification for llmBackend='gateway'. Needed because gateway.tls.autoGenerate serves a self-signed cert. Honoured ONLY for the gateway backend on a loopback llmUrl, so it cannot silently disable verification against a remote endpoint."
+      },
+      "effectBoundaryMode": {
+        "type": "string",
+        "enum": [
+          "off",
+          "shadow",
+          "enforce"
+        ],
+        "default": "enforce",
+        "description": "Authorize every tool call against provenance and capability policy. Enforce blocks or requests approval; shadow records decisions; off disables the hook."
+      },
+      "effectApprovalMode": {
+        "type": "string",
+        "enum": [
+          "block",
+          "ask"
+        ],
+        "default": "block",
+        "description": "What a NEEDS_APPROVAL verdict does. block = deny immediately with a reason (deterministic). ask = requireApproval, which pauses the run behind a real approval prompt; on a chat surface that can stall the turn until timeout, and an unresolved approval always denies."
+      },
+      "effectTimeoutMs": {
+        "type": "integer",
+        "default": 6000,
+        "description": "Deadline for the effect-boundary subprocess. On expiry the call fails OPEN."
+      },
+      "toolReturnMode": {
+        "type": "string",
+        "enum": [
+          "off",
+          "shadow",
+          "enforce"
+        ],
+        "default": "enforce",
+        "description": "Tool-return and memory-read injection screening (after_tool_call + tool_result_persist). enforce = taint the run and neutralise the injected text; shadow = log only."
+      },
+      "toolReturnTimeoutMs": {
+        "type": "integer",
+        "default": 6000,
+        "description": "Deadline for the tool-return screen. On expiry the call fails OPEN."
+      },
+      "skillVetMode": {
+        "type": "string",
+        "enum": [
+          "off",
+          "shadow",
+          "enforce"
+        ],
+        "default": "enforce",
+        "description": "Skill/plugin supply-chain vetting on before_install. enforce = block a HIGH-risk install; shadow = log only. NOTE: this host hook fails CLOSED, so the handler swallows its own errors and allows the install rather than stranding it."
+      },
+      "skillVetTimeoutMs": {
+        "type": "integer",
+        "default": 20000,
+        "description": "Deadline for skill vetting."
+      },
+      "effectLedgerPath": {
+        "type": "string",
+        "default": "",
+        "description": "Where Phase-2 decisions are appended as JSONL. Empty = ~/.openclaw/workspace/memory/jataayu-effect.jsonl"
+      },
+      "openclawBin": {
+        "type": "string",
+        "default": "",
+        "description": "Explicit path to the openclaw binary for out-of-band operator alerts. Empty = resolve from ~/.local/bin, PATH, then the node execPath sibling."
+      },
+      "alertDiscordTarget": {
+        "type": "string",
+        "default": "",
+        "description": "Discord target for withheld-credential alerts, e.g. user:<id>. Empty = alerts cannot be sent and the boot log says so."
+      },
+      "trustedSenders": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [],
+        "description": "Sender identifiers treated as the owner by the inbound gate. Transport-attributed only; message content can never confer this (LIT-159)."
+      },
+      "ownerIdentifiers": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [],
+        "description": "Owner sender identifiers. Falls back to trustedSenders when unset."
+      },
+      "strictProtectedNames": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [],
+        "description": "Names the outbound guard redacts from shared surfaces under a strict word-boundary match."
+      },
+      "capturePath": {
+        "type": "string",
+        "default": "",
+        "description": "Where every inbound gate decision is appended as JSONL. Empty = ~/.openclaw/workspace/tools/jataayu_inbound_capture.jsonl"
+      },
+      "captureMaxChars": {
+        "type": "integer",
+        "default": 24000,
+        "description": "Cap on captured inbound content per record."
+      },
+      "captureFullContent": {
+        "type": "boolean",
+        "default": false,
+        "description": "Store the entire inbound content rather than only the scanned tail. Default false: the full body can carry PII and secrets."
+      },
+      "fleetExtensionPath": {
+        "type": "string"
+      },
+      "runtimeStatusPath": {
+        "type": "string"
+      },
+      "policyFile": {
+        "type": "string"
+      },
+      "agent": {
+        "type": "string"
+      },
+      "toolEffects": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        }
+      },
+      "trustedResultTools": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": []
+      },
+      "memoryTools": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": []
+      }
+    }
+  }
+}

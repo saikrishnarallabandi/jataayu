@@ -63,7 +63,7 @@ the 2026 standards (OWASP Agentic Top 10, NIST) converged on — is that the dur
 
 ## Status
 
-**v0.3.1 — alpha.** Not yet on PyPI. Install from GitHub (see below). API may still shift before 1.0.
+**v0.4.0 — alpha.** Not yet on PyPI. Install from GitHub (see below). API may still shift before 1.0.
 See [CHANGELOG.md](CHANGELOG.md) for what landed in each release.
 Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md); security reports go to [SECURITY.md](SECURITY.md).
 
@@ -607,3 +607,18 @@ Apache-2.0 — see [LICENSE](LICENSE). Same license as the published adapter and
 ---
 
 *Named for [Jataayu](https://en.wikipedia.org/wiki/Jatayu), the noble eagle of the Ramayana who fought alone to protect the innocent.*
+
+## Native agent adapters
+
+Reusable adapters now live in `integrations/openclaw` and `integrations/hermes`.
+Both use the same Python runtime contract (`python -m jataayu.runtime` for the
+OpenClaw subprocess bridge). See each adapter's README for configuration and
+coverage. Private fleet policy and logging extensions belong to the deployment
+repository, not this package. MCP advisory tools do not substitute for native
+execution hooks.
+
+In linked development, point the deployment repository's plugin link at the
+adapter directory and configure the same Python checkout. A host reload is
+required after changes: matching files alone do not prove a running Node/Python
+process loaded the new code. The OpenClaw adapter reports a runtime fingerprint
+and rejects a changed core until reloaded.
