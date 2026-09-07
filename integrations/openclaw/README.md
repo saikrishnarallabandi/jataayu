@@ -21,9 +21,12 @@ is an operator-owned exception list, empty by default. Only the host may supply
 owner identity or source metadata; never pass model-generated metadata as trust.
 
 Private fleet behavior can be supplied via an operator-configured `fleetExtensionPath`.
-The extension may activate fleet hooks and provide `record`, `beforeOutbound`,
+The extension may activate fleet hooks and provide `beforeOutbound`,
 `classifierShadow`, and `alertWithheld`. It is trusted deployment code, not a path
 accepted from a tool call. Project Ascent owns its fleet extension.
+The former `record` extension hook is no longer called: metadata-only decision
+receipts replace that payload-bearing logging path. Configure `decisionLogPath`
+for logging; configuration changes require recreating the adapter on reload.
 
 ## Decision receipts (0.4.1)
 

@@ -73,5 +73,16 @@ function setup(request,config={}){
     missing=false;hook({},{});
     assert.equal(setups,2,'the next event recovers a removed directory');
   }finally{fs.mkdirSync=mkdir;fs.appendFile=append;}
+  let serializations=0;const ids=[];
+  const staticConfig=createReceipts({config:{toolEffects:{toJSON(){serializations++;return {read:'read'};}}},version:'test',fingerprint:'test',sink:row=>ids.push(row.policy_id)});
+  for(let i=0;i<100;i++)staticConfig.wrap('before_tool_call',()=>undefined,'shadow')({},{});
+  assert.equal(serializations,1,'static configuration is serialized once per adapter instance');
+  assert.equal(new Set(ids).size,1);
+  const {execFileSync}=require('node:child_process');
+  execFileSync(process.execPath,['-e',`delete globalThis.performance;
+    const {createReceipts}=require('./receipts');
+    let row;const r=createReceipts({config:{},version:'test',fingerprint:'test',sink:value=>row=value});
+    r.wrap('before_tool_call',()=>undefined,'shadow')({},{});
+    require('node:assert/strict').equal(typeof row.duration_ms,'number');`],{cwd:__dirname});
   console.log('Decision receipt privacy, concurrency, and ordering tests passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});

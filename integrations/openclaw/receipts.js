@@ -1,6 +1,7 @@
 'use strict';
 // Host bookkeeping only: policy and detector decisions remain in the Python runtime.
 const {AsyncLocalStorage}=require('node:async_hooks');
+const {performance}=require('node:perf_hooks');
 const crypto=require('node:crypto');
 const fs=require('node:fs');
 const path=require('node:path');
@@ -9,6 +10,9 @@ const identifier=value=>typeof value==='string'&&value?digest(value):null;
 const token=value=>typeof value==='string'&&/^[a-zA-Z0-9_.:/-]{1,100}$/.test(value)?value:null;
 function createReceipts({config,version,fingerprint,sink,logger=console}){
   const storage=new AsyncLocalStorage();
+  // Host configuration is fixed for this adapter instance; recreate it on reload.
+  const policyId=digest(JSON.stringify({agent:config.agent,policyFile:config.policyFile,toolEffects:config.toolEffects,
+    trustedResultTools:config.trustedResultTools,memoryTools:config.memoryTools}));
   let core=null;
   let directoryReady=false;
   const reportFailure=()=>{try{logger.error('[jataayu-receipt] write_failed; decision telemetry is incomplete');}catch{}};
@@ -52,8 +56,7 @@ function createReceipts({config,version,fingerprint,sink,logger=console}){
           correlation_status:!session?'missing_session':!call&&hook.includes('tool')?'missing_tool_call':'available',
           tool:token(event.toolName||ctx.toolName),duration_ms:Math.round((performance.now()-start)*1000)/1000,
           would_intervene:null,error_category:null,provenance_reason:null,
-          policy_id:digest(JSON.stringify({agent:config.agent,policyFile:config.policyFile,toolEffects:config.toolEffects,
-            trustedResultTools:config.trustedResultTools,memoryTools:config.memoryTools})),
+          policy_id:policyId,
           ...state.fields,adapter_disposition:disposition,host_acknowledgement:'unobserved'};
         if(error)row.error_category='hook_exception';
         write(row);return result;
