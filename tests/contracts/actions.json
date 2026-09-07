@@ -1,0 +1,6 @@
+[
+  {"tool":"exec","params":{"command":"echo synthetic"},"decision":"deny"},
+  {"tool":"apply_patch","params":{"patch":"synthetic"},"decision":"needs_approval"},
+  {"tool":"memory_get","params":{"key":"example"},"decision":"allow"},
+  {"tool":"unregistered_operation","params":{},"decision":"needs_approval"}
+]

@@ -44,7 +44,6 @@ import logging
 import re
 import threading
 from typing import Any, Optional
-from urllib.parse import urljoin
 
 logger = logging.getLogger("jataayu.mcp_gateway")
 
@@ -579,7 +578,7 @@ class JataayuMCPGateway:
         else:
             ctx = {}
 
-        upstream_path = urljoin(self.upstream_url + "/", path.lstrip("/"))
+        upstream_path = self.upstream_url + "/" + path.lstrip("/")
         forward_hdrs = {
             k: v
             for k, v in headers.items()

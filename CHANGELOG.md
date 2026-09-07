@@ -232,3 +232,13 @@ retained as a cheap pre-filter/telemetry layer.
 - Require JSON-native, finite arguments for preview/commit binding.
 - Validate JSON-RPC request shapes and preserve case-insensitive MCP session/auth headers.
 - Inspect complete SSE events before streaming them downstream, with bounded event buffers.
+
+## 0.4.0 — shared native adapters
+
+- Add a versioned JSON runtime contract and canonical OpenClaw/Hermes adapters.
+- Track external provenance independently of injection detection and retain it across turns.
+- Block guard errors in enforce mode, including missing context and malformed runtime verdicts.
+- Replace generated Python command strings with a fixed stdin JSON bridge.
+- Report loaded core/adapter fingerprints and reject mixed revisions.
+- Keep private fleet behavior in a configured deployment extension. Hermes final-text recovery
+  is not a complete streaming or direct-send wire guard; its README states that limitation.
