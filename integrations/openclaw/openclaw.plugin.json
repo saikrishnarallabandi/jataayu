@@ -2,12 +2,15 @@
   "id": "jataayu",
   "name": "Jataayu Security Guard",
   "kind": "security",
-  "description": "ENFORCED inbound prompt-injection gate (blocks HIGH-risk turns before the agent runs) + advisory inbound/outbound tools. Fail-open.",
+  "description": "Prompt-injection screening, capability authorization and outbound protection with configurable enforcement modes.",
   "version": "0.4.1",
   "contracts": {
     "tools": [
       "jataayu_check_inbound",
       "jataayu_check_outbound"
+    ],
+    "agentToolResultMiddleware": [
+      "openclaw"
     ]
   },
   "configSchema": {
@@ -38,7 +41,7 @@
       "blockOnInboundHigh": {
         "type": "boolean",
         "default": true,
-        "description": "Enforced: block the turn when Jataayu flags HIGH prompt-injection risk. Fail-open on errors. Set false for warn/log-only."
+        "description": "Block HIGH-risk non-owner input. Owner input bypasses blocking. Screening errors block non-owner input."
       },
       "classifierMode": {
         "type": "string",
@@ -123,7 +126,7 @@
       "effectTimeoutMs": {
         "type": "integer",
         "default": 6000,
-        "description": "Deadline for the effect-boundary subprocess. On expiry the call fails OPEN."
+        "description": "Screening deadline in milliseconds. Enforce withholds on failure; shadow records the failure and passes through."
       },
       "toolReturnMode": {
         "type": "string",
@@ -133,12 +136,12 @@
           "enforce"
         ],
         "default": "enforce",
-        "description": "Tool-return and memory-read injection screening (after_tool_call + tool_result_persist). enforce = taint the run and neutralise the injected text; shadow = log only."
+        "description": "Awaited OpenClaw tool-result screening plus legacy hook coverage. Enforce withholds HIGH-risk results or screening failures; shadow records decisions."
       },
       "toolReturnTimeoutMs": {
         "type": "integer",
         "default": 6000,
-        "description": "Deadline for the tool-return screen. On expiry the call fails OPEN."
+        "description": "Screening deadline in milliseconds. Enforce withholds on failure; shadow records the failure and passes through."
       },
       "skillVetMode": {
         "type": "string",
@@ -148,7 +151,7 @@
           "enforce"
         ],
         "default": "enforce",
-        "description": "Skill/plugin supply-chain vetting on before_install. enforce = block a HIGH-risk install; shadow = log only. NOTE: this host hook fails CLOSED, so the handler swallows its own errors and allows the install rather than stranding it."
+        "description": "Supply-chain screening on before_install. Enforce blocks unsafe verdicts and screening failures; shadow records decisions."
       },
       "skillVetTimeoutMs": {
         "type": "integer",

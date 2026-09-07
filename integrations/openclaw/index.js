@@ -86,7 +86,29 @@ function activate(api, dependencies={}) {
       return blocked?{outcome:'block',reason:r.findings,message:NOTICE,category:'prompt-injection'}:{outcome:'pass'};
     }catch(error){failed('inbound',error);return isOwner?{outcome:'pass'}:{outcome:'block',reason:'Security check unavailable',message:NOTICE};}
   },config.enforceInbound===false?'off':'enforce');
+  // Only the OpenClaw runtime currently consumes replacement results. The Codex
+  // relay awaits middleware but renders a no-op response, so do not claim coverage.
+  if(typeof api.registerAgentToolResultMiddleware==='function'){
+    api.registerAgentToolResultMiddleware(receipts.wrap('agent_tool_result',async(event,ctx)=>{
+      if(!(config.trustedResultTools||[]).includes(event.toolName))external(keyOf(event,ctx));
+      receipts.note({screening_path:'awaited_middleware',host_runtime:'openclaw'});
+      if(modes.returns==='off'){receipts.note({screening_state:'disabled'});return;}
+      try{
+        // Include details: structured output can carry instructions too.
+        const r=await request('tool_return',{tool_name:event.toolName,content:JSON.stringify(event.result)},config.toolReturnTimeoutMs||6000);
+        receipts.note({screening_state:'complete'});
+        if(modes.returns==='enforce'&&(r.blocked||r.status==='HIGH'))
+          return {result:{content:[{type:'text',text:NOTICE}],details:{jataayuWithheld:true}}};
+      }catch(error){
+        failed('tool-return',error);receipts.note({screening_state:'error'});
+        if(modes.returns==='enforce')return {result:{content:[{type:'text',text:NOTICE}],details:{jataayuWithheld:true}}};
+      }
+    },modes.returns),{runtimes:['openclaw']});
+  }
+  // Retain legacy observations/persistence protection for host paths that do not
+  // invoke middleware. These receipts are distinct from awaited screening.
   on('after_tool_call',async(event,ctx)=>{
+    receipts.note({screening_path:'legacy_after_hook'});
     const key=keyOf(event,ctx);
     // Provenance is independent of detector outcome and remains across turns.
     if(!(config.trustedResultTools||[]).includes(event.toolName))external(key);

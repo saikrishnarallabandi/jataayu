@@ -39,3 +39,11 @@ The installed OpenClaw runtime can persist results before asynchronous `after_to
 Tests: `node integrations/openclaw/receipts.test.js`; installed-host test: set `OPENCLAW_HOOK_RUNNER` to the installed hook-runner module and run `node integrations/openclaw/host-contract.test.js` in a separate process. It uses an empty registry and synthetic callbacks, not live actions. It verifies real dispatcher semantics, not the complete execution/delivery pipeline.
 
 Review follow-up: an omitted `decisionLogPath` disables receipts silently; configured sink failures remain visible. Event and context tool-call IDs are both accepted for verdict correlation. Authorization fingerprints describe the normalized effective policy snapshot used by the decision, without a separate file read or stale mtime cache. Directory policies are supported.
+
+## Awaited tool-result screening
+
+When available, `registerAgentToolResultMiddleware` screens the complete JSON result, including structured details, before OpenClaw returns it to the model. The manifest declares the `openclaw` runtime contract. HIGH verdicts and runtime failures replace the entire result in enforce mode; shadow preserves it. Receipts use `hook=agent_tool_result`, `screening_path=awaited_middleware`, and an explicit screening state. A replacement receipt records the adapter response, not independent downstream acknowledgement.
+
+Legacy after-tool and persistence hooks remain for paths without middleware coverage. These can produce additional observations for the same call; do not sum hook counts as unique tool calls. Legacy persistence still conservatively withholds missing or pending verdicts in enforce mode. The installed Codex native relay awaits middleware but discards replacements in its response; this adapter therefore does not register middleware for that runtime.
+
+Run `node integrations/openclaw/middleware.test.js` for the adapter contract. Set `OPENCLAW_MIDDLEWARE_RUNNER` to the installed host tool-result-middleware module to exercise the host runner with synthetic results. This checks waiting, replacement, structured-output removal, failures, shadow/off behavior, and receipt privacy. It does not prove every live execution path invokes the middleware.

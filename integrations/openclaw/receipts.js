@@ -46,7 +46,7 @@ function createReceipts({config,version,fingerprint,sink,logger=console}){
         let disposition='pass';
         if(result?.block||result?.outcome==='block'||result?.handled)disposition='block';
         else if(result?.requireApproval)disposition='request_approval';
-        else if((result?.message&&hook==='tool_result_persist')||typeof result?.content==='string')disposition='replace';
+        else if((hook==='agent_tool_result'&&result?.result)||(result?.message&&hook==='tool_result_persist')||typeof result?.content==='string')disposition='replace';
         const call=event.toolCallId||ctx.toolCallId;
         const session=ctx.sessionKey||event.sessionKey||ctx.sessionId||event.sessionId;
         const run=ctx.runId||event.runId;
