@@ -1,6 +1,7 @@
 """Versioned, host-independent requests for native agent adapters."""
 
 import hashlib
+import json
 from pathlib import Path
 
 from jataayu import (
@@ -68,8 +69,46 @@ def dispatch(request):
             untrusted=untrusted,
             **policy,
             strict=True,
+            include_metadata=True,
             tool_effects={**TOOL_EFFECTS, **config.get("toolEffects", {})},
         )
+        # Receipt metadata contains no action arguments, free-text findings or tokens.
+        configured = {str(k).strip().lower() for k in config.get("toolEffects", {})}
+        name = request["tool_name"].strip().lower()
+        if name in configured:
+            source = "configured_inventory"
+        elif name in TOOL_EFFECTS:
+            source = "adapter_inventory"
+        elif result["classification_source"] == "unknown":
+            source = "unknown"
+        else:
+            source = (
+                "policy_inventory" if result["classification_source"] == "inventory" else "builtin"
+            )
+        result["classification_source"] = source
+        result["reason_code"] = (
+            "unknown_tool"
+            if source == "unknown"
+            else "policy_violation"
+            if result.get("violations")
+            else "untrusted_effect"
+            if untrusted and result["decision"] != "allow"
+            else "authorized"
+        )
+        policy_hash = hashlib.sha256()
+        policy_hash.update(
+            json.dumps(
+                {
+                    "agent": config.get("agent"),
+                    "tool_effects": config.get("toolEffects", {}),
+                    "strict": True,
+                },
+                sort_keys=True,
+            ).encode()
+        )
+        if config.get("policyFile"):
+            policy_hash.update(Path(config["policyFile"]).read_bytes())
+        result["policy_fingerprint"] = policy_hash.hexdigest()
     elif op in ("inbound", "tool_return"):
         if op == "inbound":
             result = jataayu_check_inbound(content, surface=surface)

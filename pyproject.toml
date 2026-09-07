@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jataayu"
-version = "0.4.0"
+version = "0.4.1"
 description = "Deterministic action authorization for AI agents — gate the effect, not the string. Optional SLM injection detection as defense in depth."
 readme = "README.md"
 license = {text = "Apache-2.0"}

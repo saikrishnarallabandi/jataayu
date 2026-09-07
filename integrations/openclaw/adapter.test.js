@@ -9,7 +9,7 @@ function setup(overrides={},dependencies={}){
   const hooks={},tools={};
   const config={python:process.env.JATAAYU_TEST_PYTHON||'python3',jataayuPath:root,
     recoverUseLlm:false,effectBoundaryMode:'enforce',toolReturnMode:'enforce',skillVetMode:'enforce',...overrides};
-  const controller=activate({pluginConfig:config,on:(name,fn)=>hooks[name]=fn,registerTool:t=>tools[t.name]=t},dependencies);
+  const controller=activate({pluginConfig:config,on:(name,fn)=>hooks[name]=fn,registerTool:t=>tools[t.name]=t},{receiptSink:()=>{},...dependencies});
   return {hooks,tools,controller,config};
 }
 (async()=>{

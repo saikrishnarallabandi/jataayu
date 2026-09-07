@@ -354,6 +354,7 @@ def jataayu_authorize_action(
     mode: Optional[str] = None,
     tool_effects: Optional[dict] = None,
     strict: Optional[bool] = None,
+    include_metadata: bool = False,
 ) -> dict:
     """
     Authorize a tool call at the EFFECT BOUNDARY — by the harm of the action, not the text.
@@ -385,6 +386,8 @@ def jataayu_authorize_action(
         strict: Require approval for untrusted calls to tool names the classifier does not
               recognize (default False — unrecognized names fall back to READ).
 
+        include_metadata: Include the classification source for adapter decision receipts.
+
     Returns:
         dict: tool_name, effect_class, provenance, decision ('allow'|'deny'|'needs_approval'),
               reason, violations, commit_token. In observe mode only, three keys are ADDED:
@@ -407,7 +410,17 @@ def jataayu_authorize_action(
     )
     prov = Provenance.UNTRUSTED if untrusted else Provenance.TRUSTED
     values = [Value(str(params), prov)]
-    return boundary.preview(tool_name, params, values).to_dict()
+    result = boundary.preview(tool_name, params, values).to_dict()
+    if include_metadata:
+        _, recognized = boundary._classify(tool_name)
+        result["classification_source"] = (
+            "inventory"
+            if tool_name.strip().lower() in boundary.tool_effects
+            else "builtin"
+            if recognized
+            else "unknown"
+        )
+    return result
 
 
 def _check_inbound_surface(content: str, surface: str, *, use_llm: bool) -> dict:
