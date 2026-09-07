@@ -32,6 +32,8 @@ Example::
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
+import json
 from typing import Optional
 
 from jataayu.guards.inbound import InboundGuard
@@ -420,6 +422,22 @@ def jataayu_authorize_action(
             if recognized
             else "unknown"
         )
+        # Hash the same resolved policy snapshot used by preview, without a second
+        # filesystem read or an mtime cache that can miss same-tick policy edits.
+        # Include normalized overrides: these, not raw YAML spelling, govern effects.
+        effective_policy = {
+            "fingerprint_schema": 2,
+            "agent": policy.name if policy else agent,
+            "mode": boundary.mode,
+            "strict": boundary.strict,
+            "default_untrusted": boundary.default_untrusted,
+            "allowed_capabilities": sorted(set(policy.allowed_capabilities)) if policy else [],
+            "forbidden_capabilities": sorted(set(policy.forbidden_capabilities)) if policy else [],
+            "tool_effects": {name: effect.value for name, effect in boundary.tool_effects.items()},
+        }
+        result["policy_fingerprint"] = hashlib.sha256(
+            json.dumps(effective_policy, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
     return result
 
 

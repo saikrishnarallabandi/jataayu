@@ -55,7 +55,7 @@ function activate(api, dependencies={}) {
   const origins=new Map(), results=new Map();
   function bounded(map,key,value){if(!key)return;map.set(key,value);while(map.size>512)map.delete(map.keys().next().value);}
   function external(key,source='external_result'){bounded(origins,key,[...new Set([...(origins.get(key)||[]),source])]);}
-  function resultKey(event,ctx){const key=keyOf(event,ctx);return key&&event.toolCallId?JSON.stringify([key,event.toolCallId]):null;}
+  function resultKey(event,ctx={}){const key=keyOf(event,ctx),call=event.toolCallId||ctx.toolCallId;return key&&call?JSON.stringify([key,call]):null;}
   let fleet={};
   if(config.fleetExtensionPath){
     try{fleet=require(config.fleetExtensionPath);fleet.activate?.(api);fleetReady=true;}

@@ -14,13 +14,15 @@ function createReceipts({config,version,fingerprint,sink,logger=console}){
   function write(row){
     try{
       if(sink){const pending=sink(row);if(pending?.catch)pending.catch(reportFailure);return;}
-      if(!config.decisionLogPath){reportFailure();return;}
+      if(!config.decisionLogPath)return;
       fs.mkdirSync(path.dirname(config.decisionLogPath),{recursive:true,mode:0o700});
       fs.appendFile(config.decisionLogPath,JSON.stringify(row)+'\n',{mode:0o600},error=>{if(error)reportFailure();});
     }catch{reportFailure();}
   }
   function note(values){const state=storage.getStore();if(state)Object.assign(state.fields,values);}
   function wrap(hook,handler,mode){
+    // An absent destination deliberately disables receipts, not a write failure.
+    if(!sink&&!config.decisionLogPath)return handler;
     return function(event={},ctx={}){
       const start=performance.now();
       const state={fields:{}};
@@ -28,7 +30,7 @@ function createReceipts({config,version,fingerprint,sink,logger=console}){
         let disposition='pass';
         if(result?.block||result?.outcome==='block'||result?.handled)disposition='block';
         else if(result?.requireApproval)disposition='request_approval';
-        else if(result?.message&&hook==='tool_result_persist'||typeof result?.content==='string')disposition='replace';
+        else if((result?.message&&hook==='tool_result_persist')||typeof result?.content==='string')disposition='replace';
         const call=event.toolCallId||ctx.toolCallId;
         const session=ctx.sessionKey||event.sessionKey||ctx.sessionId||event.sessionId;
         const run=ctx.runId||event.runId;

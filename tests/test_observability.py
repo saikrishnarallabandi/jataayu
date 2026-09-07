@@ -73,3 +73,66 @@ def test_runtime_reports_unknown_and_configured_tools_without_trusting_results()
     assert result["classification_source"] == "configured_inventory"
     assert result["decision"] == "allow" and result["provenance"] == "untrusted"
     assert len(result["policy_fingerprint"]) == 64
+
+
+def test_policy_fingerprint_uses_the_loaded_snapshot_without_an_extra_read(tmp_path, monkeypatch):
+    import builtins
+    import jataayu.api as api
+
+    policy = tmp_path / "policy.yaml"
+    policy.write_text("defaults: {forbidden_capabilities: []}\n")
+    request = {
+        "schema_version": 1,
+        "operation": "authorize",
+        "tool_name": "exec",
+        "params": {},
+        "origins": ["owner"],
+        "config": {"policyFile": str(policy)},
+    }
+    expected = dispatch(request)["result"]
+    reads = []
+    original_open = builtins.open
+    original_load = api._load_agent_policy
+
+    def track_open(path, *args, **kwargs):
+        if str(path) == str(policy):
+            reads.append(path)
+        return original_open(path, *args, **kwargs)
+
+    def load_then_change(path, agent):
+        loaded = original_load(path, agent)
+        policy.write_text("defaults: {forbidden_capabilities: [exec]}\n")
+        return loaded
+
+    monkeypatch.setattr(builtins, "open", track_open)
+    monkeypatch.setattr(api, "_load_agent_policy", load_then_change)
+    result = dispatch(request)["result"]
+    assert len(reads) == 1
+    assert result["decision"] == "allow"
+    assert result["policy_fingerprint"] == expected["policy_fingerprint"]
+    monkeypatch.setattr(api, "_load_agent_policy", original_load)
+    next_result = dispatch(request)["result"]
+    assert next_result["decision"] == "deny"
+    assert next_result["policy_fingerprint"] != result["policy_fingerprint"]
+
+
+def test_policy_fingerprint_handles_directories_and_same_stat_edits(tmp_path):
+    import os
+
+    policy = tmp_path / "policy.yaml"
+    policy.write_text("defaults: {mode: observe}\n")
+    stat = policy.stat()
+    request = {
+        "schema_version": 1,
+        "operation": "authorize",
+        "tool_name": "exec",
+        "params": {},
+        "origins": ["external"],
+        "config": {"policyFile": str(tmp_path)},
+    }
+    before = dispatch(request)["result"]
+    policy.write_text("defaults: {mode: enforce}\n")
+    os.utime(policy, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    after = dispatch(request)["result"]
+    assert before["decision"] == "allow" and after["decision"] == "deny"
+    assert before["policy_fingerprint"] != after["policy_fingerprint"]

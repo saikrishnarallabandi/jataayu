@@ -35,6 +35,17 @@ function setup(request,config={}){
   await isolated.hooks.after_tool_call({toolName:'read',toolCallId:'same',result:'hostile'},{sessionKey:'two'});
   assert.equal(isolated.hooks.tool_result_persist({toolCallId:'same',message:{content:'clean'}},{sessionKey:'one'}),undefined);
   assert(isolated.hooks.tool_result_persist({toolCallId:'same',message:{content:'hostile'}},{sessionKey:'two'}).message);
+  const contextOnly=setup(async req=>({status:req.content==='hostile'?'HIGH':'SAFE',blocked:req.content==='hostile'}),{toolReturnMode:'enforce'});
+  for(const sessionKey of ['safe','blocked']){
+    const ctx={sessionKey,toolCallId:'ctx-only'};
+    await contextOnly.hooks.after_tool_call({toolName:'read',result:sessionKey==='safe'?'clean':'hostile'},ctx);
+  }
+  assert.equal(contextOnly.hooks.tool_result_persist({message:{content:'clean'}},{sessionKey:'safe',toolCallId:'ctx-only'}),undefined);
+  assert(contextOnly.hooks.tool_result_persist({message:{content:'hostile'}},{sessionKey:'blocked',toolCallId:'ctx-only'}).message);
+  assert(contextOnly.rows.filter(row=>row.hook==='tool_result_persist').every(row=>row.screening_state==='complete'));
+  // Event and context locations can differ between the two host callbacks.
+  await contextOnly.hooks.after_tool_call({toolName:'read',toolCallId:'mixed',result:'clean'},{sessionKey:'mixed'});
+  assert.equal(contextOnly.hooks.tool_result_persist({message:{content:'clean'}},{sessionKey:'mixed',toolCallId:'mixed'}),undefined);
   const broken=setup(async()=>{throw Error(secret);});
   await broken.hooks.before_tool_call({toolName:'exec'},{});
   assert.equal(broken.rows[0].error_category,'runtime_failure');
@@ -43,5 +54,9 @@ function setup(request,config={}){
   let errors=0;const r=createReceipts({config:{},version:'test',fingerprint:'test',sink:()=>{throw Error(secret);},logger:{error:()=>errors++}});
   assert.equal(r.wrap('tool_result_persist',()=>({message:{content:'safe'}}),'enforce')({},{}).message.content,'safe');
   assert.equal(errors,1);
+  const disabled=createReceipts({config:{},version:'test',fingerprint:'test',logger:{error:()=>errors++}});
+  const before=errors;
+  for(let i=0;i<100;i++)assert.equal(disabled.wrap('before_tool_call',()=>undefined,'shadow')({},{}),undefined);
+  assert.equal(errors,before,'an unset receipt path must not emit write errors');
   console.log('Decision receipt privacy, concurrency, and ordering tests passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -1,7 +1,6 @@
 """Versioned, host-independent requests for native agent adapters."""
 
 import hashlib
-import json
 from pathlib import Path
 
 from jataayu import (
@@ -95,20 +94,6 @@ def dispatch(request):
             if untrusted and result["decision"] != "allow"
             else "authorized"
         )
-        policy_hash = hashlib.sha256()
-        policy_hash.update(
-            json.dumps(
-                {
-                    "agent": config.get("agent"),
-                    "tool_effects": config.get("toolEffects", {}),
-                    "strict": True,
-                },
-                sort_keys=True,
-            ).encode()
-        )
-        if config.get("policyFile"):
-            policy_hash.update(Path(config["policyFile"]).read_bytes())
-        result["policy_fingerprint"] = policy_hash.hexdigest()
     elif op in ("inbound", "tool_return"):
         if op == "inbound":
             result = jataayu_check_inbound(content, surface=surface)
