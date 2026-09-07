@@ -18,7 +18,7 @@ function createReceipts({config,version,fingerprint,sink,logger=console}){
   const reportFailure=()=>{try{logger.error('[jataayu-receipt] write_failed; decision telemetry is incomplete');}catch{}};
   function write(row){
     try{
-      if(sink){const pending=sink(row);if(pending?.catch)pending.catch(reportFailure);return;}
+      if(sink){const pending=sink(row);if(typeof pending?.catch==='function')pending.catch(reportFailure);return;}
       if(!config.decisionLogPath)return;
       if(!directoryReady){
         fs.mkdirSync(path.dirname(config.decisionLogPath),{recursive:true,mode:0o700});

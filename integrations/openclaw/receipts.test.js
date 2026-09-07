@@ -84,5 +84,13 @@ function setup(request,config={}){
     let row;const r=createReceipts({config:{},version:'test',fingerprint:'test',sink:value=>row=value});
     r.wrap('before_tool_call',()=>undefined,'shadow')({},{});
     require('node:assert/strict').equal(typeof row.duration_ms,'number');`],{cwd:__dirname});
+  const sinkErrors=errors;
+  const opaqueSink=createReceipts({config:{},version:'test',fingerprint:'test',sink:()=>({catch:true}),logger:{error:()=>errors++}});
+  opaqueSink.wrap('before_tool_call',()=>undefined,'shadow')({},{});
+  assert.equal(errors,sinkErrors,'non-Promise sink return values are ignored');
+  const rejectedSink=createReceipts({config:{},version:'test',fingerprint:'test',sink:()=>Promise.reject(Error('fixture')),logger:{error:()=>errors++}});
+  rejectedSink.wrap('before_tool_call',()=>undefined,'shadow')({},{});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(errors,sinkErrors+1,'real asynchronous sink failures remain visible');
   console.log('Decision receipt privacy, concurrency, and ordering tests passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});
