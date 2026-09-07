@@ -603,11 +603,12 @@ class TestCanonicalization:
             "t", {"a": {"x": 1}, "b": {"x": 1}}
         )
 
-    def test_unserializable_values_still_pass_through_json_default(self, boundary):
-        """The value path is untouched: a non-JSON value is stringified, not rejected."""
+    def test_unserializable_values_are_rejected(self, boundary):
+        """Stringification cannot bind the original argument's type or identity."""
         pv = boundary.preview("read_file", {"v": object()}, [T("x")])
-        assert pv.decision is Decision.ALLOW
-        assert boundary.commit(pv, pv.params, lambda: "ran") == "ran"
+        assert pv.decision is Decision.DENY
+        with pytest.raises(CommitRejected):
+            boundary.commit(pv, pv.params, lambda: pytest.fail("executor ran"))
 
     def test_mutation_still_rejected(self, boundary):
         pv = boundary.preview("read_file", {"a": "x"}, [T("x")])

@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 from typing import Any, Optional
 from urllib.parse import urljoin
@@ -130,7 +131,21 @@ class JataayuMCPGateway:
         self.block_threshold = block_threshold
         self.surface = surface
         self.enable_taint = enable_taint
-        self.forward_headers = forward_headers or ["Authorization", "X-API-Key"]
+        self.forward_headers = {
+            h.lower()
+            for h in (
+                forward_headers
+                if forward_headers is not None
+                else [
+                    "Authorization",
+                    "X-API-Key",
+                    "Accept",
+                    "Mcp-Session-Id",
+                    "MCP-Protocol-Version",
+                    "Last-Event-ID",
+                ]
+            )
+        }
         # after_tool_call: scan tool RETURN values before the agent consumes them.
         # The 2026 literature (DeepTrap) shows the execution context — not just the
         # prompt and call params — is the attack surface: a tool can return a
@@ -391,6 +406,12 @@ class JataayuMCPGateway:
             # Not JSON we can inspect (e.g. SSE chunk) — pass through untouched.
             return response_body, {"tool_name": tool_name, "inspected": False}
 
+        if not isinstance(resp, dict):
+            return json.dumps(_jsonrpc_error(None, -32600, "Invalid upstream response")).encode(), {
+                "tool_name": tool_name,
+                "inspected": False,
+                "blocked": True,
+            }
         result = resp.get("result")
         if result is None:
             return response_body, {"tool_name": tool_name, "inspected": False}
@@ -439,14 +460,26 @@ class JataayuMCPGateway:
             err = _jsonrpc_error(None, -32700, f"Parse error: {e}")
             return json.dumps(err), False, {}
 
+        if not isinstance(req, dict):
+            return json.dumps(_jsonrpc_error(None, -32600, "Expected a JSON-RPC object")), False, {}
         req_id = req.get("id")
         method = req.get("method", "")
         params = req.get("params", {})
+
+        if not isinstance(params, dict) or not isinstance(method, str):
+            return json.dumps(_jsonrpc_error(req_id, -32600, "Invalid request shape")), False, {}
 
         # Only inspect tool calls
         if method == "tools/call":
             tool_name = params.get("name", "")
             tool_params = params.get("arguments", params.get("params", {}))
+
+            if not isinstance(tool_name, str) or not tool_name or not isinstance(tool_params, dict):
+                return (
+                    json.dumps(_jsonrpc_error(req_id, -32602, "Invalid tool arguments")),
+                    False,
+                    {},
+                )
 
             # Get any active taint IDs from params metadata
             taint_ids = params.get("_jataayu_taint_ids")
@@ -478,82 +511,139 @@ class JataayuMCPGateway:
         # Non-tool-call methods pass through without inspection
         return request_body, True, {}
 
+    def _inspect_sse_frame(self, frame: bytes, tool_name: str) -> bytes:
+        """Inspect one complete event before any of its data reaches the client."""
+        lines = frame.splitlines()
+        data = b"\n".join(line[5:].lstrip(b" ") for line in lines if line.startswith(b"data:"))
+        if not data or data == b"[DONE]" or not self.inspect_returns:
+            return frame + b"\n\n"
+        # Legacy SSE's endpoint announcement is transport metadata, not tool output.
+        if any(line.strip() == b"event: endpoint" for line in lines):
+            return frame + b"\n\n"
+        try:
+            parsed = json.loads(data)
+        except (ValueError, UnicodeDecodeError):
+            if self.mode == "observe":
+                return frame + b"\n\n"
+            checked = json.dumps(_jsonrpc_error(None, -32600, "Uninspectable SSE data")).encode()
+        else:
+            if not isinstance(parsed, dict):
+                checked = json.dumps(_jsonrpc_error(None, -32600, "Invalid SSE response")).encode()
+            else:
+                checked, _ = self.inspect_tool_response(tool_name, data)
+        metadata = [line for line in lines if not line.startswith(b"data:")]
+        return b"\n".join(metadata + [b"data: " + checked]) + b"\n\n"
+
+    async def _sse_frames(self, content, tool_name):
+        pending = b""
+        async for chunk in content.iter_chunked(16384):
+            pending += chunk
+            while True:
+                match = re.search(rb"\r\n\r\n|\n\n|\r\r", pending)
+                if match is None:
+                    break
+                if match.start() > 1024 * 1024:
+                    raise ValueError("SSE event exceeds 1 MiB inspection limit")
+                frame, pending = pending[: match.start()], pending[match.end() :]
+                yield self._inspect_sse_frame(frame, tool_name)
+            if len(pending) > 1024 * 1024:
+                raise ValueError("SSE event exceeds 1 MiB inspection limit")
+        if pending.strip():
+            # Do not forward an incomplete final event as though it were inspected.
+            raise ValueError("Incomplete SSE event")
+
     async def proxy_request_async(
         self,
         method: str,
         path: str,
         headers: dict,
         body: bytes,
-    ) -> tuple[int, dict, bytes]:
+        *,
+        _downstream=None,
+    ):
+        """Proxy HTTP; server callers stream inspected SSE, direct callers receive bytes.
+
+        Direct callers buffer finite streams up to 8 MiB. The HTTP server streams
+        complete inspected frames immediately and closes upstream on cancellation.
         """
-        Async HTTP proxy: intercept, check, forward to upstream.
+        import aiohttp
+        from aiohttp import web
 
-        Returns:
-            (status_code, response_headers, response_body)
-        """
-        try:
-            import aiohttp
-        except ImportError:
-            raise RuntimeError(
-                "aiohttp is required for async proxy mode. Install with: pip install aiohttp"
+        if method.upper() == "POST":
+            modified, should_forward, ctx = self.handle_jsonrpc(
+                body.decode("utf-8", errors="replace")
             )
+            if not should_forward:
+                return 200, {"Content-Type": "application/json"}, modified.encode()
+            body = modified.encode()
+        else:
+            ctx = {}
 
-        # Parse and check the request body
-        body_str = body.decode("utf-8", errors="replace")
-        modified_body, should_forward, ctx = self.handle_jsonrpc(body_str)
-
-        if not should_forward:
-            # Return the error response directly — don't forward to upstream
-            return (
-                200,  # JSON-RPC errors use HTTP 200 with error in body
-                {"Content-Type": "application/json"},
-                modified_body.encode(),
-            )
-
-        # Forward to upstream
         upstream_path = urljoin(self.upstream_url + "/", path.lstrip("/"))
         forward_hdrs = {
             k: v
             for k, v in headers.items()
-            if k in self.forward_headers or k.lower().startswith("content-")
+            if k.lower() in self.forward_headers or k.lower() == "content-type"
         }
-
-        async with aiohttp.ClientSession() as session:
+        timeout = aiohttp.ClientTimeout(total=None, sock_connect=10, sock_read=60)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.request(
-                method=method,
-                url=upstream_path,
-                headers=forward_hdrs,
-                data=modified_body.encode(),
+                method, upstream_path, headers=forward_hdrs, data=body, allow_redirects=False
             ) as resp:
-                resp_body = await resp.read()
-                resp_headers = dict(resp.headers)
-
-                # In observe mode the request was forwarded despite tripping the threshold —
-                # say so on the wire, so the caller can measure without enforcing.
+                # aiohttp decodes compression; downstream framing must describe our bytes.
+                connection_tokens = {
+                    h.strip().lower() for h in resp.headers.get("Connection", "").split(",")
+                }
+                strip = {
+                    "content-length",
+                    "content-encoding",
+                    "transfer-encoding",
+                    "connection",
+                    "keep-alive",
+                    "proxy-authenticate",
+                    "proxy-authorization",
+                    "te",
+                    "trailer",
+                    "upgrade",
+                }
+                resp_headers = {
+                    k: v
+                    for k, v in resp.headers.items()
+                    if k.lower() not in strip | connection_tokens
+                }
                 if ctx.get("would_block") and not ctx.get("blocked"):
                     resp_headers["X-Jataayu-Would-Block"] = "true"
-
-                # Add security context header when there are warnings
-                if not ctx.get("blocked") and ctx.get("risk_score", 0) > 0.3:
+                if ctx.get("risk_score", 0) > 0.3:
                     resp_headers["X-Jataayu-Warning"] = f"risk={ctx['risk_score']:.2f}"
+                tool_name = ctx.get("tool_name", "mcp-stream")
+                if "text/event-stream" in resp.headers.get("Content-Type", "").lower():
+                    stream = None
+                    buffered = bytearray()
+                    if _downstream is not None:
+                        stream = web.StreamResponse(status=resp.status, headers=resp_headers)
+                        await stream.prepare(_downstream)
+                    async for frame in self._sse_frames(resp.content, tool_name):
+                        if stream is not None:
+                            await stream.write(frame)
+                        else:
+                            buffered.extend(frame)
+                            if len(buffered) > 8 * 1024 * 1024:
+                                raise ValueError("Use the HTTP server for unbounded SSE streams")
+                    if stream is not None:
+                        await stream.write_eof()
+                        return stream
+                    return resp.status, resp_headers, bytes(buffered)
 
-                # after_tool_call: scan the tool RETURN before it reaches the agent.
-                # Only for tool-call responses (ctx carries tool_name) and when the
-                # upstream returned an inspectable JSON body (not an SSE stream).
-                tool_name = ctx.get("tool_name")
-                content_type = resp_headers.get("Content-Type", "")
-                if self.inspect_returns and tool_name and "text/event-stream" not in content_type:
-                    resp_body, ret_ctx = self.inspect_tool_response(tool_name, resp_body)
+                response = await resp.read()
+                if self.inspect_returns and ctx.get("tool_name"):
+                    response, ret_ctx = self.inspect_tool_response(tool_name, response)
                     if ret_ctx.get("blocked"):
                         resp_headers["X-Jataayu-Return-Blocked"] = "true"
-                        # Body changed length — let the client/aiohttp recompute.
-                        resp_headers.pop("Content-Length", None)
                     elif ret_ctx.get("risk_score", 0) > 0.3:
                         resp_headers["X-Jataayu-Return-Warning"] = (
                             f"risk={ret_ctx['risk_score']:.2f}"
                         )
-
-                return resp.status, resp_headers, resp_body
+                return resp.status, resp_headers, response
 
     async def start_async_server(self) -> Any:
         """
@@ -579,21 +669,16 @@ class JataayuMCPGateway:
 
         async def handle_request(request: web.Request) -> web.StreamResponse:
             body = await request.read()
-            status, headers, resp_body = await gateway.proxy_request_async(
+            result = await gateway.proxy_request_async(
                 method=request.method,
-                path=request.path,
+                path=request.path_qs,
                 headers=dict(request.headers),
                 body=body,
+                _downstream=request,
             )
-
-            # Check if upstream returns SSE
-            content_type = headers.get("Content-Type", "")
-            if "text/event-stream" in content_type:
-                response = web.StreamResponse(status=status, headers=headers)
-                await response.prepare(request)
-                await response.write(resp_body)
-                return response
-
+            if isinstance(result, web.StreamResponse):
+                return result
+            status, headers, resp_body = result
             return web.Response(status=status, headers=headers, body=resp_body)
 
         app = web.Application()

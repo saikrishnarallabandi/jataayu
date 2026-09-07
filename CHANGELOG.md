@@ -224,3 +224,11 @@ retained as a cheap pre-filter/telemetry layer.
 ### Notes
 - 106 detection patterns (68 inbound + 38 outbound); 293 tests passing.
 - Still **0.2.0 alpha** — install from GitHub, not yet published to PyPI.
+
+## Unreleased — boundary correctness
+
+- Keep configured protected names and credential findings mandatory when an LLM judges a draft.
+- Fall back to deterministic findings for invalid LLM response schemas.
+- Require JSON-native, finite arguments for preview/commit binding.
+- Validate JSON-RPC request shapes and preserve case-insensitive MCP session/auth headers.
+- Inspect complete SSE events before streaming them downstream, with bounded event buffers.
