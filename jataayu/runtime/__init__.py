@@ -48,6 +48,9 @@ def dispatch(request):
     config = request.get("config", {})
     if not isinstance(config, dict):
         raise ValueError("config must be an object")
+    tool_effects = config.get("toolEffects", {})
+    if not isinstance(tool_effects, dict):
+        raise ValueError("config.toolEffects must be an object")
     content = request.get("content", "")
     if not isinstance(content, str):
         raise ValueError("content must be text")
@@ -68,7 +71,31 @@ def dispatch(request):
             untrusted=untrusted,
             **policy,
             strict=True,
-            tool_effects={**TOOL_EFFECTS, **config.get("toolEffects", {})},
+            include_metadata=True,
+            tool_effects={**TOOL_EFFECTS, **tool_effects},
+        )
+        # Receipt metadata contains no action arguments, free-text findings or tokens.
+        configured = {str(k).strip().lower() for k in tool_effects}
+        name = request["tool_name"].strip().lower()
+        if name in configured:
+            source = "configured_inventory"
+        elif name in TOOL_EFFECTS:
+            source = "adapter_inventory"
+        elif result["classification_source"] == "unknown":
+            source = "unknown"
+        else:
+            source = (
+                "policy_inventory" if result["classification_source"] == "inventory" else "builtin"
+            )
+        result["classification_source"] = source
+        result["reason_code"] = (
+            "unknown_tool"
+            if source == "unknown"
+            else "policy_violation"
+            if result.get("violations")
+            else "untrusted_effect"
+            if untrusted and result["decision"] != "allow"
+            else "authorized"
         )
     elif op in ("inbound", "tool_return"):
         if op == "inbound":

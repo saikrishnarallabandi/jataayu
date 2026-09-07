@@ -32,6 +32,8 @@ Example::
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
+import json
 from typing import Optional
 
 from jataayu.guards.inbound import InboundGuard
@@ -354,6 +356,7 @@ def jataayu_authorize_action(
     mode: Optional[str] = None,
     tool_effects: Optional[dict] = None,
     strict: Optional[bool] = None,
+    include_metadata: bool = False,
 ) -> dict:
     """
     Authorize a tool call at the EFFECT BOUNDARY — by the harm of the action, not the text.
@@ -385,10 +388,14 @@ def jataayu_authorize_action(
         strict: Require approval for untrusted calls to tool names the classifier does not
               recognize (default False — unrecognized names fall back to READ).
 
+        include_metadata: Add classification_source and policy_fingerprint for adapter receipts,
+              in either enforce or observe mode. Disabled by default.
+
     Returns:
         dict: tool_name, effect_class, provenance, decision ('allow'|'deny'|'needs_approval'),
-              reason, violations, commit_token. In observe mode only, three keys are ADDED:
-              mode, would_decision, tripwire_triggered. Enforce-mode output is unchanged.
+              reason, violations, commit_token. Observe mode also adds mode, would_decision,
+              and tripwire_triggered. With include_metadata=True, either mode additionally
+              includes classification_source and the effective policy_fingerprint.
 
     To record every decision, install a process-wide sink::
 
@@ -407,7 +414,33 @@ def jataayu_authorize_action(
     )
     prov = Provenance.UNTRUSTED if untrusted else Provenance.TRUSTED
     values = [Value(str(params), prov)]
-    return boundary.preview(tool_name, params, values).to_dict()
+    result = boundary.preview(tool_name, params, values).to_dict()
+    if include_metadata:
+        _, recognized = boundary._classify(tool_name)
+        result["classification_source"] = (
+            "inventory"
+            if tool_name.strip().lower() in boundary.tool_effects
+            else "builtin"
+            if recognized
+            else "unknown"
+        )
+        # Hash the same resolved policy snapshot used by preview, without a second
+        # filesystem read or an mtime cache that can miss same-tick policy edits.
+        # Include normalized overrides: these, not raw YAML spelling, govern effects.
+        effective_policy = {
+            "fingerprint_schema": 2,
+            "agent": policy.name if policy else agent,
+            "mode": boundary.mode,
+            "strict": boundary.strict,
+            "default_untrusted": boundary.default_untrusted,
+            "allowed_capabilities": sorted(set(policy.allowed_capabilities)) if policy else [],
+            "forbidden_capabilities": sorted(set(policy.forbidden_capabilities)) if policy else [],
+            "tool_effects": {name: effect.value for name, effect in boundary.tool_effects.items()},
+        }
+        result["policy_fingerprint"] = hashlib.sha256(
+            json.dumps(effective_policy, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+    return result
 
 
 def _check_inbound_surface(content: str, surface: str, *, use_llm: bool) -> dict:

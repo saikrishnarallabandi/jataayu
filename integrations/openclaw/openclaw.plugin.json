@@ -3,7 +3,7 @@
   "name": "Jataayu Security Guard",
   "kind": "security",
   "description": "ENFORCED inbound prompt-injection gate (blocks HIGH-risk turns before the agent runs) + advisory inbound/outbound tools. Fail-open.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "contracts": {
     "tools": [
       "jataayu_check_inbound",
@@ -240,6 +240,18 @@
           "type": "string"
         },
         "default": []
+      },
+      "decisionLogPath": {
+        "type": "string"
+      },
+      "receiptTraffic": {
+        "type": "string",
+        "enum": [
+          "live",
+          "replay",
+          "synthetic"
+        ],
+        "default": "live"
       }
     }
   }

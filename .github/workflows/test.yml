@@ -44,7 +44,9 @@ jobs:
         with:
           node-version: '22'
       - name: Native adapter contracts
-        run: JATAAYU_TEST_PYTHON=python node integrations/openclaw/adapter.test.js
+        run: |
+          JATAAYU_TEST_PYTHON=python node integrations/openclaw/adapter.test.js
+          node integrations/openclaw/receipts.test.js
       - name: Test (pytest)
         run: pytest -q
       # The example asserts every behavior the README's Quick Start teaches, so a snippet

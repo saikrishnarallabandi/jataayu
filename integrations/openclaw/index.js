@@ -3,9 +3,10 @@ const fs=require('node:fs');
 const path=require('node:path');
 const crypto=require('node:crypto');
 const {createBridge}=require('./bridge');
+const {createReceipts}=require('./receipts');
 const VERSION=require('./openclaw.plugin.json').version;
 const hash=crypto.createHash('sha256');
-for(const name of ['index.js','bridge.js','openclaw.plugin.json'])hash.update(fs.readFileSync(path.join(__dirname,name)));
+for(const name of ['index.js','bridge.js','receipts.js','openclaw.plugin.json'])hash.update(fs.readFileSync(path.join(__dirname,name)));
 const ADAPTER_FINGERPRINT=hash.digest('hex');
 const NOTICE='This content was withheld by the security guard. Please provide safe context or ask the operator to review it.';
 const MODES=new Set(['enforce','shadow','off']);
@@ -20,6 +21,8 @@ function activate(api, dependencies={}) {
   if(config.enabled===false)return;
   const modes={effect:config.effectBoundaryMode||'enforce',returns:config.toolReturnMode||'enforce',vet:config.skillVetMode||'enforce'};
   for(const mode of Object.values(modes))if(!MODES.has(mode))throw new Error('Invalid Jataayu enforcement mode');
+  const receipts=createReceipts({config,version:VERSION,fingerprint:ADAPTER_FINGERPRINT,sink:dependencies.receiptSink,logger:api.logger||console});
+  const on=(name,handler,mode='enforce')=>api.on(name,receipts.wrap(name,handler,mode),['before_agent_run','message_sending'].includes(name)?{priority:100}:undefined);
   const raw=dependencies.request||createBridge(config);
   const base={schema_version:1,config};
   let coreFingerprint;
@@ -27,6 +30,7 @@ function activate(api, dependencies={}) {
   const health=raw({...base,operation:'health'}).then(response=>{
     if(response.schema_version!==1||response.error||response.core_version!==VERSION||!response.core_fingerprint)throw new Error('Jataayu core/adapter version mismatch');
     coreFingerprint=response.core_fingerprint;
+    receipts.setCore(coreFingerprint);
     const status={core_version:response.core_version,core_fingerprint:coreFingerprint,adapter_version:VERSION,
       adapter_fingerprint:ADAPTER_FINGERPRINT,schema_version:1,pid:process.pid,fleet_ready:fleetReady,modes,loaded_at:new Date().toISOString()};
     try{if(config.runtimeStatusPath)fs.writeFileSync(config.runtimeStatusPath,JSON.stringify(status),{mode:0o600});}catch{}
@@ -44,26 +48,32 @@ function activate(api, dependencies={}) {
     if(operation==='outbound'&&!['SAFE','WARN','BLOCK'].includes(r.status))throw new Error('Invalid outbound verdict');
     if(operation==='recover'&&(!['send','withhold'].includes(r.action)||typeof r.text!=='string'||typeof r.changed!=='boolean'))throw new Error('Invalid recovery verdict');
     if(operation==='vet'&&!['SAFE','REVIEW','MALICIOUS'].includes(r.verdict))throw new Error('Invalid skill verdict');
+    receipts.verdict(operation,r);
     return r;
   }
   // Hooks keep origin metadata only. Effects, policy and screening live in Python.
   const origins=new Map(), results=new Map();
   function bounded(map,key,value){if(!key)return;map.set(key,value);while(map.size>512)map.delete(map.keys().next().value);}
-  function external(key){bounded(origins,key,['external']);}
+  function external(key,source='external_result'){bounded(origins,key,[...new Set([...(origins.get(key)||[]),source])]);}
+  function resultKey(event,ctx={}){const key=keyOf(event,ctx),call=event.toolCallId||ctx.toolCallId;return key&&call?JSON.stringify([key,call]):null;}
   let fleet={};
   if(config.fleetExtensionPath){
     try{fleet=require(config.fleetExtensionPath);fleet.activate?.(api);fleetReady=true;}
     catch{api.on('before_dispatch',event=>event.isGroup?{handled:true}:undefined);}
   }
-  function record(kind,event){try{fleet.record?.(kind,event,config);}catch{/* telemetry cannot change a decision */}}
-  function failed(kind,error){record('effect',{kind,decision:'error',error:error.message});}
+  // Legacy payload-bearing ledgers are superseded by metadata-only decision receipts.
+  function record(kind,event){if(event.classifier_error)receipts.note({classifier_error:'unavailable'});
+    if(Number.isFinite(event.classifier_p_injection))receipts.note({classifier_score:event.classifier_p_injection});
+    if(Number.isFinite(event.classifier_ms))receipts.note({classifier_ms:event.classifier_ms});}
+  function failed(kind,error){receipts.note({error_category:'runtime_failure',would_intervene:true});}
   const trusted=config.ownerIdentifiers||config.trustedSenders||[];
   function owner(event){return event.senderIsOwner===true||trusted.some(id=>id&&[event.senderId,event.sender,event.from,event.userId].some(v=>identity(v)===identity(id)));}
 
-  api.on('before_agent_run',async(event,ctx)=>{
+  on('before_agent_run',async(event,ctx)=>{
     const key=keyOf(event,ctx), isOwner=owner(event);
     // Missing state after eviction/restart does not imply a fresh trusted context.
-    if(!isOwner)external(key);
+    receipts.note({provenance_reason:!key?'missing_identity':!isOwner?'non_owner_input':event.isNewSession===true?'new_owner_session':'unknown_history'});
+    if(!isOwner)external(key,'external_input');
     else if(!origins.has(key))bounded(origins,key,event.isNewSession===true?['owner']:['unknown-history']);
     if(config.enforceInbound===false)return {outcome:'pass'};
     const content=textOf(event.prompt||event.content||event.text);
@@ -75,27 +85,34 @@ function activate(api, dependencies={}) {
       record('inbound',{...r,...extra,blocked,decision:blocked?'block':isOwner?'owner-allow':'pass',content,content_len:content.length});
       return blocked?{outcome:'block',reason:r.findings,message:NOTICE,category:'prompt-injection'}:{outcome:'pass'};
     }catch(error){failed('inbound',error);return isOwner?{outcome:'pass'}:{outcome:'block',reason:'Security check unavailable',message:NOTICE};}
-  },{priority:100});
-  api.on('after_tool_call',async(event,ctx)=>{
+  },config.enforceInbound===false?'off':'enforce');
+  on('after_tool_call',async(event,ctx)=>{
     const key=keyOf(event,ctx);
     // Provenance is independent of detector outcome and remains across turns.
     if(!(config.trustedResultTools||[]).includes(event.toolName))external(key);
     if(modes.returns==='off')return;
+    const screening={state:'pending',blocked:true,persisted:false};
+    bounded(results,resultKey(event,ctx),screening);
     try{
       const r=await request('tool_return',{tool_name:event.toolName,content:textOf(event.result??event.output??event.content)},config.toolReturnTimeoutMs||6000);
-      bounded(results,event.toolCallId,r.blocked||r.status==='HIGH');
+      screening.state='complete';screening.blocked=r.blocked||r.status==='HIGH';
+      receipts.note({completed_after_persist:screening.persisted});
       record('effect',{kind:'tool-return',mode:modes.returns,tool:event.toolName,...r});
-    }catch(error){bounded(results,event.toolCallId,true);failed('tool-return',error);}
-  });
-  api.on('tool_result_persist',event=>{
+    }catch(error){screening.state='error';receipts.note({completed_after_persist:screening.persisted});failed('tool-return',error);}
+  },modes.returns);
+  on('tool_result_persist',(event,ctx)=>{
+    const key=resultKey(event,ctx),verdict=results.get(key);results.delete(key);
+    if(verdict)verdict.persisted=true;
+    receipts.note({screening_state:modes.returns==='off'?'disabled':verdict?.state||'missing',would_intervene:modes.returns==='off'?null:verdict?.blocked!==false});
     if(modes.returns!=='enforce')return;
-    const verdict=results.get(event.toolCallId);results.delete(event.toolCallId);
     // Missing/late screening is not proof that a result is safe.
-    if(verdict===false)return;
+    if(verdict?.blocked===false)return;
     return {message:{...event.message,content:[{type:'text',text:NOTICE}]}};
-  });
-  api.on('before_tool_call',async(event,ctx)=>{
+  },modes.returns);
+  on('before_tool_call',async(event,ctx)=>{
     if(modes.effect==='off')return;
+    const key=keyOf(event,ctx), sources=origins.get(key);
+    receipts.note({provenance_reason:!key?'missing_identity':!sources?'unknown_history':sources.includes('external_result')?'external_result':sources.includes('external_input')?'external_input':sources.includes('unknown-history')?'unknown_history':'owner_session'});
     try{
       const r=await request('authorize',{tool_name:event.toolName,params:event.params||{},origins:origins.get(keyOf(event,ctx))||[]},config.effectTimeoutMs||6000);
       record('effect',{kind:'effect_boundary',mode:modes.effect,tool:event.toolName,...r});
@@ -103,8 +120,8 @@ function activate(api, dependencies={}) {
       if(r.decision==='needs_approval'&&config.effectApprovalMode==='ask')return {requireApproval:{title:`Approve ${event.toolName}?`,description:r.reason,severity:'warning'}};
       return {block:true,blockReason:r.reason};
     }catch(error){failed('effect_boundary',error);if(modes.effect==='enforce')return {block:true,blockReason:'Jataayu authorization unavailable'};}
-  });
-  api.on('before_install',async event=>{
+  },modes.effect);
+  on('before_install',async event=>{
     if(modes.vet==='off')return;
     try{
       if(!event.sourcePath)throw new Error('Missing installation source');
@@ -113,18 +130,18 @@ function activate(api, dependencies={}) {
       if(modes.vet==='enforce'&&r.verdict!=='SAFE')return {block:true,blockReason:r.explanation};
       return {findings:[]};
     }catch(error){failed('skill_vet',error);return modes.vet==='enforce'?{block:true,blockReason:'Jataayu vetting unavailable'}:{findings:[]};}
-  });
-  api.on('message_sending',async event=>{
+  },modes.vet);
+  on('message_sending',async event=>{
     if(config.enforceOutbound===false)return;
     const to=String(event.to||''),content=textOf(event.content),group=groupOf(to);
     if(!content)return;
     const recipients=config.ownerRecipients||config.trustedSenders||[];
     const ownerDM=!group&&recipients.some(id=>id&&identity(to)===identity(id));
     try{
-      if(!fleetReady)return {content:NOTICE};
+      if(!fleetReady){receipts.note({reason_code:'fleet_unavailable',would_intervene:true});return {content:NOTICE};}
       const privateResult=fleet.beforeOutbound?.({content,to,ownerDM,group});
-      if(privateResult)return privateResult;
-      if(ownerDM)return;
+      if(privateResult){receipts.note({reason_code:'fleet_replacement',would_intervene:true});return privateResult;}
+      if(ownerDM){receipts.note({reason_code:'owner_destination_bypass',would_intervene:false});return;}
       const surface=to.includes('@g.us')?'whatsapp-group':/discord/i.test(to)?'discord-channel':/github/i.test(to)?'github-comment':'group-chat';
       const r=await request('recover',{content,surface},config.recoverTimeoutMs||90000);
       if(r.action==='send'){
@@ -135,7 +152,7 @@ function activate(api, dependencies={}) {
       try{fleet.alertWithheld?.(r,config);}catch{}
       return {content:NOTICE};
     }catch(error){failed('outbound',error);return {content:NOTICE};}
-  },{priority:100});
+  },config.enforceOutbound===false?'off':'enforce');
   for(const operation of ['inbound','outbound'])api.registerTool({
     name:`jataayu_check_${operation}`,description:`Advisory ${operation} security check`,
     parameters:{type:'object',properties:{content:{type:'string'},surface:{type:'string'}},required:['content']},
