@@ -23,6 +23,7 @@ function activate(api, dependencies={}) {
   for(const mode of Object.values(modes))if(!MODES.has(mode))throw new Error('Invalid Jataayu enforcement mode');
   const receipts=createReceipts({config,version:VERSION,fingerprint:ADAPTER_FINGERPRINT,sink:dependencies.receiptSink,logger:api.logger||console});
   const on=(name,handler,mode='enforce')=>api.on(name,receipts.wrap(name,handler,mode),['before_agent_run','message_sending'].includes(name)?{priority:100}:undefined);
+  const middlewareRuntimes=modes.returns==='shadow'?['openclaw','codex']:['openclaw'];
   const raw=dependencies.request||createBridge(config);
   const base={schema_version:1,config};
   let coreFingerprint;
@@ -32,7 +33,7 @@ function activate(api, dependencies={}) {
     coreFingerprint=response.core_fingerprint;
     receipts.setCore(coreFingerprint);
     const status={core_version:response.core_version,core_fingerprint:coreFingerprint,adapter_version:VERSION,
-      adapter_fingerprint:ADAPTER_FINGERPRINT,schema_version:1,pid:process.pid,fleet_ready:fleetReady,modes,loaded_at:new Date().toISOString()};
+      adapter_fingerprint:ADAPTER_FINGERPRINT,schema_version:1,pid:process.pid,fleet_ready:fleetReady,modes,tool_result_observation_runtimes:typeof api.registerAgentToolResultMiddleware==='function'?middlewareRuntimes:[],tool_result_replacement_runtimes:typeof api.registerAgentToolResultMiddleware==='function'?['openclaw']:[],loaded_at:new Date().toISOString()};
     try{if(config.runtimeStatusPath)fs.writeFileSync(config.runtimeStatusPath,JSON.stringify(status),{mode:0o600});}catch{}
     return status;
   });
@@ -88,17 +89,18 @@ function activate(api, dependencies={}) {
     }catch(error){failed('inbound',error);return isOwner?{outcome:'pass'}:{outcome:'block',reason:'Security check unavailable',message:NOTICE};}
   },config.enforceInbound===false?'off':'enforce');
   function payloadHash(result){
-    return crypto.createHash('sha256').update(JSON.stringify({content:result?.content,details:result?.details})).digest('hex');
+    const payload=result&&typeof result==='object'?{content:result.content,details:result.details}:result??null;
+    return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
   }
-  function rememberMiddleware(event,ctx,result){
-    bounded(middlewareResults,resultKey(event,ctx),{hash:payloadHash(result),tool:event.toolName});
+  function rememberMiddleware(event,ctx,result,verdict){
+    bounded(middlewareResults,resultKey(event,ctx),{hash:payloadHash(result),tool:event.toolName,verdict});
   }
-  // Only the OpenClaw runtime currently consumes replacement results. The Codex
-  // relay awaits middleware but renders a no-op response, so do not claim coverage.
+  // Codex can await shadow observations but discards replacement output.
+  // Never register its middleware as enforcement-capable.
   if(typeof api.registerAgentToolResultMiddleware==='function'){
     api.registerAgentToolResultMiddleware(receipts.wrap('agent_tool_result',async(event,ctx)=>{
       if(!(config.trustedResultTools||[]).includes(event.toolName))external(keyOf(event,ctx));
-      receipts.note({screening_path:'awaited_middleware',host_runtime:'openclaw'});
+      receipts.note({screening_path:'awaited_middleware',host_runtime:ctx?.runtime||'openclaw',replacement_supported:ctx?.runtime!=='codex'});
       if(modes.returns==='off'){receipts.note({screening_state:'disabled'});return;}
       try{
         // Include details: structured output can carry instructions too.
@@ -106,17 +108,17 @@ function activate(api, dependencies={}) {
         receipts.note({screening_state:'complete'});
         if(modes.returns==='enforce'&&(r.blocked||r.status==='HIGH')){
           const result={content:[{type:'text',text:NOTICE}],details:{jataayuWithheld:true}};
-          rememberMiddleware(event,ctx,result);return {result};
+          rememberMiddleware(event,ctx,result,{status:'HIGH',blocked:true});return {result};
         }
-        if(!(r.blocked||r.status==='HIGH'))rememberMiddleware(event,ctx,event.result);
+        rememberMiddleware(event,ctx,event.result,r);
       }catch(error){
         failed('tool-return',error);receipts.note({screening_state:'error'});
         if(modes.returns==='enforce'){
           const result={content:[{type:'text',text:NOTICE}],details:{jataayuWithheld:true}};
-          rememberMiddleware(event,ctx,result);return {result};
+          rememberMiddleware(event,ctx,result,{status:'HIGH',blocked:true});return {result};
         }
       }
-    },modes.returns),{runtimes:['openclaw']});
+    },modes.returns),{runtimes:middlewareRuntimes});
   }
   // Retain legacy observations/persistence protection for host paths that do not
   // invoke middleware. These receipts are distinct from awaited screening.
@@ -126,6 +128,13 @@ function activate(api, dependencies={}) {
     // Provenance is independent of detector outcome and remains across turns.
     if(!(config.trustedResultTools||[]).includes(event.toolName))external(key);
     if(modes.returns==='off')return;
+    const prior=middlewareResults.get(resultKey(event,ctx));
+    if(prior?.verdict&&prior.tool===event.toolName&&prior.hash===payloadHash(event.result)){
+      receipts.verdict('tool_return',prior.verdict);
+      receipts.note({screening_path:'awaited_middleware_reuse',screening_state:'complete',screening_reused:true});
+      bounded(results,resultKey(event,ctx),{state:'complete',blocked:prior.verdict.blocked||prior.verdict.status==='HIGH',persisted:false});
+      return;
+    }
     const screening={state:'pending',blocked:true,persisted:false};
     bounded(results,resultKey(event,ctx),screening);
     try{
@@ -140,7 +149,7 @@ function activate(api, dependencies={}) {
     const completed=middlewareResults.get(key);middlewareResults.delete(key);
     if(completed&&completed.tool===event.toolName&&completed.hash===payloadHash(event.message)){
       if(verdict)verdict.persisted=true;
-      receipts.note({screening_path:'awaited_middleware',screening_state:'complete',would_intervene:false});
+      receipts.note({screening_path:'awaited_middleware',screening_state:'complete',would_intervene:completed.verdict?.blocked===true||completed.verdict?.status==='HIGH'});
       return;
     }
     if(completed){

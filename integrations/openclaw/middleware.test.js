@@ -14,7 +14,7 @@ const version=require('./openclaw.plugin.json').version;
     let handler,release,requests=0,settled=false;
     const rows=[],gate=new Promise(resolve=>release=resolve);
     const controller=activate({pluginConfig:{toolReturnMode:mode,receiptTraffic:'synthetic'},on:()=>{},registerTool:()=>{},
-      registerAgentToolResultMiddleware:(fn,options)=>{handler=fn;assert.deepEqual(options,{runtimes:['openclaw']});}},
+      registerAgentToolResultMiddleware:(fn,options)=>{handler=fn;assert.deepEqual(options,{runtimes:mode==='shadow'?['openclaw','codex']:['openclaw']});}},
       {receiptSink:row=>rows.push(row),request:async req=>{
         const response={schema_version:1,core_version:version,core_fingerprint:'fixture'};
         if(req.operation==='health')return response;
@@ -70,4 +70,28 @@ const version=require('./openclaw.plugin.json').version;
   assert(second.message.content[0].text.includes('withheld'));
  }
  console.log('Middleware/legacy race and changed-payload tests passed');
+})().catch(error=>{console.error(error);process.exitCode=1;});
+
+(async()=>{
+ for(const changed of [false,true]){
+  let middleware,calls=0;const hooks={},rows=[];
+  const controller=activate({pluginConfig:{toolReturnMode:'shadow'},registerTool:()=>{},on:(n,f)=>hooks[n]=f,
+    registerAgentToolResultMiddleware:(f,options)=>{middleware=f;assert.deepEqual(options.runtimes,['openclaw','codex']);}},
+    {receiptSink:r=>rows.push(r),request:async req=>{
+      const base={schema_version:1,core_version:version,core_fingerprint:'fixture'};
+      if(req.operation==='health')return base;
+      calls++;return {...base,result:{status:'HIGH',blocked:true}};
+    }});
+  const health=await controller.health;
+  assert.deepEqual(health.tool_result_replacement_runtimes,['openclaw']);
+  const ctx={runtime:'codex',sessionKey:'shadow-codex'};
+  const event={toolName:'read',toolCallId:'shadow-call',result:{content:[{type:'text',text:'synthetic fixture'}]}};
+  assert.equal(await middleware(event,ctx),undefined,'Codex shadow never claims replacement');
+  await hooks.after_tool_call(changed?{...event,result:'changed raw string'}:event,ctx);
+  assert.equal(calls,changed?2:1,'only exact payloads reuse completed screening');
+  assert.equal(rows[0].host_runtime,'codex');assert.equal(rows[0].replacement_supported,false);
+  assert.equal(rows[0].would_intervene,true);
+  assert.equal(rows[1].screening_reused,changed?undefined:true);
+ }
+ console.log('Codex shadow capability and exact-payload reuse tests passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});
