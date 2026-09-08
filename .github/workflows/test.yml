@@ -47,6 +47,8 @@ jobs:
         run: |
           JATAAYU_TEST_PYTHON=python node integrations/openclaw/adapter.test.js
           node integrations/openclaw/receipts.test.js
+          node integrations/openclaw/middleware.test.js
+          node integrations/openclaw/bridge.test.js
       - name: Test (pytest)
         run: pytest -q
       # The example asserts every behavior the README's Quick Start teaches, so a snippet
