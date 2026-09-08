@@ -41,3 +41,33 @@ const version=require('./openclaw.plugin.json').version;
   }
   console.log(`Awaited middleware tests passed (${hostRunner?'installed host runner':'adapter contract'})`);
 })().catch(error=>{console.error(error);process.exitCode=1;});
+
+// An awaited verdict supersedes a pending legacy result only for exact content.
+(async()=>{
+ for(const changed of [false,true]){
+  let middleware,release;const hooks={},rows=[];
+  const gate=new Promise(resolve=>release=resolve);let calls=0;
+  const controller=activate({pluginConfig:{toolReturnMode:'enforce'},registerTool:()=>{},on:(n,f)=>hooks[n]=f,
+    registerAgentToolResultMiddleware:f=>middleware=f},{receiptSink:r=>rows.push(r),request:async req=>{
+      const base={schema_version:1,core_version:version,core_fingerprint:'fixture'};
+      if(req.operation==='health')return base;
+      if(++calls===1)await gate;
+      return {...base,result:{status:'SAFE',blocked:false}};
+    }});
+  await controller.health;
+  const ctx={sessionKey:'race-session'}, result={content:[{type:'text',text:'screened'}],details:{data:'screened'}};
+  const event={toolName:'read',toolCallId:'race-call',result};
+  const legacy=hooks.after_tool_call(event,ctx);
+  await new Promise(resolve=>setImmediate(resolve));
+  await middleware(event,ctx);
+  const message=changed?{...result,details:{data:'unscreened change'}}:result;
+  const persisted=hooks.tool_result_persist({...event,message},ctx);
+  if(changed)assert(persisted.message.content[0].text.includes('withheld'));
+  else assert.equal(persisted,undefined,'pending legacy cannot override exact completed middleware');
+  release();await legacy;
+  // Cache is single-use; missing screening cannot reuse the verdict.
+  const second=hooks.tool_result_persist({...event,message:result},ctx);
+  assert(second.message.content[0].text.includes('withheld'));
+ }
+ console.log('Middleware/legacy race and changed-payload tests passed');
+})().catch(error=>{console.error(error);process.exitCode=1;});

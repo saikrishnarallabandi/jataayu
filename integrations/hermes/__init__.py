@@ -11,7 +11,7 @@ from threading import RLock
 
 from jataayu.runtime import dispatch
 
-ADAPTER_VERSION = "0.4.1"
+ADAPTER_VERSION = "0.4.2"
 LOG = logging.getLogger("jataayu.hermes")
 
 NOTICE = "This content was withheld by the security guard. Ask the operator to review it."

@@ -72,6 +72,14 @@ function createReceipts({config,version,fingerprint,sink,logger=console}){
   }
   function verdict(operation,result){
     const status=result.decision||result.status||result.verdict||result.action;
+    if(operation==='recover'){
+      const stages=new Set(['llm-unavailable','llm-rephrase','redact']);
+      note({recovery_llm_used:result.llm_used===true,recovery_stages:Array.isArray(result.stages)?result.stages.filter(x=>stages.has(x)):[],recovery_changed:result.changed===true});
+    }
+    if(['inbound','tool_return'].includes(operation)){
+      if(Number.isFinite(result.risk_score))note({risk_score:result.risk_score});
+      if(Array.isArray(result.threat_types))note({threat_types:result.threat_types.map(token).filter(Boolean)});
+    }
     note({operation,verdict:ALLOWED_VERDICTS.has(status)?status:'invalid',would_intervene:result.decision==='deny'||result.decision==='needs_approval'||result.changed===true||result.blocked===true||['HIGH','BLOCK','REVIEW','MALICIOUS','withhold'].includes(status),
       category:token(result.withheld_category),effect_class:token(result.effect_class),classification_source:token(result.classification_source),
       provenance:token(result.provenance),reason_code:token(result.reason_code),policy_fingerprint:token(result.policy_fingerprint)});

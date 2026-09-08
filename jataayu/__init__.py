@@ -19,7 +19,7 @@ dict. The older tuple-returning `check_inbound` / `check_outbound` aliases in
 but warn.
 """
 
-__version__ = "0.4.1"
+__version__ = "0.4.2"
 
 from jataayu.core.errors import SecurityError, UnknownAgentError
 from jataayu.core.threat import ThreatResult, ThreatLevel, ThreatType

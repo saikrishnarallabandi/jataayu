@@ -40,6 +40,7 @@ function activate(api, dependencies={}) {
   health.catch(()=>{});
   async function request(operation,data={},timeout=6000){
     await health;
+    receipts.note({input_bytes:typeof data.content==='string'?Buffer.byteLength(data.content):0,deadline_ms:timeout});
     const response=await raw({...base,operation,...data},timeout);
     if(response.error||response.schema_version!==1||response.core_version!==VERSION||response.core_fingerprint!==coreFingerprint||!response.result||typeof response.result!=='object')throw new Error('Invalid or changed Jataayu runtime; reload required');
     const r=response.result;
@@ -52,7 +53,7 @@ function activate(api, dependencies={}) {
     return r;
   }
   // Hooks keep origin metadata only. Effects, policy and screening live in Python.
-  const origins=new Map(), results=new Map();
+  const origins=new Map(), results=new Map(), middlewareResults=new Map();
   function bounded(map,key,value){if(!key)return;map.set(key,value);while(map.size>512)map.delete(map.keys().next().value);}
   function external(key,source='external_result'){bounded(origins,key,[...new Set([...(origins.get(key)||[]),source])]);}
   function resultKey(event,ctx={}){const key=keyOf(event,ctx),call=event.toolCallId||ctx.toolCallId;return key&&call?JSON.stringify([key,call]):null;}
@@ -65,7 +66,7 @@ function activate(api, dependencies={}) {
   function record(kind,event){if(event.classifier_error)receipts.note({classifier_error:'unavailable'});
     if(Number.isFinite(event.classifier_p_injection))receipts.note({classifier_score:event.classifier_p_injection});
     if(Number.isFinite(event.classifier_ms))receipts.note({classifier_ms:event.classifier_ms});}
-  function failed(kind,error){receipts.note({error_category:'runtime_failure',would_intervene:true});}
+  function failed(kind,error){receipts.note({error_category:error?.code&&/^runtime_[a-z_]+$/.test(error.code)?error.code:'runtime_failure',would_intervene:true});}
   const trusted=config.ownerIdentifiers||config.trustedSenders||[];
   function owner(event){return event.senderIsOwner===true||trusted.some(id=>id&&[event.senderId,event.sender,event.from,event.userId].some(v=>identity(v)===identity(id)));}
 
@@ -86,6 +87,12 @@ function activate(api, dependencies={}) {
       return blocked?{outcome:'block',reason:r.findings,message:NOTICE,category:'prompt-injection'}:{outcome:'pass'};
     }catch(error){failed('inbound',error);return isOwner?{outcome:'pass'}:{outcome:'block',reason:'Security check unavailable',message:NOTICE};}
   },config.enforceInbound===false?'off':'enforce');
+  function payloadHash(result){
+    return crypto.createHash('sha256').update(JSON.stringify({content:result?.content,details:result?.details})).digest('hex');
+  }
+  function rememberMiddleware(event,ctx,result){
+    bounded(middlewareResults,resultKey(event,ctx),{hash:payloadHash(result),tool:event.toolName});
+  }
   // Only the OpenClaw runtime currently consumes replacement results. The Codex
   // relay awaits middleware but renders a no-op response, so do not claim coverage.
   if(typeof api.registerAgentToolResultMiddleware==='function'){
@@ -97,11 +104,17 @@ function activate(api, dependencies={}) {
         // Include details: structured output can carry instructions too.
         const r=await request('tool_return',{tool_name:event.toolName,content:JSON.stringify(event.result)},config.toolReturnTimeoutMs||6000);
         receipts.note({screening_state:'complete'});
-        if(modes.returns==='enforce'&&(r.blocked||r.status==='HIGH'))
-          return {result:{content:[{type:'text',text:NOTICE}],details:{jataayuWithheld:true}}};
+        if(modes.returns==='enforce'&&(r.blocked||r.status==='HIGH')){
+          const result={content:[{type:'text',text:NOTICE}],details:{jataayuWithheld:true}};
+          rememberMiddleware(event,ctx,result);return {result};
+        }
+        if(!(r.blocked||r.status==='HIGH'))rememberMiddleware(event,ctx,event.result);
       }catch(error){
         failed('tool-return',error);receipts.note({screening_state:'error'});
-        if(modes.returns==='enforce')return {result:{content:[{type:'text',text:NOTICE}],details:{jataayuWithheld:true}}};
+        if(modes.returns==='enforce'){
+          const result={content:[{type:'text',text:NOTICE}],details:{jataayuWithheld:true}};
+          rememberMiddleware(event,ctx,result);return {result};
+        }
       }
     },modes.returns),{runtimes:['openclaw']});
   }
@@ -124,14 +137,28 @@ function activate(api, dependencies={}) {
   },modes.returns);
   on('tool_result_persist',(event,ctx)=>{
     const key=resultKey(event,ctx),verdict=results.get(key);results.delete(key);
+    const completed=middlewareResults.get(key);middlewareResults.delete(key);
+    if(completed&&completed.tool===event.toolName&&completed.hash===payloadHash(event.message)){
+      if(verdict)verdict.persisted=true;
+      receipts.note({screening_path:'awaited_middleware',screening_state:'complete',would_intervene:false});
+      return;
+    }
+    if(completed){
+      receipts.note({screening_path:'awaited_middleware',screening_state:'payload_changed',would_intervene:true});
+      if(modes.returns==='enforce')return {message:{...event.message,content:[{type:'text',text:NOTICE}],details:{jataayuWithheld:true}}};
+      return;
+    }
+    receipts.note({screening_path:'legacy_persist_hook'});
     if(verdict)verdict.persisted=true;
     receipts.note({screening_state:modes.returns==='off'?'disabled':verdict?.state||'missing',would_intervene:modes.returns==='off'?null:verdict?.blocked!==false});
     if(modes.returns!=='enforce')return;
     // Missing/late screening is not proof that a result is safe.
     if(verdict?.blocked===false)return;
-    return {message:{...event.message,content:[{type:'text',text:NOTICE}]}};
+    return {message:{...event.message,content:[{type:'text',text:NOTICE}],details:{jataayuWithheld:true}}};
   },modes.returns);
   on('before_tool_call',async(event,ctx)=>{
+    middlewareResults.delete(resultKey(event,ctx));
+    results.delete(resultKey(event,ctx));
     if(modes.effect==='off')return;
     const key=keyOf(event,ctx), sources=origins.get(key);
     receipts.note({provenance_reason:!key?'missing_identity':!sources?'unknown_history':sources.includes('external_result')?'external_result':sources.includes('external_input')?'external_input':sources.includes('unknown-history')?'unknown_history':'owner_session'});

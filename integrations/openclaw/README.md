@@ -47,3 +47,9 @@ When available, `registerAgentToolResultMiddleware` screens the complete JSON re
 Legacy after-tool and persistence hooks remain for paths without middleware coverage. These can produce additional observations for the same call; do not sum hook counts as unique tool calls. Legacy persistence still conservatively withholds missing or pending verdicts in enforce mode. The installed Codex native relay awaits middleware but discards replacements in its response; this adapter therefore does not register middleware for that runtime.
 
 Run `node integrations/openclaw/middleware.test.js` for the adapter contract. Set `OPENCLAW_MIDDLEWARE_RUNNER` to the installed host tool-result-middleware module to exercise the host runner with synthetic results. This checks waiting, replacement, structured-output removal, failures, shadow/off behavior, and receipt privacy. It does not prove every live execution path invokes the middleware.
+
+### Persistence correlation and diagnostics (0.4.2)
+
+A completed middleware decision allows persistence only when the session/call identity and exact content/details match. This single-use, bounded cache prevents a pending legacy screening from overriding a completed clean verdict. Changed content, missing identities and consumed verdicts fall back to conservative legacy behavior. Both paths still screen independently; receipt counts are not unique calls.
+
+Receipts include input byte count and deadline, sanitized bridge error categories, screening scores/types and recovery stage labels. They never include payloads or free-text findings. The recovery stages describe the path used, not per-stage timing.
