@@ -129,6 +129,7 @@ function activate(api, dependencies={}) {
     if(!(config.trustedResultTools||[]).includes(event.toolName))external(key);
     if(modes.returns==='off')return;
     const prior=middlewareResults.get(resultKey(event,ctx));
+    receipts.note({screening_reuse_reason:!prior?'missing_state':prior.tool!==event.toolName?'tool_changed':prior.hash!==payloadHash(event.result)?'payload_changed':'exact_match'});
     if(prior?.verdict&&prior.tool===event.toolName&&prior.hash===payloadHash(event.result)){
       receipts.verdict('tool_return',prior.verdict);
       receipts.note({screening_path:'awaited_middleware_reuse',screening_state:'complete',screening_reused:true});
