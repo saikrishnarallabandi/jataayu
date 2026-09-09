@@ -3,7 +3,7 @@
   "name": "Jataayu Security Guard",
   "kind": "security",
   "description": "Prompt-injection screening, capability authorization and outbound protection with configurable enforcement modes.",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "contracts": {
     "tools": [
       "jataayu_check_inbound",

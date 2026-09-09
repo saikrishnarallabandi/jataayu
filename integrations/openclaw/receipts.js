@@ -52,7 +52,7 @@ function createReceipts({config,version,fingerprint,sink,logger=console}){
         const session=ctx.sessionKey||event.sessionKey||ctx.sessionId||event.sessionId;
         const run=ctx.runId||event.runId;
         const row={schema_version:1,kind:'decision_receipt',ts:new Date().toISOString(),decision_id:crypto.randomUUID(),
-          adapter_instance_id:instanceId,host:'openclaw',traffic:config.receiptTraffic||'live',hook,mode,
+          adapter_instance_id:instanceId,process_id:process.pid,host:'openclaw',traffic:config.receiptTraffic||'live',hook,mode,
           adapter_version:version,adapter_fingerprint:fingerprint,core_fingerprint:core,
           session_id:identifier(session),run_id:identifier(run),tool_call_id:identifier(call),
           correlation_status:!session?'missing_session':!call&&hook.includes('tool')?'missing_tool_call':'available',

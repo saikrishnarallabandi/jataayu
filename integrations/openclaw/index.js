@@ -54,7 +54,15 @@ function activate(api, dependencies={}) {
     return r;
   }
   // Hooks keep origin metadata only. Effects, policy and screening live in Python.
-  const origins=new Map(), results=new Map(), middlewareResults=new Map();
+  // The host may activate distinct plugin instances for middleware and typed
+  // hooks in the same process. Share only completed screening metadata for an
+  // identical adapter/configuration, not authority or arbitrary payloads.
+  const cacheSymbol=Symbol.for('jataayu.completed-screenings.v1');
+  const cacheScope=ADAPTER_FINGERPRINT+':'+crypto.createHash('sha256').update(JSON.stringify(config)).digest('hex');
+  const caches=globalThis[cacheSymbol]||(globalThis[cacheSymbol]=new Map());
+  if(!caches.has(cacheScope))caches.set(cacheScope,new Map());
+  while(caches.size>16)caches.delete(caches.keys().next().value);
+  const origins=new Map(), results=new Map(), middlewareResults=caches.get(cacheScope);
   function bounded(map,key,value){if(!key)return;map.set(key,value);while(map.size>512)map.delete(map.keys().next().value);}
   function external(key,source='external_result'){bounded(origins,key,[...new Set([...(origins.get(key)||[]),source])]);}
   function resultKey(event,ctx={}){const key=keyOf(event,ctx),call=event.toolCallId||ctx.toolCallId;return key&&call?JSON.stringify([key,call]):null;}
@@ -93,7 +101,7 @@ function activate(api, dependencies={}) {
     return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
   }
   function rememberMiddleware(event,ctx,result,verdict){
-    bounded(middlewareResults,resultKey(event,ctx),{hash:payloadHash(result),tool:event.toolName,verdict});
+    bounded(middlewareResults,resultKey(event,ctx),{hash:payloadHash(result),tool:event.toolName,verdict,core:coreFingerprint});
   }
   // Codex can await shadow observations but discards replacement output.
   // Never register its middleware as enforcement-capable.
@@ -129,8 +137,8 @@ function activate(api, dependencies={}) {
     if(!(config.trustedResultTools||[]).includes(event.toolName))external(key);
     if(modes.returns==='off')return;
     const prior=middlewareResults.get(resultKey(event,ctx));
-    receipts.note({screening_reuse_reason:!prior?'missing_state':prior.tool!==event.toolName?'tool_changed':prior.hash!==payloadHash(event.result)?'payload_changed':'exact_match'});
-    if(prior?.verdict&&prior.tool===event.toolName&&prior.hash===payloadHash(event.result)){
+    receipts.note({screening_reuse_reason:!prior?'missing_state':prior.core!==coreFingerprint?'runtime_changed':prior.tool!==event.toolName?'tool_changed':prior.hash!==payloadHash(event.result)?'payload_changed':'exact_match'});
+    if(prior?.verdict&&prior.core===coreFingerprint&&prior.tool===event.toolName&&prior.hash===payloadHash(event.result)){
       receipts.verdict('tool_return',prior.verdict);
       receipts.note({screening_path:'awaited_middleware_reuse',screening_state:'complete',screening_reused:true});
       bounded(results,resultKey(event,ctx),{state:'complete',blocked:prior.verdict.blocked||prior.verdict.status==='HIGH',persisted:false});
@@ -148,7 +156,7 @@ function activate(api, dependencies={}) {
   on('tool_result_persist',(event,ctx)=>{
     const key=resultKey(event,ctx),verdict=results.get(key);results.delete(key);
     const completed=middlewareResults.get(key);middlewareResults.delete(key);
-    if(completed&&completed.tool===event.toolName&&completed.hash===payloadHash(event.message)){
+    if(completed&&completed.core===coreFingerprint&&completed.tool===event.toolName&&completed.hash===payloadHash(event.message)){
       if(verdict)verdict.persisted=true;
       receipts.note({screening_path:'awaited_middleware',screening_state:'complete',would_intervene:completed.verdict?.blocked===true||completed.verdict?.status==='HIGH'});
       return;
