@@ -57,3 +57,9 @@ Receipts include input byte count and deadline, sanitized bridge error categorie
 ### Codex shadow observation (0.4.3)
 
 In shadow mode, both OpenClaw and Codex runtimes register awaited observations. Receipts explicitly identify `host_runtime` and `replacement_supported`; runtime status separately lists observation and replacement runtimes. Codex result replacement is **not supported** by the installed relay and is never advertised as enforcement coverage. A following legacy hook reuses a completed verdict only for the same session/call, tool, and exact payload; `screening_reused` distinguishes it from a new detector invocation.
+
+### Host activation boundaries (0.4.4)
+
+The installed host activates middleware and typed hooks in separate plugin instances. Completed screening metadata therefore uses a bounded process-local cache scoped to the exact adapter fingerprint and configuration. Entries must also match the loaded core fingerprint, tool identity and exact payload before reuse. Authority/provenance maps are not shared, and raw payloads are not stored. Receipts expose random instance identity, process ID and a bounded reuse-reason label to distinguish misses from changed content.
+
+Separate-activation regression tests cover successful reuse and rejection across configuration, core and payload changes. No cross-process reuse or Codex result-replacement support is claimed.

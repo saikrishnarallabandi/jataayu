@@ -95,3 +95,29 @@ const version=require('./openclaw.plugin.json').version;
  }
  console.log('Codex shadow capability and exact-payload reuse tests passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});
+
+// Reproduce the installed host: middleware and typed hooks have separate activations.
+(async()=>{
+ for(const difference of ['none','config','core','payload']){
+  let middleware;const hooks={},rows=[];let scans=0;
+  const config={toolReturnMode:'shadow',agent:`dual-instance-${difference}`};
+  const request=core=>async req=>{
+   const base={schema_version:1,core_version:version,core_fingerprint:core};
+   if(req.operation==='health')return base;
+   scans++;return {...base,result:{status:'SAFE',blocked:false}};
+  };
+  const first=activate({pluginConfig:config,on:()=>{},registerTool:()=>{},registerAgentToolResultMiddleware:f=>middleware=f},
+   {receiptSink:r=>rows.push(r),request:request('dual-core')});
+  const second=activate({pluginConfig:difference==='config'?{...config,agent:'different-policy'}:{...config},on:(n,f)=>hooks[n]=f,registerTool:()=>{}},
+   {receiptSink:r=>rows.push(r),request:request(difference==='core'?'different-core':'dual-core')});
+  await Promise.all([first.health,second.health]);
+  const ctx={runtime:'codex',sessionKey:'dual-session',runId:'dual-run'};
+  const event={toolName:'read',toolCallId:'dual-call',result:{content:[{type:'text',text:'benign fixture'}],details:{key:'value'}}};
+  await middleware(event,ctx);
+  await hooks.after_tool_call(difference==='payload'?{...event,result:{...event.result,details:{key:'changed'}}}:event,ctx);
+  assert.equal(scans,difference==='none'?1:2);
+  assert.notEqual(rows[0].adapter_instance_id,rows[1].adapter_instance_id);
+  assert.equal(rows[1].screening_reused,difference==='none'?true:undefined);
+ }
+ console.log('Separate-activation reuse and config/core/content isolation tests passed');
+})().catch(error=>{console.error(error);process.exitCode=1;});

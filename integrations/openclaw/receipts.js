@@ -11,6 +11,7 @@ const token=value=>typeof value==='string'&&/^[a-zA-Z0-9_.:/-]{1,100}$/.test(val
 const ALLOWED_VERDICTS=new Set(['allow','deny','needs_approval','SAFE','LOW','MEDIUM','HIGH','WARN','BLOCK','REVIEW','MALICIOUS','send','withhold']);
 function createReceipts({config,version,fingerprint,sink,logger=console}){
   const storage=new AsyncLocalStorage();
+  const instanceId=crypto.randomUUID();
   // Host configuration is fixed for this adapter instance; recreate it on reload.
   const policyId=digest(JSON.stringify({agent:config.agent,policyFile:config.policyFile,toolEffects:config.toolEffects,
     trustedResultTools:config.trustedResultTools,memoryTools:config.memoryTools}));
@@ -51,7 +52,7 @@ function createReceipts({config,version,fingerprint,sink,logger=console}){
         const session=ctx.sessionKey||event.sessionKey||ctx.sessionId||event.sessionId;
         const run=ctx.runId||event.runId;
         const row={schema_version:1,kind:'decision_receipt',ts:new Date().toISOString(),decision_id:crypto.randomUUID(),
-          host:'openclaw',traffic:config.receiptTraffic||'live',hook,mode,
+          adapter_instance_id:instanceId,process_id:process.pid,host:'openclaw',traffic:config.receiptTraffic||'live',hook,mode,
           adapter_version:version,adapter_fingerprint:fingerprint,core_fingerprint:core,
           session_id:identifier(session),run_id:identifier(run),tool_call_id:identifier(call),
           correlation_status:!session?'missing_session':!call&&hook.includes('tool')?'missing_tool_call':'available',
